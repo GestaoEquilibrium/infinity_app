@@ -1834,4 +1834,4 @@ const RHPage = () => {
   );
 };
 
-Object.assign(window, { RHPage });
+Object.assign(window, { RHPage, rhListColab });
