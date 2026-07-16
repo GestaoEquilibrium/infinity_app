@@ -1,0 +1,8 @@
+{
+  "name": "infinity-app",
+  "private": true,
+  "description": "Infinity — gestão financeira e RH para clínicas (React via Babel in-browser + Supabase)",
+  "scripts": {
+    "dev": "python3 -m http.server 8000"
+  }
+}
