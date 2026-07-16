@@ -206,6 +206,18 @@
   [data-theme="dark"] .blob.b1 { background: oklch(1 0 0 / 0.05); }
   [data-theme="dark"] .blob.b2 { background: oklch(1 0 0 / 0.04); }
   [data-theme="dark"] .blob.b3 { background: oklch(1 0 0 / 0.06); }
+
+  /* ── Tema COLORIDO: blobs ganham cor (degradê orgânico via blur) ── */
+  [data-tema="colorido"] .blob.b1 { background: oklch(0.62 0.19 250 / 0.38); }
+  [data-tema="colorido"] .blob.b2 { background: oklch(0.56 0.21 300 / 0.34); }
+  [data-tema="colorido"] .blob.b3 { background: oklch(0.60 0.20 330 / 0.30); }
+  [data-tema="colorido"] .bg-scene::before {
+    background:
+      radial-gradient(1100px 700px at 18% -10%, oklch(0.7 0.16 250 / 0.28), transparent 60%),
+      radial-gradient(900px 620px at 100% 110%, oklch(0.62 0.2 300 / 0.26), transparent 55%);
+  }
+  /* botões primários/itens ativos com leve degradê no colorido */
+  [data-tema="colorido"] .glass { border-color: oklch(0.6 0.12 265 / 0.22); }
   @keyframes blobFloat {
     0%, 100% { transform: translate(0, 0) scale(1); }
     33% { transform: translate(60px, -40px) scale(1.07); }
@@ -287,8 +299,8 @@
   <script type="text/babel" src="src/auth.jsx?v=202607161500"></script>
   <script type="text/babel" src="src/salas.jsx?v=202607161500"></script>
   <script type="text/babel" src="src/rh.jsx?v=202607161500"></script>
-     <script type="text/babel" src="src/repasse.jsx?v=202607161500"></script>
-<script type="text/babel" src="src/repasse2.jsx?v=202607161500"></script>
+  <script type="text/babel" src="src/repasse.jsx?v=202607161500"></script>
+  <script type="text/babel" src="src/repasse2.jsx?v=202607161500"></script>
   <script type="text/babel" src="src/app.jsx?v=202607161500"></script>
 </body>
 </html>
