@@ -193,7 +193,27 @@ const RepassePage = () => {
       });
     }
     setRows(parsed);
-    setMsg(`${parsed.length} linhas carregadas.`);
+
+    // Detecta a competência automaticamente pelas datas do arquivo (mês predominante)
+    const contagem = {};
+    for (const r of parsed) {
+      const dia = r['Dia'] || r['Data'] || '';
+      const m = String(dia).match(/(\d{2})\/(\d{2})\/(\d{4})/);  // dd/mm/aaaa
+      if (m) {
+        const chave = `${m[3]}-${m[2]}`;  // aaaa-mm
+        contagem[chave] = (contagem[chave] || 0) + 1;
+      }
+    }
+    const mesesOrdenados = Object.entries(contagem).sort((a, b) => b[1] - a[1]);
+    if (mesesOrdenados.length) {
+      const [mesDetectado] = mesesOrdenados[0];
+      setCompetencia(mesDetectado);
+      const [y, mm] = mesDetectado.split('-');
+      const nomeMes = ['', 'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][parseInt(mm)];
+      setMsg(`${parsed.length} linhas carregadas · competência detectada: ${nomeMes}/${y}.`);
+    } else {
+      setMsg(`${parsed.length} linhas carregadas.`);
+    }
   };
 
   const { resultados, pendencias } = useMemoRP(
