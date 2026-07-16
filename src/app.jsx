@@ -45,6 +45,7 @@ const AuthProvider = ({ children }) => {
 };
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "tema": "azul",
   "accent": "grafite",
   "density": "comfortable",
   "showBlobs": true,
@@ -60,6 +61,41 @@ const ACCENTS = {
   aco:     { label: 'Aço',     color: 'oklch(0.46 0 0)' },
   cinza:   { label: 'Cinza',   color: 'oklch(0.62 0 0)' },
 };
+
+// Temas de marca — 3 visuais que a pessoa escolhe.
+// Cada tema redefine a escala de cinza (--g-*) e o accent de uma vez.
+const TEMAS = {
+  monocromatico: {
+    label: 'Monocromático',
+    accent: 'oklch(0.21 0 0)',
+    chroma: 0, hue: 0,          // cinza puro
+  },
+  azul: {
+    label: 'Mais azul',
+    accent: 'oklch(0.42 0.13 250)',
+    chroma: 1, hue: 250,        // cinza-azulado + accent azul
+  },
+  colorido: {
+    label: 'Colorido',
+    accent: 'oklch(0.45 0.16 255)',
+    chroma: 1.3, hue: 250,      // azul mais saturado + semântica colorida
+    semantic: true,
+  },
+};
+// aplica um tema: reescreve --g-0..9 e --accent no documento
+function aplicarTema(chave) {
+  const t = TEMAS[chave] || TEMAS.monocromatico;
+  const L = [1, 0.975, 0.94, 0.88, 0.78, 0.62, 0.46, 0.34, 0.24, 0.16];
+  const Cbase = [0, 0.004, 0.008, 0.012, 0.018, 0.028, 0.035, 0.05, 0.06, 0.05];
+  const root = document.documentElement;
+  L.forEach((l, i) => {
+    const c = (Cbase[i] * t.chroma).toFixed(3);
+    root.style.setProperty(`--g-${i}`, `oklch(${l} ${c} ${t.hue})`);
+  });
+  root.style.setProperty('--accent', t.accent);
+  // tema colorido liga a semântica suave (verde/vermelho) do André
+  document.body.dataset.semantic = t.semantic ? 'soft' : '';
+}
 
 // ─── Sidebar ───
 const Sidebar = ({ page, setPage, collapsed, setCollapsed }) => {
@@ -171,7 +207,7 @@ const pillStyle = {
   height: 44, padding: '0 16px', borderRadius: 'var(--r-sm)',
 };
 
-const Topbar = ({ theme, setTheme, liveClock }) => {
+const Topbar = ({ theme, setTheme, liveClock, onOpenTweaks }) => {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     if (!liveClock) return;
@@ -209,6 +245,18 @@ const Topbar = ({ theme, setTheme, liveClock }) => {
         onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.color = 'var(--ink-soft)'; }}
       >
         <Icon name={theme === 'light' ? 'moon' : 'sun'} size={18} />
+      </button>
+
+      <button className="glass" onClick={onOpenTweaks} title="Aparência e tema"
+        style={{
+          width: 44, height: 44, borderRadius: 'var(--r-sm)',
+          display: 'grid', placeItems: 'center', color: 'var(--ink-soft)',
+          transition: 'transform 0.25s, color 0.25s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.color = 'var(--ink)'; }}
+        onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.color = 'var(--ink-soft)'; }}
+      >
+        <Icon name="sparkles" size={18} />
       </button>
 
       <button className="glass" style={{
@@ -529,7 +577,7 @@ const RelatoriosPage = () => {
 };
 
 // ─── Tweaks panel ───
-const TweaksPanel = ({ tweaks, setTweaks, visible }) => {
+const TweaksPanel = ({ tweaks, setTweaks, visible, onClose }) => {
   if (!visible) return null;
   const update = (key, val) => {
     const next = { ...tweaks, [key]: val };
@@ -546,7 +594,23 @@ const TweaksPanel = ({ tweaks, setTweaks, visible }) => {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <Icon name="sparkles" size={18} />
-        <strong style={{ fontSize: 14, fontWeight: 700 }}>Tweaks</strong>
+        <strong style={{ fontSize: 14, fontWeight: 700 }}>Aparência</strong>
+        <button onClick={onClose}
+          style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-mute)', fontSize: 20, lineHeight: 1 }}>×</button>
+      </div>
+
+      <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Tema</label>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginTop: 8, marginBottom: 16 }}>
+        {Object.entries(TEMAS).map(([k, v]) => (
+          <button key={k} onClick={() => update('tema', k)}
+            style={{
+              padding: '10px 6px', borderRadius: 10, fontSize: 11, fontWeight: 600,
+              background: (tweaks.tema || 'azul') === k ? 'var(--accent)' : 'var(--bg-alt)',
+              color: (tweaks.tema || 'azul') === k ? 'var(--accent-ink)' : 'var(--ink-soft)',
+              border: (tweaks.tema || 'azul') === k ? '2px solid var(--accent)' : '2px solid var(--line)',
+              cursor: 'pointer', transition: 'all 0.2s', lineHeight: 1.2,
+            }}>{v.label}</button>
+        ))}
       </div>
 
       <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Tom do grafite</label>
@@ -623,16 +687,17 @@ const AppShell = () => {
   useEffect(() => { document.body.dataset.theme = theme; localStorage.setItem('infinity-theme', theme); }, [theme]);
   useEffect(() => { localStorage.setItem('infinity-page', page); }, [page]);
 
-  // Tom do grafite (accent) — sempre monocromático
+  // Tema de marca (monocromático / azul / colorido)
   useEffect(() => {
-    const a = ACCENTS[tweaks.accent] || ACCENTS.grafite;
     if (theme === 'light') {
-      document.documentElement.style.setProperty('--accent', a.color);
+      aplicarTema(tweaks.tema || 'azul');
     } else {
-      // no escuro o accent é claro — ignora tons muito escuros
+      // no escuro, deixa o CSS do dark-theme cuidar das cores
+      ['0','1','2','3','4','5','6','7','8','9'].forEach(i =>
+        document.documentElement.style.removeProperty(`--g-${i}`));
       document.documentElement.style.removeProperty('--accent');
     }
-  }, [tweaks.accent, theme]);
+  }, [tweaks.tema, theme]);
 
   // Tweaks bridge
   useEffect(() => {
@@ -686,10 +751,10 @@ const AppShell = () => {
     <div style={{ display: 'flex', height: '100vh', padding: density, gap: density }}>
       <Sidebar page={page} setPage={setPage} collapsed={collapsed} setCollapsed={setCollapsed} />
       <main style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', paddingRight: 6 }}>
-        <Topbar theme={theme} setTheme={setTheme} liveClock={tweaks.liveClock} />
+        <Topbar theme={theme} setTheme={setTheme} liveClock={tweaks.liveClock} onOpenTweaks={() => setTweaksVisible(v => !v)} />
         <div key={page} style={{ paddingBottom: 24 }}>{pages[page]}</div>
       </main>
-      <TweaksPanel tweaks={tweaks} setTweaks={setTweaks} visible={tweaksVisible} />
+      <TweaksPanel tweaks={tweaks} setTweaks={setTweaks} visible={tweaksVisible} onClose={() => setTweaksVisible(false)} />
     </div>
   );
 };
