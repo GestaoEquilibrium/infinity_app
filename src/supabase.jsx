@@ -308,9 +308,9 @@ async function logAction(companyId, userId, action, tableName, recordId, newData
 // editor → Dashboard, Contas, Compras, Agenda, Relatórios, RH (sem excluir)
 // viewer → só Dashboard e leitura
 const ROLE_ACCESS = {
-  admin: ['dashboard', 'contas', 'impostos', 'compras', 'agenda', 'relatorios', 'rh', 'equipe', 'perfil', 'config'],
-  editor: ['dashboard', 'contas', 'impostos', 'compras', 'agenda', 'relatorios', 'rh', 'perfil'],
-  viewer: ['dashboard', 'agenda', 'rh', 'perfil'],
+  admin: ['dashboard', 'caixa', 'contas', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'rh', 'equipe', 'perfil', 'config'],
+  editor: ['dashboard', 'caixa', 'contas', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'rh', 'perfil'],
+  viewer: ['dashboard', 'caixa', 'agenda', 'perfil'],
 };
 function canAccess(role, page) {
   return (ROLE_ACCESS[role] || ROLE_ACCESS.viewer).includes(page);
