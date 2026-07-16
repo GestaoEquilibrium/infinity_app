@@ -12,6 +12,17 @@ const STATUS_AUSENTE = ['Profissional Ausente', 'Cancelado (Profissional)'];
 const STATUS_PENDENTE = ['Agendado', 'Confirmado'];
 const IMPOSTO_RP = 0.1333;
 
+// Normaliza nome para comparar RH x relatório do Mais Equilibrium:
+// tira acentos, minúsculas, colapsa espaços. Assim "Jéssica Góes" == "Jessica Goes".
+function normalizarNome(nome) {
+  return (nome || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // remove acentos
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+
 // parser CSV (delimitador ;) — mesma lógica validada
 function parseCSV_RP(text) {
   const clean = text.replace(/^\uFEFF/, '');
@@ -32,7 +43,7 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
   tarifas.forEach(t => { tarifaMap[`${t.convenio}|${t.tipo_servico}`] = Number(t.valor); tarifaMap[t.convenio] = Number(t.valor); });
 
   const nomeToColab = {};
-  colabs.forEach(c => { nomeToColab[(c.nome || '').trim().toLowerCase()] = c; });
+  colabs.forEach(c => { nomeToColab[normalizarNome(c.nome)] = c; });
 
   const porProf = {};
   for (const r of rows) {
@@ -45,7 +56,7 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
   const pendencias = [];
 
   for (const [nome, atends] of Object.entries(porProf)) {
-    const colab = nomeToColab[nome.toLowerCase()];
+    const colab = nomeToColab[normalizarNome(nome)];
     const regra = colab && regrasByColab[colab.id];
     if (!regra) {
       pendencias.push({ tipo: 'regra', msg: `${nome}: sem regra de repasse cadastrada. Cadastre em Repasse › Regras.` });
