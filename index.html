@@ -76,7 +76,7 @@
     --c-pink: var(--g-5);
 
     /* Vidro */
-    --glass-blur: blur(22px) saturate(1.05);
+    --glass-blur: blur(14px) saturate(1.04);
     --glass-border: oklch(1 0 0 / 0.55);
     --glass-inset: inset 0 1px 0 oklch(1 0 0 / 0.7);
 
@@ -196,10 +196,10 @@
   .blob {
     position: absolute;
     border-radius: 50%;
-    filter: blur(90px);
-    animation: blobFloat 26s ease-in-out infinite;
-    will-change: transform;
+    filter: blur(60px);
   }
+  /* animação dos blobs só quando o usuário não pediu menos movimento
+     e desligada por padrão para não pesar — reative trocando 'none' por 'blobFloat 26s...' */
   .blob.b1 { width: 560px; height: 560px; background: oklch(0 0 0 / 0.07); top: -140px; left: -120px; }
   .blob.b2 { width: 480px; height: 480px; background: oklch(0 0 0 / 0.055); bottom: -160px; right: -80px; animation-delay: -8s; animation-duration: 30s; }
   .blob.b3 { width: 380px; height: 380px; background: oklch(1 0 0 / 0.5); top: 38%; left: 42%; animation-delay: -14s; animation-duration: 34s; }
