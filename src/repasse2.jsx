@@ -345,13 +345,22 @@ const RepassePage = () => {
 };
 
 // ─── aba Regras (visão simples de leitura + aviso) ───
-const RegrasTab = ({ colabs, regras }) => {
+const RegrasTab = ({ companyId, colabs, regras, setRegras }) => {
   const D = window.__repasseData;
+  const [editando, setEditando] = useStateRP(null); // regra em edição, ou {} para nova, ou null (fechado)
+
+  const recarregar = async () => {
+    try { setRegras(await D.fetchRegras(companyId)); } catch (e) { console.warn(e); }
+  };
+
   return (
     <window.TiltCard interactive={false} padding={0}>
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-        <h3 style={{ fontSize: 15, fontWeight: 600 }}>Regras de repasse por profissional</h3>
-        <p style={{ fontSize: 12.5, color: 'var(--ink-mute)', marginTop: 4 }}>{regras.length} regra(s) cadastrada(s). Edição direto no banco por enquanto — tela de edição na próxima versão.</p>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h3 style={{ fontSize: 15, fontWeight: 600 }}>Regras de repasse por profissional</h3>
+          <p style={{ fontSize: 12.5, color: 'var(--ink-mute)', marginTop: 4 }}>{regras.length} regra(s) cadastrada(s). Clique numa linha para editar.</p>
+        </div>
+        <window.Btn variant="primary" icon="plus" size="sm" onClick={() => setEditando({})}>Nova regra</window.Btn>
       </div>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead><tr style={{ color: 'var(--ink-mute)', textAlign: 'left' }}>
@@ -359,7 +368,9 @@ const RegrasTab = ({ colabs, regras }) => {
         </tr></thead>
         <tbody>
           {regras.map(r => (
-            <tr key={r.id} style={{ borderTop: '1px solid var(--line)' }}>
+            <tr key={r.id} onClick={() => setEditando(r)} style={{ borderTop: '1px solid var(--line)', cursor: 'pointer' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-alt)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
               <td style={{ padding: '10px 20px', fontWeight: 600 }}>{r.colaboradores?.nome || '—'}</td>
               <td style={{ padding: '10px 20px' }}>{r.tipo}</td>
               <td style={{ padding: '10px 20px' }}>{r.tipo === 'fixo' ? D.brlR(r.valor_fixo) : `${Math.round((r.pct_convenio || 0) * 100)}% / part ${Math.round((r.pct_particular || 0) * 100)}%`}</td>
@@ -367,9 +378,134 @@ const RegrasTab = ({ colabs, regras }) => {
               <td style={{ padding: '10px 20px', color: 'var(--ink-soft)' }}>{r.grupo_ciclo}</td>
             </tr>
           ))}
+          {regras.length === 0 && (
+            <tr><td colSpan={5} style={{ padding: 30, textAlign: 'center', color: 'var(--ink-mute)' }}>Nenhuma regra ainda. Clique em "Nova regra" para começar.</td></tr>
+          )}
         </tbody>
       </table>
+      {editando !== null && (
+        <ModalRegra regra={editando} companyId={companyId} colabs={colabs} regras={regras}
+          onClose={() => setEditando(null)} onSaved={async () => { await recarregar(); setEditando(null); }} />
+      )}
     </window.TiltCard>
+  );
+};
+
+// ─── Modal de criar/editar regra ───
+const ModalRegra = ({ regra, companyId, colabs, regras, onClose, onSaved }) => {
+  const D = window.__repasseData;
+  const isNew = !regra.id;
+  const [form, setForm] = useStateRP({
+    colaborador_id: regra.colaborador_id || '',
+    tipo: regra.tipo || 'fixo',
+    valor_fixo: regra.valor_fixo ?? '',
+    valor_fixo_aba: regra.valor_fixo_aba ?? '',
+    pct_convenio: regra.pct_convenio != null ? Math.round(regra.pct_convenio * 100) : '',
+    pct_particular: regra.pct_particular != null ? Math.round(regra.pct_particular * 100) : '',
+    valor_particular: regra.valor_particular ?? '',
+    holding_mensal: regra.holding_mensal ?? '',
+    grupo_ciclo: regra.grupo_ciclo || 'Grupo 1 (M-2)',
+    competencia_convenio: regra.competencia_convenio || 'M-2',
+    competencia_particular: regra.competencia_particular || 'M-2',
+  });
+  const [erro, setErro] = useStateRP('');
+  const [salvando, setSalvando] = useStateRP(false);
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // profissionais que ainda não têm regra (para o dropdown do "novo")
+  const jaComRegra = new Set(regras.map(r => r.colaborador_id));
+  const disponiveis = colabs.filter(c => isNew ? !jaComRegra.has(c.id) : true);
+
+  const num = (v) => v === '' || v == null ? null : parseFloat(String(v).replace(',', '.'));
+
+  const salvar = async () => {
+    if (!form.colaborador_id) return setErro('Escolha o profissional.');
+    setErro(''); setSalvando(true);
+    const payload = {
+      colaborador_id: form.colaborador_id,
+      tipo: form.tipo,
+      valor_fixo: form.tipo === 'fixo' ? num(form.valor_fixo) : null,
+      valor_fixo_aba: form.tipo === 'fixo' ? num(form.valor_fixo_aba) : null,
+      pct_convenio: form.tipo === 'percentual' ? (num(form.pct_convenio) || 0) / 100 : null,
+      pct_particular: form.tipo === 'percentual' ? (num(form.pct_particular) || 0) / 100 : null,
+      valor_particular: num(form.valor_particular),
+      holding_mensal: num(form.holding_mensal) || 0,
+      grupo_ciclo: form.grupo_ciclo,
+      competencia_convenio: form.competencia_convenio,
+      competencia_particular: form.competencia_particular,
+      ativo: true,
+    };
+    if (!isNew) payload.id = regra.id;
+    try {
+      await D.upsertRegra(payload, companyId);
+      await onSaved();
+    } catch (e) { setErro('Erro ao salvar: ' + e.message); setSalvando(false); }
+  };
+
+  const inp = { width: '100%', padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 'var(--r-md)', fontSize: 14, background: 'var(--bg-alt)', color: 'var(--ink)', boxSizing: 'border-box', fontFamily: 'inherit' };
+  const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 5, display: 'block' };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'grid', placeItems: 'center', padding: 30 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface-solid)', borderRadius: 'var(--r-lg)', padding: 26, width: 'min(560px, 100%)', maxHeight: '88vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <h3 style={{ fontSize: 19, fontWeight: 700, letterSpacing: -0.4 }}>{isNew ? 'Nova regra' : 'Editar regra'}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--ink-mute)', lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={lbl}>Profissional</label>
+          <select value={form.colaborador_id} onChange={e => set('colaborador_id', e.target.value)} style={inp} disabled={!isNew}>
+            <option value="">— selecione —</option>
+            {disponiveis.map(c => <option key={c.id} value={c.id}>{(c.nome || '').toUpperCase()}{c.cargo ? ' · ' + c.cargo : ''}</option>)}
+          </select>
+          {!isNew && <span style={{ fontSize: 11, color: 'var(--ink-mute)' }}>O profissional não muda ao editar. Para trocar, exclua e crie outra.</span>}
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={lbl}>Forma de repasse</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[['fixo', 'Valor fixo por sessão'], ['percentual', 'Percentual']].map(([k, l]) => (
+              <button key={k} onClick={() => set('tipo', k)} style={{
+                flex: 1, padding: '10px', borderRadius: 'var(--r-md)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                background: form.tipo === k ? 'var(--accent)' : 'var(--bg-alt)',
+                color: form.tipo === k ? 'var(--accent-ink)' : 'var(--ink-soft)',
+                border: '1px solid ' + (form.tipo === k ? 'var(--accent)' : 'var(--line)'),
+              }}>{l}</button>
+            ))}
+          </div>
+        </div>
+
+        {form.tipo === 'fixo' ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+            <div><label style={lbl}>Valor por sessão (R$)</label><input value={form.valor_fixo} onChange={e => set('valor_fixo', e.target.value)} placeholder="22,50" style={inp} /></div>
+            <div><label style={lbl}>Valor ABA (opcional)</label><input value={form.valor_fixo_aba} onChange={e => set('valor_fixo_aba', e.target.value)} placeholder="26,50" style={inp} /></div>
+            <div><label style={lbl}>Particular fixo (R$)</label><input value={form.valor_particular} onChange={e => set('valor_particular', e.target.value)} placeholder="63,00" style={inp} /></div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+            <div><label style={lbl}>% Convênio</label><input value={form.pct_convenio} onChange={e => set('pct_convenio', e.target.value)} placeholder="63" style={inp} /></div>
+            <div><label style={lbl}>% Particular</label><input value={form.pct_particular} onChange={e => set('pct_particular', e.target.value)} placeholder="80" style={inp} /></div>
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
+          <div><label style={lbl}>Holding mensal (R$)</label><input value={form.holding_mensal} onChange={e => set('holding_mensal', e.target.value)} placeholder="0" style={inp} /></div>
+          <div>
+            <label style={lbl}>Ciclo de pagamento</label>
+            <select value={form.grupo_ciclo} onChange={e => set('grupo_ciclo', e.target.value)} style={inp}>
+              {['Grupo 1 (M-2)', 'Grupo 2 (M-1)', 'Médico', 'Médico (M-1 integral)'].map(g => <option key={g}>{g}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {erro && <div style={{ color: 'var(--c-neg)', fontSize: 13, marginBottom: 12, fontWeight: 600 }}>{erro}</div>}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <window.Btn variant="ghost" onClick={onClose}>Cancelar</window.Btn>
+          <window.Btn variant="primary" icon="check" onClick={salvar} disabled={salvando}>{salvando ? 'Salvando...' : 'Salvar regra'}</window.Btn>
+        </div>
+      </div>
+    </div>
   );
 };
 
