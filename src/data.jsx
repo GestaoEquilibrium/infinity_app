@@ -293,11 +293,15 @@ async function parseExcel(file) {
     // normalize date to YYYY-MM-DD
     let date = new Date().toISOString().slice(0, 10);
     if (dateRaw) {
-      const d = new Date(dateRaw);
-      if (!isNaN(d)) date = d.toISOString().slice(0, 10);
-      else if (typeof dateRaw === 'string' && /\d{2}\/\d{2}\/\d{4}/.test(dateRaw)) {
-        const [dd, mm, yy] = dateRaw.split('/');
+      // formato brasileiro DD/MM/AAAA tem prioridade (senão o new Date lê como MM/DD e troca dia/mês)
+      if (typeof dateRaw === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(dateRaw.trim())) {
+        const [dd, mm, yy] = dateRaw.trim().split('/');
         date = `${yy}-${mm}-${dd}`;
+      } else if (typeof dateRaw === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateRaw.trim())) {
+        date = dateRaw.trim().slice(0, 10);
+      } else {
+        const d = new Date(dateRaw);
+        if (!isNaN(d)) date = d.toISOString().slice(0, 10);
       }
     }
     return {
@@ -373,10 +377,14 @@ async function parseExcelContas(file) {
     const pago = pagoRaw === 'sim' || pagoRaw === 'pago' || pagoRaw === 'recebido' || pagoRaw === 'true' || realizado > 0;
     let date = new Date().toISOString().slice(0, 10);
     if (dateRaw) {
-      const d = new Date(dateRaw);
-      if (!isNaN(d)) date = d.toISOString().slice(0, 10);
-      else if (typeof dateRaw === 'string' && /\d{2}\/\d{2}\/\d{4}/.test(dateRaw)) {
-        const [dd, mm, yy] = dateRaw.split('/'); date = `${yy}-${mm}-${dd}`;
+      // formato brasileiro DD/MM/AAAA tem prioridade (senão o new Date lê como MM/DD e troca dia/mês)
+      if (typeof dateRaw === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(dateRaw.trim())) {
+        const [dd, mm, yy] = dateRaw.trim().split('/'); date = `${yy}-${mm}-${dd}`;
+      } else if (typeof dateRaw === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateRaw.trim())) {
+        date = dateRaw.trim().slice(0, 10);
+      } else {
+        const d = new Date(dateRaw);
+        if (!isNaN(d)) date = d.toISOString().slice(0, 10);
       }
     }
     return {
