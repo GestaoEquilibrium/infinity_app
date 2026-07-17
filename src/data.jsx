@@ -435,20 +435,28 @@ async function addContas(rows) {
 // Agora sempre substitui, mesmo com array vazio (dashboard fica limpa).
 async function hydrateFromSupabase(companyId) {
   try {
-    const [contas, compras] = await Promise.all([
+    const [contas, compras, categorias] = await Promise.all([
       window.fetchContas(companyId),
       window.fetchCompras(companyId),
+      window.fetchCategories ? window.fetchCategories(companyId) : Promise.resolve([]),
     ]);
     CONTAS = Array.isArray(contas) ? contas : [];
     COMPRAS = Array.isArray(compras) ? compras : [];
     window.CONTAS = CONTAS;
     window.COMPRAS = COMPRAS;
+    // publica as categorias para os formulários de conta/compra lerem
+    const cats = Array.isArray(categorias) ? categorias : [];
+    window.APP_CATEGORIES = {
+      entrada: cats.filter(c => c.type === 'entrada'),
+      saida:   cats.filter(c => c.type === 'saida'),
+    };
     window.dispatchEvent(new CustomEvent('sb-data-hydrated'));
   } catch (e) {
     console.warn('hydrateFromSupabase', e);
     // Em caso de erro, mantém arrays vazios em vez de dados antigos
     CONTAS = []; COMPRAS = [];
     window.CONTAS = CONTAS; window.COMPRAS = COMPRAS;
+    if (!window.APP_CATEGORIES) window.APP_CATEGORIES = { entrada: [], saida: [] };
     window.dispatchEvent(new CustomEvent('sb-data-hydrated'));
   }
 }
