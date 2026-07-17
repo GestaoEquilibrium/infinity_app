@@ -1701,10 +1701,12 @@ const ConfigPage = () => {
     setLoading(true);
     try {
       const rows = await window.fetchCategories(companyId);
-      setCats({
+      const cats = {
         entrada: rows.filter(r => r.type === 'entrada'),
         saida:   rows.filter(r => r.type === 'saida'),
-      });
+      };
+      setCats(cats);
+      window.APP_CATEGORIES = cats;  // mantém os formulários em sincronia
     } catch(e) { console.error(e); }
     finally { setLoading(false); }
   }, [companyId]);
