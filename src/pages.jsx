@@ -1216,7 +1216,7 @@ const ContasPage = ({ filter, setFilter }) => {
   })();
 
   return (
-    <div className="anim-fade" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="anim-fade" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {showReplicar && <ReplicarPrestadoresModal onClose={() => setShowReplicar(false)} />}
       <PageHeader title="Contas"
         subtitle="Controle de contas a pagar e a receber — previsto × realizado"
@@ -1273,7 +1273,7 @@ const ContasPage = ({ filter, setFilter }) => {
                 {['Vencimento', 'Descrição', 'Categoria', 'Previsto', 'Realizado', 'Status', ''].map((h, i) => (
                   <th key={i + h} style={{
                     textAlign: i === 3 || i === 4 ? 'right' : (i === 6 ? 'right' : 'left'),
-                    padding: '14px 20px', fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
+                    padding: '9px 20px', fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
                     color: 'var(--ink-mute)', textTransform: 'uppercase',
                   }}>{h}</th>
                 ))}
@@ -1283,8 +1283,8 @@ const ContasPage = ({ filter, setFilter }) => {
               {/* Linha especial: Saldo Anterior */}
               {saldo_ant !== 0 && (tab === 'todos' || tab === 'receber') && (
                 <tr style={{ borderBottom: '2px solid var(--line-strong)', background: 'var(--bg-alt)' }}>
-                  <td style={{ padding: '14px 20px', fontSize: 13, color: 'var(--ink-soft)' }} className="mono">—</td>
-                  <td style={{ padding: '14px 20px', fontSize: 14, fontWeight: 700, color: 'var(--c-secondary)' }}>
+                  <td style={{ padding: '9px 20px', fontSize: 13, color: 'var(--ink-soft)' }} className="mono">—</td>
+                  <td style={{ padding: '9px 20px', fontSize: 14, fontWeight: 700, color: 'var(--c-secondary)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <div style={{ width: 32, height: 32, borderRadius: 10, background: 'color-mix(in oklch, var(--c-secondary) 18%, transparent)', color: 'var(--c-secondary)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
                         <Icon name="arrow_right" size={14} stroke={2.4} />
@@ -1292,14 +1292,14 @@ const ContasPage = ({ filter, setFilter }) => {
                       Saldo anterior ({mesAntLabel})
                     </div>
                   </td>
-                  <td style={{ padding: '14px 20px' }}><Pill color="var(--c-secondary)" size="sm">Saldo</Pill></td>
-                  <td style={{ padding: '14px 20px', textAlign: 'right', fontSize: 13, color: 'var(--ink-mute)' }} className="mono">—</td>
-                  <td style={{ padding: '14px 20px', textAlign: 'right' }} className="mono">
+                  <td style={{ padding: '9px 20px' }}><Pill color="var(--c-secondary)" size="sm">Saldo</Pill></td>
+                  <td style={{ padding: '9px 20px', textAlign: 'right', fontSize: 13, color: 'var(--ink-mute)' }} className="mono">—</td>
+                  <td style={{ padding: '9px 20px', textAlign: 'right' }} className="mono">
                     <div style={{ fontSize: 14, fontWeight: 700, color: saldo_ant >= 0 ? 'var(--c-pos)' : 'var(--c-neg)' }}>
                       {window.fmt(saldo_ant)}
                     </div>
                   </td>
-                  <td style={{ padding: '14px 20px' }}>
+                  <td style={{ padding: '9px 20px' }}>
                     <Pill color="var(--c-secondary)" size="sm">✓ Transitado</Pill>
                   </td>
                   <td></td>
@@ -1313,8 +1313,8 @@ const ContasPage = ({ filter, setFilter }) => {
                     borderBottom: '1px solid var(--line)',
                     animation: `fadeIn 0.3s ease ${Math.min(i * 0.02, 0.6)}s both`,
                   }}>
-                    <td style={{ padding: '14px 20px', fontSize: 13, color: 'var(--ink-soft)' }} className="mono">{window.fmtDate(c.vencimento)}</td>
-                    <td style={{ padding: '14px 20px', fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>
+                    <td style={{ padding: '9px 20px', fontSize: 13, color: 'var(--ink-soft)' }} className="mono">{window.fmtDate(c.vencimento)}</td>
+                    <td style={{ padding: '9px 20px', fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <div style={{ width: 32, height: 32, borderRadius: 10, background: `color-mix(in oklch, ${color} 18%, transparent)`, color, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
                           <Icon name={tab === 'receber' ? 'arrow_down' : 'arrow_up'} size={14} stroke={2.4} />
@@ -1322,9 +1322,9 @@ const ContasPage = ({ filter, setFilter }) => {
                         {c.description}
                       </div>
                     </td>
-                    <td style={{ padding: '14px 20px' }}><Pill color={color}>{c.category}</Pill></td>
-                    <td style={{ padding: '14px 20px', textAlign: 'right', fontSize: 13, color: 'var(--ink-soft)' }} className="mono">{window.fmt(c.previsto)}</td>
-                    <td style={{ padding: '14px 20px', textAlign: 'right' }} className="mono">
+                    <td style={{ padding: '9px 20px' }}><Pill color={color}>{c.category}</Pill></td>
+                    <td style={{ padding: '9px 20px', textAlign: 'right', fontSize: 13, color: 'var(--ink-soft)' }} className="mono">{window.fmt(c.previsto)}</td>
+                    <td style={{ padding: '9px 20px', textAlign: 'right' }} className="mono">
                       {c.pago ? (
                         <div>
                           <div style={{ fontSize: 14, fontWeight: 700, color: c.tipo === 'pagar' ? 'var(--c-neg)' : 'var(--c-pos)' }}>{window.fmt(c.realizado)}</div>
@@ -1334,7 +1334,7 @@ const ContasPage = ({ filter, setFilter }) => {
                         </div>
                       ) : <span style={{ color: 'var(--ink-mute)' }}>—</span>}
                     </td>
-                    <td style={{ padding: '14px 20px' }}>
+                    <td style={{ padding: '9px 20px' }}>
                       <Pill color={c.pago ? 'var(--c-pos)' : 'var(--c-warn)'} size="sm">
                         {c.pago ? '✓ ' + (c.tipo === 'pagar' ? 'Pago' : 'Recebido') : '⏳ Pendente'}
                       </Pill>
@@ -1502,15 +1502,15 @@ const ComprasPage = ({ filter, setFilter }) => {
 
 // KPI card reusável
 const KPI = ({ label, value, color, icon, subtle, emphasis }) => (
-  <TiltCard glowColor={color} padding={20} style={emphasis ? { outline: `2px solid ${color}`, outlineOffset: -2 } : {}}>
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-      <span style={{ fontSize: 11, color: 'var(--ink-mute)', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>{label}</span>
-      <div style={{ width: 32, height: 32, borderRadius: 10, background: `color-mix(in oklch, ${color} 16%, transparent)`, color, display: 'grid', placeItems: 'center' }}>
-        <Icon name={icon} size={16} stroke={2.2} />
+  <TiltCard glowColor={color} padding={14} style={emphasis ? { outline: `2px solid ${color}`, outlineOffset: -2 } : {}}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+      <span style={{ fontSize: 10.5, color: 'var(--ink-mute)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>{label}</span>
+      <div style={{ width: 26, height: 26, borderRadius: 8, background: `color-mix(in oklch, ${color} 16%, transparent)`, color, display: 'grid', placeItems: 'center' }}>
+        <Icon name={icon} size={14} stroke={2.2} />
       </div>
     </div>
     <Counter value={value} format={(n) => window.fmt(n)} className="mono"
-      style={{ fontSize: subtle ? 22 : 26, fontWeight: 700, color: emphasis ? color : 'var(--ink)', letterSpacing: -0.6 }} />
+      style={{ fontSize: subtle ? 18 : 21, fontWeight: 700, color: emphasis ? color : 'var(--ink)', letterSpacing: -0.5 }} />
   </TiltCard>
 );
 
