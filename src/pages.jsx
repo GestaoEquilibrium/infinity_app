@@ -1268,7 +1268,7 @@ const ContasPage = ({ filter, setFilter }) => {
       <TiltCard interactive={false} padding={0} style={{ overflow: 'hidden' }}>
         <div style={{ maxHeight: '56vh', overflowY: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+            <thead style={{ position: 'sticky', top: 0, background: 'var(--surface-solid)', zIndex: 5 }}>
               <tr style={{ borderBottom: '1px solid var(--line)' }}>
                 {['Vencimento', 'Descrição', 'Categoria', 'Previsto', 'Realizado', 'Status', ''].map((h, i) => (
                   <th key={i + h} style={{
@@ -1447,7 +1447,7 @@ const ComprasPage = ({ filter, setFilter }) => {
       <TiltCard interactive={false} padding={0} style={{ overflow: 'hidden' }}>
         <div style={{ maxHeight: '54vh', overflowY: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+            <thead style={{ position: 'sticky', top: 0, background: 'var(--surface-solid)', zIndex: 5 }}>
               <tr style={{ borderBottom: '1px solid var(--line)' }}>
                 {['Data', 'Descrição', 'Categoria', 'Método', 'Valor', ''].map((h, i) => (
                   <th key={i + h} style={{
