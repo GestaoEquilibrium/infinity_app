@@ -23,32 +23,14 @@ function normalizarNome(nome) {
 }
 
 
-// parser CSV (delimitador ;) — respeita aspas, ; dentro de aspas e "" escapado.
-// Antes: split(';') ingênuo deixava as aspas grudadas no valor ("Rosana" != Rosana)
-// e o profissional não casava com o RH → nada era gerado.
+// parser CSV (delimitador ;) — mesma lógica validada
 function parseCSV_RP(text) {
   const clean = text.replace(/^\uFEFF/, '');
-  const linhas = [];
-  let linha = [], campo = '', dentroAspas = false;
-  for (let i = 0; i < clean.length; i++) {
-    const ch = clean[i], prox = clean[i + 1];
-    if (dentroAspas) {
-      if (ch === '"' && prox === '"') { campo += '"'; i++; }
-      else if (ch === '"') { dentroAspas = false; }
-      else { campo += ch; }
-    } else {
-      if (ch === '"') { dentroAspas = true; }
-      else if (ch === ';') { linha.push(campo); campo = ''; }
-      else if (ch === '\r') { /* ignora */ }
-      else if (ch === '\n') { linha.push(campo); linhas.push(linha); linha = []; campo = ''; }
-      else { campo += ch; }
-    }
-  }
-  if (campo.length || linha.length) { linha.push(campo); linhas.push(linha); }
-  const naoVazias = linhas.filter(r => r.some(c => c.trim() !== ''));
-  if (!naoVazias.length) return [];
-  const headers = naoVazias[0].map(h => h.trim());
-  return naoVazias.slice(1).map(cells => {
+  const lines = clean.split(/\r?\n/).filter(l => l.trim());
+  if (!lines.length) return [];
+  const headers = lines[0].split(';').map(h => h.trim());
+  return lines.slice(1).map(line => {
+    const cells = line.split(';');
     const row = {};
     headers.forEach((h, i) => row[h] = (cells[i] || '').trim());
     return row;
@@ -137,6 +119,7 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
 
     resultados.push({
       nome, colaborador_id: colab?.id, categoria: colab?.cargo || regra.grupo_ciclo,
+      tipo: regra.tipo,
       sessoes, particular_n: cx.n, receita: receitaTotal, bruto, holding, liquido, imposto, margem,
       faltas, ausencias, pendentes, convCount, competencia: regra.competencia_convenio,
     });
@@ -242,6 +225,7 @@ const RepassePage = () => {
   const totalLiq = resultados.reduce((s, r) => s + r.liquido, 0);
   const totalRec = resultados.reduce((s, r) => s + r.receita, 0);
   const totalMar = resultados.reduce((s, r) => s + r.margem, 0);
+  const totalImp = resultados.reduce((s, r) => s + (r.tipo === 'percentual' ? r.imposto : 0), 0);
 
   const salvarFechamento = async () => {
     if (!resultados.length) return;
@@ -304,7 +288,7 @@ const RepassePage = () => {
           {resultados.length > 0 && (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
-                <window.KPI label="Profissionais" value={resultados.length} color="var(--c-primary)" icon="users" />
+                <window.KPI label="Profissionais" value={resultados.length} color="var(--c-primary)" icon="users" format={(n) => String(Math.round(n))} />
                 <window.KPI label="Receita" value={totalRec} color="var(--c-primary)" icon="chart" />
                 <window.KPI label="Total a pagar" value={totalLiq} color="var(--c-pos)" icon="wallet" emphasis />
                 <window.KPI label="Margem" value={totalMar} color={totalMar >= 0 ? 'var(--c-pos)' : 'var(--c-neg)'} icon="file" />
@@ -314,7 +298,7 @@ const RepassePage = () => {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
                   <thead>
                     <tr style={{ color: 'var(--ink-mute)', textAlign: 'left' }}>
-                      {['Profissional', 'Sessões', 'Part.', 'Receita', 'Repasse', 'Holding', 'Líquido'].map((h, i) => (
+                      {['Profissional', 'Sessões', 'Part.', 'Receita', 'Imposto', 'Repasse', 'Holding', 'Líquido'].map((h, i) => (
                         <th key={i} style={{ padding: '12px 18px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: i === 0 ? 'left' : 'right', fontWeight: 700 }}>{h}</th>
                       ))}
                     </tr>
@@ -326,6 +310,7 @@ const RepassePage = () => {
                         <td style={{ padding: '11px 18px', textAlign: 'right' }} className="mono">{r.sessoes}</td>
                         <td style={{ padding: '11px 18px', textAlign: 'right' }} className="mono">{r.particular_n || '—'}</td>
                         <td style={{ padding: '11px 18px', textAlign: 'right' }} className="mono">{D.brlR(r.receita)}</td>
+                        <td style={{ padding: '11px 18px', textAlign: 'right', color: r.tipo === 'percentual' ? 'var(--c-neg)' : 'var(--ink-mute)' }} className="mono" title={r.tipo === 'percentual' ? 'Imposto 13,33% descontado antes do split' : 'Repasse fixo — não desconta imposto do profissional'}>{r.tipo === 'percentual' ? '−' + D.brlR(r.imposto).replace('R$ ', '') : '—'}</td>
                         <td style={{ padding: '11px 18px', textAlign: 'right' }} className="mono">{D.brlR(r.bruto)}</td>
                         <td style={{ padding: '11px 18px', textAlign: 'right', color: r.holding ? 'var(--c-neg)' : 'var(--ink-mute)' }} className="mono">{r.holding ? '−' + D.brlR(r.holding).replace('R$ ', '') : '—'}</td>
                         <td style={{ padding: '11px 18px', textAlign: 'right', fontWeight: 700, color: 'var(--c-pos)' }} className="mono">{D.brlR(r.liquido)}</td>
@@ -336,6 +321,7 @@ const RepassePage = () => {
                       <td style={{ padding: '12px 18px', textAlign: 'right' }} className="mono">{resultados.reduce((s, r) => s + r.sessoes, 0)}</td>
                       <td></td>
                       <td style={{ padding: '12px 18px', textAlign: 'right' }} className="mono">{D.brlR(totalRec)}</td>
+                      <td style={{ padding: '12px 18px', textAlign: 'right', color: totalImp ? 'var(--c-neg)' : 'var(--ink-mute)' }} className="mono">{totalImp ? '−' + D.brlR(totalImp).replace('R$ ', '') : '—'}</td>
                       <td style={{ padding: '12px 18px', textAlign: 'right' }} className="mono">{D.brlR(resultados.reduce((s, r) => s + r.bruto, 0))}</td>
                       <td></td>
                       <td style={{ padding: '12px 18px', textAlign: 'right', color: 'var(--c-pos)' }} className="mono">{D.brlR(totalLiq)}</td>
