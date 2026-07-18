@@ -1501,7 +1501,7 @@ const ComprasPage = ({ filter, setFilter }) => {
 };
 
 // KPI card reusável
-const KPI = ({ label, value, color, icon, subtle, emphasis }) => (
+const KPI = ({ label, value, color, icon, subtle, emphasis, format }) => (
   <TiltCard glowColor={color} padding={14} style={emphasis ? { outline: `2px solid ${color}`, outlineOffset: -2 } : {}}>
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
       <span style={{ fontSize: 10.5, color: 'var(--ink-mute)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>{label}</span>
@@ -1509,7 +1509,7 @@ const KPI = ({ label, value, color, icon, subtle, emphasis }) => (
         <Icon name={icon} size={14} stroke={2.2} />
       </div>
     </div>
-    <Counter value={value} format={(n) => window.fmt(n)} className="mono"
+    <Counter value={value} format={format || ((n) => window.fmt(n))} className="mono"
       style={{ fontSize: subtle ? 18 : 21, fontWeight: 700, color: emphasis ? color : 'var(--ink)', letterSpacing: -0.5 }} />
   </TiltCard>
 );
