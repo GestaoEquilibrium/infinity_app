@@ -23,14 +23,32 @@ function normalizarNome(nome) {
 }
 
 
-// parser CSV (delimitador ;) — mesma lógica validada
+// parser CSV (delimitador ;) — respeita aspas, ; dentro de aspas e "" escapado.
+// Antes: split(';') ingênuo deixava as aspas grudadas no valor ("Rosana" != Rosana)
+// e o profissional não casava com o RH → nada era gerado.
 function parseCSV_RP(text) {
   const clean = text.replace(/^\uFEFF/, '');
-  const lines = clean.split(/\r?\n/).filter(l => l.trim());
-  if (!lines.length) return [];
-  const headers = lines[0].split(';').map(h => h.trim());
-  return lines.slice(1).map(line => {
-    const cells = line.split(';');
+  const linhas = [];
+  let linha = [], campo = '', dentroAspas = false;
+  for (let i = 0; i < clean.length; i++) {
+    const ch = clean[i], prox = clean[i + 1];
+    if (dentroAspas) {
+      if (ch === '"' && prox === '"') { campo += '"'; i++; }
+      else if (ch === '"') { dentroAspas = false; }
+      else { campo += ch; }
+    } else {
+      if (ch === '"') { dentroAspas = true; }
+      else if (ch === ';') { linha.push(campo); campo = ''; }
+      else if (ch === '\r') { /* ignora */ }
+      else if (ch === '\n') { linha.push(campo); linhas.push(linha); linha = []; campo = ''; }
+      else { campo += ch; }
+    }
+  }
+  if (campo.length || linha.length) { linha.push(campo); linhas.push(linha); }
+  const naoVazias = linhas.filter(r => r.some(c => c.trim() !== ''));
+  if (!naoVazias.length) return [];
+  const headers = naoVazias[0].map(h => h.trim());
+  return naoVazias.slice(1).map(cells => {
     const row = {};
     headers.forEach((h, i) => row[h] = (cells[i] || '').trim());
     return row;
