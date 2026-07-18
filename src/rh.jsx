@@ -386,7 +386,7 @@ const ColabForm = ({ colab, onClose, onSaved, onDeleted, toast }) => {
   const [form, setForm] = React.useState({
     nome: '', cargo: '', setor: 'Administrativo', regime: 'CLT', status: 'Ativo',
     cpf: '', cnpj: '', rg: '', pis: '', ctps: '', titulo_eleitor: '', cnh: '', conselho: '',
-    nascimento: '', estado_civil: '', escolaridade: '',
+    nascimento: '', estado_civil: '', escolaridade: '', sexo: '',
     telefone: '', email: '', endereco: '', cep: '',
     admissao: '', limite_ferias: '', salario: '', pagador: '', observacoes: '',
     ...colab,
@@ -435,6 +435,11 @@ const ColabForm = ({ colab, onClose, onSaved, onDeleted, toast }) => {
         <Field label="CPF"><input style={inputRH} value={form.cpf || ''} onChange={e => setForm({ ...form, cpf: e.target.value })} /></Field>
         <Field label="CNPJ"><input style={inputRH} value={form.cnpj || ''} onChange={e => setForm({ ...form, cnpj: e.target.value })} /></Field>
         <Field label="Data nascimento"><input type="date" style={inputRH} value={form.nascimento || ''} onChange={e => setForm({ ...form, nascimento: e.target.value })} /></Field>
+        <Field label="Sexo">
+          <select style={inputRH} value={form.sexo || ''} onChange={e => setForm({ ...form, sexo: e.target.value })}>
+            {['', 'Masculino', 'Feminino'].map(x => <option key={x} value={x}>{x || '—'}</option>)}
+          </select>
+        </Field>
         <Field label="Regime*">
           <select style={inputRH} value={form.regime} onChange={e => setForm({ ...form, regime: e.target.value })}>
             {['CLT', 'PJ', 'Estagiário', 'Prestador', 'Sócio'].map(x => <option key={x}>{x}</option>)}
@@ -489,10 +494,112 @@ const ColabForm = ({ colab, onClose, onSaved, onDeleted, toast }) => {
   );
 };
 
+// ═════════════════════════════════════════════════════════════════════
+// Geração de CONTRATO (.docx) — preenche public/modelo_contrato.docx com
+// dados do cadastro + campos variáveis. Usa docxtemplater + pizzip (CDN).
+// ═════════════════════════════════════════════════════════════════════
+function dataExtensoRH(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  const meses = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  return `${d} de ${meses[m - 1]} de ${y}`;
+}
+
+async function gerarContratoDocx(colab, extras) {
+  const PizZip = window.PizZip, Docxtemplater = window.docxtemplater;
+  if (!PizZip || !Docxtemplater) { alert('Bibliotecas de contrato não carregadas. Dê Ctrl+Shift+R e tente de novo.'); return false; }
+  let resp;
+  try { resp = await fetch('public/modelo_contrato.docx'); }
+  catch (e) { alert('Não consegui buscar o modelo do contrato.'); return false; }
+  if (!resp.ok) { alert('Modelo não encontrado. Suba o arquivo public/modelo_contrato.docx no repositório.'); return false; }
+  const buf = await resp.arrayBuffer();
+  try {
+    const fem = (colab.sexo || '').toLowerCase().startsWith('f');
+    const doc = new Docxtemplater(new PizZip(buf), { paragraphLoop: true, linebreaks: true });
+    doc.render({
+      nome: (colab.nome || '').toUpperCase(),
+      profissao: (extras.profissao || colab.cargo || '').toUpperCase(),
+      tipo_prof: fem ? 'autônoma' : 'autônomo',
+      inscr: fem ? 'inscrita' : 'inscrito',
+      portad: fem ? 'portadora' : 'portador',
+      art_prof: fem ? 'a Profissional' : 'o Profissional',
+      conselho: colab.conselho || '__________',
+      cpf: colab.cpf || '__________',
+      rg: colab.rg || '__________',
+      endereco: colab.endereco || '__________',
+      cep: colab.cep || '________',
+      valor: extras.valor || '__________',
+      horas: extras.horas || '____',
+      atendimentos: extras.atendimentos || '____',
+      area: extras.area || (colab.cargo || '').toLowerCase(),
+      dados_bancarios: extras.dados_bancarios || '__________',
+      data: extras.data || '',
+    });
+    const out = doc.getZip().generate({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const url = URL.createObjectURL(out);
+    const a = document.createElement('a');
+    a.href = url; a.download = `Contrato_${(colab.nome || 'colaborador').replace(/\s+/g, '_')}.docx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    return true;
+  } catch (e) { alert('Erro ao gerar o contrato: ' + (e.message || e)); return false; }
+}
+
+const ModalContrato = ({ colab, onClose }) => {
+  const [extras, setExtras] = React.useState({
+    profissao: colab.cargo || '',
+    valor: colab.salario ? `R$ ${Number(colab.salario).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '',
+    horas: '', atendimentos: '', area: (colab.cargo || '').toLowerCase(),
+    dados_bancarios: '', data: dataExtensoRH(new Date().toISOString().slice(0, 10)),
+  });
+  const [gerando, setGerando] = React.useState(false);
+  const set = (k, v) => setExtras(e => ({ ...e, [k]: v }));
+  const faltaCadastro = [];
+  if (!colab.sexo) faltaCadastro.push('sexo (o contrato sairá no masculino por padrão)');
+  if (!colab.conselho) faltaCadastro.push('conselho');
+  if (!colab.cpf) faltaCadastro.push('CPF');
+  if (!colab.rg) faltaCadastro.push('RG');
+  if (!colab.endereco) faltaCadastro.push('endereço');
+
+  const gerar = async () => {
+    setGerando(true);
+    const ok = await gerarContratoDocx(colab, extras);
+    setGerando(false);
+    if (ok) onClose();
+  };
+
+  return (
+    <Modal title="Gerar contrato de prestação de serviço" onClose={onClose} width={620}>
+      <div style={{ fontSize: 12.5, color: 'var(--ink-mute)', marginBottom: 14 }}>
+        Nome, CPF, RG, conselho e endereço entram automáticos do cadastro de <b>{colab.nome}</b>. Preencha abaixo só o que muda a cada contrato.
+      </div>
+      {faltaCadastro.length > 0 && (
+        <div style={{ background: 'color-mix(in oklch, var(--c-warning) 10%, transparent)', borderLeft: '3px solid var(--c-warning)', padding: 10, borderRadius: 'var(--r-xs)', fontSize: 12, marginBottom: 14 }}>
+          ⚠ Faltam no cadastro: {faltaCadastro.join(', ')}. Esses campos saem em branco no contrato — complete o cadastro para preencher automaticamente.
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <Field label="Profissão / especialidade" full><input style={inputRH} value={extras.profissao} onChange={e => set('profissao', e.target.value)} placeholder="Fisioterapia" /></Field>
+        <Field label="Valor mensal (por extenso)" full><input style={inputRH} value={extras.valor} onChange={e => set('valor', e.target.value)} placeholder="R$ 6.500,00 (seis mil e quinhentos reais)" /></Field>
+        <Field label="Horários semanais"><input style={inputRH} value={extras.horas} onChange={e => set('horas', e.target.value)} placeholder="45 (quarenta e cinco)" /></Field>
+        <Field label="Atendimentos/mês"><input style={inputRH} value={extras.atendimentos} onChange={e => set('atendimentos', e.target.value)} placeholder="180" /></Field>
+        <Field label="Área de atuação" full><input style={inputRH} value={extras.area} onChange={e => set('area', e.target.value)} placeholder="fisioterapia, psicomotricidade" /></Field>
+        <Field label="Dados bancários" full><input style={inputRH} value={extras.dados_bancarios} onChange={e => set('dados_bancarios', e.target.value)} placeholder="Banco, agência, conta, PIX" /></Field>
+        <Field label="Data do contrato" full><input style={inputRH} value={extras.data} onChange={e => set('data', e.target.value)} placeholder="18 de julho de 2026" /></Field>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+        <window.Btn variant="ghost" onClick={onClose}>Cancelar</window.Btn>
+        <window.Btn variant="primary" icon="file" disabled={gerando} onClick={gerar}>{gerando ? 'Gerando...' : 'Baixar contrato (.docx)'}</window.Btn>
+      </div>
+    </Modal>
+  );
+};
+
 // ─── Modal: detalhamento do colaborador ───
 const ColabDetail = ({ colab, data, onClose, onEdit }) => {
   const { profile } = window.useAuth();
   const canEdit = ['admin', 'editor'].includes(profile?.role);
+  const [showContrato, setShowContrato] = React.useState(false);
   const atestadosDele = data.atestados.filter(a => a.colaborador_id === colab.id);
   const faltasDele = data.faltas.filter(f => f.colaborador_id === colab.id).slice(0, 10);
 
@@ -519,8 +626,11 @@ const ColabDetail = ({ colab, data, onClose, onEdit }) => {
             {colab.cargo && <span style={{ fontSize: 13, color: 'var(--ink-soft)', alignSelf: 'center', marginLeft: 4 }}>{colab.cargo}</span>}
           </div>
         </div>
+        {canEdit && <window.Btn variant="ghost" icon="file" onClick={() => setShowContrato(true)}>Gerar contrato</window.Btn>}
         {canEdit && <window.Btn variant="secondary" icon="edit" onClick={onEdit}>Editar</window.Btn>}
       </div>
+
+      {showContrato && <ModalContrato colab={colab} onClose={() => setShowContrato(false)} />}
 
       {colab.observacoes && (
         <div style={{
@@ -534,6 +644,7 @@ const ColabDetail = ({ colab, data, onClose, onEdit }) => {
 
       {section('Identificação')}
       {row('Nascimento', fmtDateRH(colab.nascimento))}
+      {row('Sexo', colab.sexo)}
       {row('CPF', colab.cpf)}
       {row('CNPJ', colab.cnpj)}
       {row('RG', colab.rg)}
