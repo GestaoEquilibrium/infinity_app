@@ -468,6 +468,10 @@ const RepassePage = () => {
                 <window.KPI label="Margem" value={totalMar} color={totalMar >= 0 ? 'var(--c-pos)' : 'var(--c-neg)'} icon="file" />
               </div>
 
+              <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginTop: -6, lineHeight: 1.5 }}>
+                <b>Margem</b> = margem de contribuição (receita − imposto − repasse + holding). <b>Ainda não desconta os custos fixos</b> da clínica (aluguel, folha, energia, estrutura) — mostra quanto o profissional contribui para bancá-los, não o lucro final.
+              </div>
+
               <window.TiltCard interactive={false} padding={0}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
                   <thead>
