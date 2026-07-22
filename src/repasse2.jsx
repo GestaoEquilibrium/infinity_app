@@ -388,19 +388,20 @@ const PagamentosTab = ({ companyId, userId, colabs, D }) => {
     const folha = (colabs || []).filter(c => c.folha_fixa && (!c.status || c.status === 'Ativo'));
     if (!folha.length) { setMsg('Nenhum colaborador marcado como "folha recorrente" no cadastro.'); return; }
     setGerandoFolha(true); setMsg('Gerando folha do mês...');
+    try { await D.deletePagamentosFolha(companyId, competencia); } catch (e) { /* segue */ }
     let add = 0;
     for (const c of folha) {
       try {
-        if (await D.pagamentoExiste(companyId, competencia, '5dia', c.id)) continue;
+        const g = c.grupo_folha === 'dia20' ? 'dia20' : '5dia';
         await D.createPagamento({
-          competencia, grupo: '5dia', colaborador_id: c.id, nome: c.nome, cargo: c.cargo, regime: c.regime,
+          competencia, grupo: g, colaborador_id: c.id, nome: c.nome, cargo: c.cargo, regime: c.regime,
           valor_liquido: Number(c.salario) || 0, conta: c.pagador || null, status: 'pendente', origem: 'folha',
           observacao: 'Folha do mês',
         }, companyId, userId);
         add++;
       } catch (e) { /* segue */ }
     }
-    setGerandoFolha(false); setMsg(`${add} colaborador(es) adicionado(s) à folha de ${competenciaExtenso(competencia)}.`);
+    setGerandoFolha(false); setMsg(`${add} colaborador(es) na folha de ${competenciaExtenso(competencia)}.`);
     carregar();
   };
 
