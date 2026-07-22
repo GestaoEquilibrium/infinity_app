@@ -291,6 +291,151 @@ async function baixarTodosDemonstrativos(resultados, competencia, onProgress) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Aba PAGAMENTOS — folha (5º dia) + repasse (Dia 20), com status e histórico
+// ═══════════════════════════════════════════════════════════════════
+const PAG_STATUS = [
+  ['pendente', 'Pendente', 'var(--ink-mute)'],
+  ['pronto', 'Pronto p/ pagar', 'var(--c-primary)'],
+  ['analise', 'Em análise', '#b8860b'],
+  ['questionou', 'Questionou', 'var(--c-neg)'],
+  ['pago', 'Pago', 'var(--c-pos)'],
+];
+const PAG_GRUPOS = [['5dia', 'Folha — 5º dia útil'], ['dia20', 'Repasse / Produção — Dia 20']];
+
+const PagamentosTab = ({ companyId, userId, colabs, D }) => {
+  const hoje = new Date();
+  const [competencia, setCompetencia] = useStateRP(`${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`);
+  const [lista, setLista] = useStateRP(null);
+  const [msg, setMsg] = useStateRP('');
+  const [addOpen, setAddOpen] = useStateRP(false);
+  const [novo, setNovo] = useStateRP({ nome: '', grupo: '5dia', cargo: '', regime: '', valor_liquido: '', conta: '' });
+  const brl = D.brlR;
+  const inp = { padding: '7px 10px', border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', fontSize: 13, background: 'var(--bg-alt)', color: 'var(--ink)' };
+  const lblS = { fontSize: 10, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', display: 'block', marginBottom: 4 };
+
+  const carregar = async () => {
+    setLista(null); setMsg('');
+    try { setLista(await D.fetchPagamentos(companyId, competencia)); }
+    catch (e) { setMsg('Erro ao carregar: ' + e.message); setLista([]); }
+  };
+  useEffectRP(() => { if (companyId) carregar(); }, [companyId, competencia]);
+
+  const patch = async (row, campo, valor) => {
+    const p = { [campo]: valor };
+    if (campo === 'status' && valor === 'pago' && !row.data_pagamento) p.data_pagamento = new Date().toISOString().slice(0, 10);
+    try {
+      await D.updatePagamento(row.id, p);
+      setLista(l => l.map(x => x.id === row.id ? { ...x, ...p } : x));
+    } catch (e) { setMsg('Erro ao salvar: ' + e.message); }
+  };
+  const remover = async (row) => {
+    if (!window.confirm(`Remover ${row.nome} do pagamento deste mês?`)) return;
+    try { await D.deletePagamento(row.id); setLista(l => l.filter(x => x.id !== row.id)); }
+    catch (e) { setMsg('Erro ao remover: ' + e.message); }
+  };
+  const adicionar = async () => {
+    if (!novo.nome.trim()) { setMsg('Informe o nome.'); return; }
+    try {
+      const res = await D.createPagamento({
+        competencia, grupo: novo.grupo, nome: novo.nome.trim(), cargo: novo.cargo, regime: novo.regime,
+        valor_liquido: Number(novo.valor_liquido) || 0, conta: novo.conta, status: 'pendente', origem: 'manual',
+      }, companyId, userId);
+      const r = Array.isArray(res) ? res[0] : res;
+      setLista(l => [...(l || []), r]);
+      setNovo({ nome: '', grupo: novo.grupo, cargo: '', regime: '', valor_liquido: '', conta: '' });
+      setAddOpen(false); setMsg('');
+    } catch (e) { setMsg('Erro ao adicionar: ' + e.message); }
+  };
+
+  const totalMes = (lista || []).reduce((s, r) => s + (Number(r.valor_liquido) || 0), 0);
+  const totalPago = (lista || []).filter(r => r.status === 'pago').reduce((s, r) => s + (Number(r.valor_liquido) || 0), 0);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <window.TiltCard interactive={false} padding={20}>
+        <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Mês do pagamento</label>
+            <input type="month" value={competencia} onChange={e => setCompetencia(e.target.value)} style={{ ...inp, padding: '9px 12px', fontSize: 14 }} />
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 22, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div><div style={{ fontSize: 11, color: 'var(--ink-mute)', textTransform: 'uppercase' }}>Total do mês</div><div className="mono" style={{ fontSize: 18, fontWeight: 700 }}>{brl(totalMes)}</div></div>
+            <div><div style={{ fontSize: 11, color: 'var(--ink-mute)', textTransform: 'uppercase' }}>Já pago</div><div className="mono" style={{ fontSize: 18, fontWeight: 700, color: 'var(--c-pos)' }}>{brl(totalPago)}</div></div>
+            <window.Btn variant="ghost" size="sm" onClick={() => setAddOpen(v => !v)}>+ Adicionar linha</window.Btn>
+          </div>
+        </div>
+        {addOpen && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)', display: 'grid', gridTemplateColumns: '2fr 1.6fr 1.2fr 1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
+            <div><label style={lblS}>Nome</label><input style={{ ...inp, width: '100%' }} value={novo.nome} onChange={e => setNovo({ ...novo, nome: e.target.value })} /></div>
+            <div><label style={lblS}>Grupo</label><select style={{ ...inp, width: '100%' }} value={novo.grupo} onChange={e => setNovo({ ...novo, grupo: e.target.value })}>{PAG_GRUPOS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
+            <div><label style={lblS}>Cargo</label><input style={{ ...inp, width: '100%' }} value={novo.cargo} onChange={e => setNovo({ ...novo, cargo: e.target.value })} /></div>
+            <div><label style={lblS}>Regime</label><input style={{ ...inp, width: '100%' }} value={novo.regime} onChange={e => setNovo({ ...novo, regime: e.target.value })} /></div>
+            <div><label style={lblS}>Líquido</label><input type="number" style={{ ...inp, width: '100%' }} value={novo.valor_liquido} onChange={e => setNovo({ ...novo, valor_liquido: e.target.value })} /></div>
+            <div><label style={lblS}>Conta</label><input style={{ ...inp, width: '100%' }} value={novo.conta} onChange={e => setNovo({ ...novo, conta: e.target.value })} /></div>
+            <window.Btn variant="primary" size="sm" onClick={adicionar}>Salvar</window.Btn>
+          </div>
+        )}
+        {msg && <div style={{ marginTop: 10, fontSize: 13, color: 'var(--ink-mute)' }}>{msg}</div>}
+      </window.TiltCard>
+
+      {lista === null && <div style={{ color: 'var(--ink-mute)' }}>Carregando…</div>}
+      {lista && lista.length === 0 && <div style={{ color: 'var(--ink-mute)' }}>Nenhum pagamento neste mês. Gere um fechamento de repasse (cai aqui automaticamente) ou adicione uma linha.</div>}
+
+      {lista && PAG_GRUPOS.map(([gk, gl]) => {
+        const rows = lista.filter(r => r.grupo === gk);
+        if (!rows.length) return null;
+        const subtotal = rows.reduce((s, r) => s + (Number(r.valor_liquido) || 0), 0);
+        return (
+          <window.TiltCard key={gk} interactive={false} padding={0}>
+            <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
+              <div style={{ fontWeight: 700 }}>{gl}</div>
+              <div className="mono" style={{ fontWeight: 700 }}>{brl(subtotal)} · {rows.length}</div>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
+                <thead>
+                  <tr style={{ color: 'var(--ink-mute)', textAlign: 'left' }}>
+                    {['Colaborador', 'Regime', 'Líquido', 'Conta', 'Status', ''].map((h, i) => (
+                      <th key={i} style={{ padding: '10px 16px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, textAlign: i === 2 ? 'right' : 'left', fontWeight: 700 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(r => {
+                    const st = PAG_STATUS.find(s => s[0] === r.status) || PAG_STATUS[0];
+                    return (
+                      <tr key={r.id} style={{ borderTop: '1px solid var(--line)' }}>
+                        <td style={{ padding: '10px 16px', fontWeight: 600 }}>{r.nome}<div style={{ fontSize: 11, color: 'var(--ink-mute)', fontWeight: 400 }}>{r.cargo || ''}{r.observacao ? ' · ' + r.observacao : ''}</div></td>
+                        <td style={{ padding: '10px 16px' }}>{r.regime || '—'}</td>
+                        <td style={{ padding: '10px 16px', textAlign: 'right' }}>
+                          <input type="number" defaultValue={r.valor_liquido} onBlur={e => { const v = Number(e.target.value) || 0; if (v !== Number(r.valor_liquido)) patch(r, 'valor_liquido', v); }} style={{ ...inp, width: 100, textAlign: 'right' }} className="mono" />
+                        </td>
+                        <td style={{ padding: '10px 16px' }}>
+                          <input defaultValue={r.conta || ''} onBlur={e => { if (e.target.value !== (r.conta || '')) patch(r, 'conta', e.target.value); }} style={{ ...inp, width: 110 }} placeholder="conta" />
+                        </td>
+                        <td style={{ padding: '10px 16px' }}>
+                          <select value={r.status} onChange={e => patch(r, 'status', e.target.value)} style={{ ...inp, fontWeight: 700, color: st[2], borderColor: st[2] }}>
+                            {PAG_STATUS.map(([k, l]) => <option key={k} value={k} style={{ color: 'var(--ink)' }}>{l}</option>)}
+                          </select>
+                          {r.status === 'pago' && r.data_pagamento && <span style={{ fontSize: 11, color: 'var(--ink-mute)', marginLeft: 8 }}>{String(r.data_pagamento).split('-').reverse().join('/')}</span>}
+                        </td>
+                        <td style={{ padding: '10px 16px', textAlign: 'right' }}>
+                          <button onClick={() => remover(r)} title="Remover" style={{ background: 'none', border: 'none', color: 'var(--ink-mute)', cursor: 'pointer', fontSize: 16 }}>×</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </window.TiltCard>
+        );
+      })}
+    </div>
+  );
+};
+
 const RepassePage = () => {
   const { profile } = window.useAuth();
   const companyId = profile?.company_id;
@@ -406,7 +551,19 @@ const RepassePage = () => {
           status: 'aberto',
         }, companyId, userId);
       }
-      setMsg(`Fechamento de ${competencia} salvo — ${resultados.length} profissionais.`);
+      // Amarra ao módulo de Pagamentos: regenera as linhas de repasse deste mês (grupo Dia 20)
+      try {
+        await D.deletePagamentosRepasse(companyId, competencia);
+        for (const r of resultados) {
+          await D.createPagamento({
+            competencia, grupo: 'dia20', colaborador_id: r.colaborador_id || null,
+            nome: r.nome, cargo: r.categoria, regime: null,
+            valor_bruto: r.bruto, desconto_holding: r.holding, valor_liquido: r.liquido,
+            observacao: 'Repasse ' + competenciaExtenso(competencia), status: 'pendente', origem: 'repasse',
+          }, companyId, userId);
+        }
+      } catch (e) { /* pagamentos é complementar; não bloqueia o fechamento */ }
+      setMsg(`Fechamento de ${competencia} salvo — ${resultados.length} profissionais (também na aba Pagamentos).`);
     } catch (e) { setMsg('Erro: ' + e.message); }
   };
 
@@ -418,7 +575,7 @@ const RepassePage = () => {
 
       {/* Sub-navegação */}
       <div style={{ display: 'flex', gap: 8 }}>
-        {[['fechamento', 'Fechamento'], ['regras', 'Regras'], ['tarifas', 'Tarifas']].map(([k, l]) => (
+        {[['fechamento', 'Fechamento'], ['pagamentos', 'Pagamentos'], ['regras', 'Regras'], ['tarifas', 'Tarifas']].map(([k, l]) => (
           <window.Btn key={k} variant={sub === k ? 'primary' : 'ghost'} size="sm" onClick={() => setSub(k)}>{l}</window.Btn>
         ))}
       </div>
@@ -520,6 +677,7 @@ const RepassePage = () => {
         </>
       )}
 
+      {sub === 'pagamentos' && <PagamentosTab companyId={companyId} userId={userId} colabs={colabs} D={D} />}
       {sub === 'regras' && <RegrasTab companyId={companyId} colabs={colabs} regras={regras} setRegras={setRegras} D={D} />}
       {sub === 'tarifas' && <TarifasTab tarifas={tarifas} D={D} />}
     </div>
