@@ -736,14 +736,15 @@ const RegrasTab = ({ companyId, colabs, regras, setRegras }) => {
       </div>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead><tr style={{ color: 'var(--ink-mute)', textAlign: 'left' }}>
-          {['Profissional', 'Tipo', 'Valor', 'Holding', 'Ciclo'].map((h, i) => <th key={i} style={{ padding: '10px 20px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>{h}</th>)}
+          {['Profissional', 'Categoria', 'Tipo', 'Valor', 'Holding', 'Ciclo'].map((h, i) => <th key={i} style={{ padding: '10px 20px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>{h}</th>)}
         </tr></thead>
         <tbody>
-          {regras.map(r => (
+          {[...regras].sort((a, b) => (a.colaboradores?.nome || '').localeCompare(b.colaboradores?.nome || '', 'pt-BR')).map(r => (
             <tr key={r.id} onClick={() => setEditando(r)} style={{ borderTop: '1px solid var(--line)', cursor: 'pointer' }}
               onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-alt)'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-              <td style={{ padding: '10px 20px', fontWeight: 600 }}>{r.colaboradores?.nome || '—'}</td>
+              <td style={{ padding: '10px 20px', fontWeight: 600 }}>{(r.colaboradores?.nome || '—').toUpperCase()}</td>
+              <td style={{ padding: '10px 20px', color: 'var(--ink-soft)' }}>{(r.colaboradores?.cargo || '—').toUpperCase()}</td>
               <td style={{ padding: '10px 20px' }}>{r.fixo_mensal ? 'fixo mensal' : r.tipo}</td>
               <td style={{ padding: '10px 20px' }}>{r.fixo_mensal ? `${D.brlR(r.valor_base_mensal)}/mês` : r.tipo === 'fixo' ? D.brlR(r.valor_fixo) : `${Math.round((r.pct_convenio || 0) * 100)}% / part ${Math.round((r.pct_particular || 0) * 100)}%`}</td>
               <td style={{ padding: '10px 20px' }}>{r.holding_mensal ? D.brlR(r.holding_mensal) : '—'}</td>
@@ -751,7 +752,7 @@ const RegrasTab = ({ companyId, colabs, regras, setRegras }) => {
             </tr>
           ))}
           {regras.length === 0 && (
-            <tr><td colSpan={5} style={{ padding: 30, textAlign: 'center', color: 'var(--ink-mute)' }}>Nenhuma regra ainda. Clique em "Nova regra" para começar.</td></tr>
+            <tr><td colSpan={6} style={{ padding: 30, textAlign: 'center', color: 'var(--ink-mute)' }}>Nenhuma regra ainda. Clique em "Nova regra" para começar.</td></tr>
           )}
         </tbody>
       </table>
