@@ -384,6 +384,7 @@ const PagamentosTab = ({ companyId, userId, colabs, D }) => {
   const totalPago = (lista || []).filter(r => r.status === 'pago').reduce((s, r) => s + (Number(r.valor_liquido) || 0), 0);
 
   const [gerandoFolha, setGerandoFolha] = useStateRP(false);
+  const [grupoView, setGrupoView] = useStateRP('5dia');
   const gerarFolhaMes = async () => {
     const folha = (colabs || []).filter(c => c.folha_fixa && (!c.status || c.status === 'Ativo'));
     if (!folha.length) { setMsg('Nenhum colaborador marcado como "folha recorrente" no cadastro.'); return; }
@@ -437,56 +438,66 @@ const PagamentosTab = ({ companyId, userId, colabs, D }) => {
       {lista === null && <div style={{ color: 'var(--ink-mute)' }}>Carregando…</div>}
       {lista && lista.length === 0 && <div style={{ color: 'var(--ink-mute)' }}>Nenhum pagamento neste mês. Gere um fechamento de repasse (cai aqui automaticamente) ou adicione uma linha.</div>}
 
-      {lista && PAG_GRUPOS.map(([gk, gl]) => {
-        const rows = lista.filter(r => r.grupo === gk);
-        if (!rows.length) return null;
-        const subtotal = rows.reduce((s, r) => s + (Number(r.valor_liquido) || 0), 0);
+      {lista && lista.length > 0 && (() => {
+        const grupos = PAG_GRUPOS.map(([gk, gl]) => {
+          const rows = lista.filter(r => r.grupo === gk);
+          return { gk, gl, rows, subtotal: rows.reduce((s, r) => s + (Number(r.valor_liquido) || 0), 0) };
+        });
+        const ativo = grupos.find(g => g.gk === grupoView) || grupos[0];
         return (
-          <window.TiltCard key={gk} interactive={false} padding={0}>
-            <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
-              <div style={{ fontWeight: 700 }}>{gl}</div>
-              <div className="mono" style={{ fontWeight: 700 }}>{brl(subtotal)} · {rows.length}</div>
+          <window.TiltCard interactive={false} padding={0}>
+            <div style={{ display: 'flex', gap: 6, padding: '10px 14px', borderBottom: '1px solid var(--line)', alignItems: 'center' }}>
+              {grupos.map(g => (
+                <button key={g.gk} onClick={() => setGrupoView(g.gk)} style={{
+                  padding: '6px 14px', borderRadius: 'var(--r-sm)', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                  background: grupoView === g.gk ? 'var(--c-primary)' : 'transparent',
+                  color: grupoView === g.gk ? '#fff' : 'var(--ink-mute)',
+                }}>{g.gl} · {g.rows.length}</button>
+              ))}
+              <div className="mono" style={{ marginLeft: 'auto', fontWeight: 700 }}>{brl(ativo.subtotal)}</div>
             </div>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
-                <thead>
-                  <tr style={{ color: 'var(--ink-mute)', textAlign: 'left' }}>
-                    {['Colaborador', 'Regime', 'Líquido', 'Conta', 'Status', ''].map((h, i) => (
-                      <th key={i} style={{ padding: '10px 16px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, textAlign: i === 2 ? 'right' : 'left', fontWeight: 700 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map(r => {
-                    const st = PAG_STATUS.find(s => s[0] === r.status) || PAG_STATUS[0];
-                    return (
-                      <tr key={r.id} style={{ borderTop: '1px solid var(--line)' }}>
-                        <td style={{ padding: '10px 16px', fontWeight: 600 }}>{r.nome}<div style={{ fontSize: 11, color: 'var(--ink-mute)', fontWeight: 400 }}>{r.cargo || ''}{r.observacao ? ' · ' + r.observacao : ''}</div></td>
-                        <td style={{ padding: '10px 16px' }}>{r.regime || '—'}</td>
-                        <td style={{ padding: '10px 16px', textAlign: 'right' }}>
-                          <input type="number" defaultValue={r.valor_liquido} onBlur={e => { const v = Number(e.target.value) || 0; if (v !== Number(r.valor_liquido)) patch(r, 'valor_liquido', v); }} style={{ ...inp, width: 100, textAlign: 'right' }} className="mono" />
-                        </td>
-                        <td style={{ padding: '10px 16px' }}>
-                          <input defaultValue={r.conta || ''} onBlur={e => { if (e.target.value !== (r.conta || '')) patch(r, 'conta', e.target.value); }} style={{ ...inp, width: 110 }} placeholder="conta" />
-                        </td>
-                        <td style={{ padding: '10px 16px' }}>
-                          <select value={r.status} onChange={e => patch(r, 'status', e.target.value)} style={{ ...inp, fontWeight: 700, color: st[2], borderColor: st[2] }}>
-                            {PAG_STATUS.map(([k, l]) => <option key={k} value={k} style={{ color: 'var(--ink)' }}>{l}</option>)}
-                          </select>
-                          {r.status === 'pago' && r.data_pagamento && <span style={{ fontSize: 11, color: 'var(--ink-mute)', marginLeft: 8 }}>{String(r.data_pagamento).split('-').reverse().join('/')}</span>}
-                        </td>
-                        <td style={{ padding: '10px 16px', textAlign: 'right' }}>
-                          <button onClick={() => remover(r)} title="Remover" style={{ background: 'none', border: 'none', color: 'var(--ink-mute)', cursor: 'pointer', fontSize: 16 }}>×</button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              {ativo.rows.length === 0
+                ? <div style={{ padding: 18, color: 'var(--ink-mute)', fontSize: 13 }}>Ninguém neste grupo neste mês.</div>
+                : <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ color: 'var(--ink-mute)', textAlign: 'left' }}>
+                      {['Colaborador', 'Regime', 'Líquido', 'Conta', 'Status', ''].map((h, i) => (
+                        <th key={i} style={{ padding: '6px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4, textAlign: i === 2 ? 'right' : 'left', fontWeight: 700 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ativo.rows.map(r => {
+                      const st = PAG_STATUS.find(s => s[0] === r.status) || PAG_STATUS[0];
+                      return (
+                        <tr key={r.id} style={{ borderTop: '1px solid var(--line)' }}>
+                          <td style={{ padding: '4px 12px', fontWeight: 600 }}>{r.nome}<span style={{ fontSize: 11, color: 'var(--ink-mute)', fontWeight: 400 }}>{r.cargo ? ' · ' + r.cargo : ''}</span></td>
+                          <td style={{ padding: '4px 12px', color: 'var(--ink-mute)' }}>{r.regime || '—'}</td>
+                          <td style={{ padding: '4px 12px', textAlign: 'right' }}>
+                            <input type="number" defaultValue={r.valor_liquido} onBlur={e => { const v = Number(e.target.value) || 0; if (v !== Number(r.valor_liquido)) patch(r, 'valor_liquido', v); }} style={{ ...inp, width: 88, textAlign: 'right', padding: '5px 8px' }} className="mono" />
+                          </td>
+                          <td style={{ padding: '4px 12px' }}>
+                            <input defaultValue={r.conta || ''} onBlur={e => { if (e.target.value !== (r.conta || '')) patch(r, 'conta', e.target.value); }} style={{ ...inp, width: 96, padding: '5px 8px' }} placeholder="conta" />
+                          </td>
+                          <td style={{ padding: '4px 12px' }}>
+                            <select value={r.status} onChange={e => patch(r, 'status', e.target.value)} style={{ ...inp, fontWeight: 700, color: st[2], borderColor: st[2], padding: '5px 8px' }}>
+                              {PAG_STATUS.map(([k, l]) => <option key={k} value={k} style={{ color: 'var(--ink)' }}>{l}</option>)}
+                            </select>
+                            {r.status === 'pago' && r.data_pagamento && <span style={{ fontSize: 10, color: 'var(--ink-mute)', marginLeft: 6 }}>{String(r.data_pagamento).split('-').reverse().join('/')}</span>}
+                          </td>
+                          <td style={{ padding: '4px 12px', textAlign: 'right' }}>
+                            <button onClick={() => remover(r)} title="Remover" style={{ background: 'none', border: 'none', color: 'var(--ink-mute)', cursor: 'pointer', fontSize: 15 }}>×</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>}
             </div>
           </window.TiltCard>
         );
-      })}
+      })()}
     </div>
   );
 };
