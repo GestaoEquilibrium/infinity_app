@@ -1673,39 +1673,44 @@ const Linha = ({ label, v }) => (
 // ═════════════════════════════════════════════════════════════════════
 // Shared components (Modal, Field, inputRH)
 // ═════════════════════════════════════════════════════════════════════
-const Modal = ({ title, children, onClose, width = 560 }) => (
-  <div style={{
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
-    backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    padding: 24, zIndex: 9999, overflowY: 'auto',
-  }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+const Modal = ({ title, children, onClose, width = 560 }) => {
+  const content = (
     <div style={{
-      width: `min(${width}px, 100%)`, background: 'var(--surface)',
-      borderRadius: 'var(--r-lg)', padding: 28, boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
-      border: '1px solid var(--line)', animation: 'popIn 0.3s cubic-bezier(.22,1,.36,1)',
-      maxHeight: 'calc(100vh - 48px)', overflowY: 'auto',
-    }} onClick={(e) => e.stopPropagation()}>
-      {title && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h2 style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5 }}>{title}</h2>
-          <button onClick={onClose} style={{
-            width: 32, height: 32, borderRadius: 10, display: 'grid', placeItems: 'center',
-            color: 'var(--ink-mute)', background: 'var(--surface-2)',
-          }}>✕</button>
-        </div>
-      )}
-      {!title && (
-        <div style={{ textAlign: 'right', marginBottom: 12 }}>
-          <button onClick={onClose} style={{
-            width: 32, height: 32, borderRadius: 10, display: 'grid', placeItems: 'center',
-            color: 'var(--ink-mute)', background: 'var(--surface-2)', marginLeft: 'auto',
-          }}>✕</button>
-        </div>
-      )}
-      {children}
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+      backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 24, zIndex: 9999, overflowY: 'auto',
+    }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{
+        width: `min(${width}px, 100%)`, background: 'var(--surface)',
+        borderRadius: 'var(--r-lg)', padding: 28, boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+        border: '1px solid var(--line)', animation: 'popIn 0.3s cubic-bezier(.22,1,.36,1)',
+        maxHeight: 'calc(100vh - 48px)', overflowY: 'auto', margin: 'auto',
+      }} onClick={(e) => e.stopPropagation()}>
+        {title && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5 }}>{title}</h2>
+            <button onClick={onClose} style={{
+              width: 32, height: 32, borderRadius: 10, display: 'grid', placeItems: 'center',
+              color: 'var(--ink-mute)', background: 'var(--surface-2)',
+            }}>✕</button>
+          </div>
+        )}
+        {!title && (
+          <div style={{ textAlign: 'right', marginBottom: 12 }}>
+            <button onClick={onClose} style={{
+              width: 32, height: 32, borderRadius: 10, display: 'grid', placeItems: 'center',
+              color: 'var(--ink-mute)', background: 'var(--surface-2)', marginLeft: 'auto',
+            }}>✕</button>
+          </div>
+        )}
+        {children}
+      </div>
     </div>
-  </div>
-);
+  );
+  return (typeof ReactDOM !== 'undefined' && ReactDOM.createPortal)
+    ? ReactDOM.createPortal(content, document.body)
+    : content;
+};
 
 const Field = ({ label, children, full }) => (
   <div style={{ gridColumn: full ? '1 / -1' : undefined }}>
