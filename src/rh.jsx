@@ -48,9 +48,9 @@ async function autoAddPagamento(created, form, profile) {
     const competencia = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
     const row = Array.isArray(created) ? created[0] : created;
     const colaborador_id = (row && row.id) || null;
-    if (colaborador_id && await RD.pagamentoExiste(profile.company_id, competencia, '5dia', colaborador_id)) return;
+    if (colaborador_id && await RD.pagamentoExiste(profile.company_id, competencia, (form.grupo_folha === 'dia20' ? 'dia20' : '5dia'), colaborador_id)) return;
     await RD.createPagamento({
-      competencia, grupo: '5dia', colaborador_id,
+      competencia, grupo: form.grupo_folha === 'dia20' ? 'dia20' : '5dia', colaborador_id,
       nome: form.nome, cargo: form.cargo || null, regime: form.regime || null,
       valor_liquido: parseFloat(form.salario) || 0,
       conta: form.pagador || null, status: 'pendente', origem: 'folha',
@@ -411,7 +411,7 @@ const ColabForm = ({ colab, onClose, onSaved, onDeleted, toast }) => {
   const [form, setForm] = React.useState({
     nome: '', cargo: '', setor: 'Administrativo', regime: 'CLT', status: 'Ativo',
     cpf: '', cnpj: '', rg: '', pis: '', ctps: '', titulo_eleitor: '', cnh: '', conselho: '',
-    nascimento: '', estado_civil: '', escolaridade: '', sexo: '', atende_convenio: false, folha_fixa: false,
+    nascimento: '', estado_civil: '', escolaridade: '', sexo: '', atende_convenio: false, folha_fixa: false, grupo_folha: '5dia',
     telefone: '', email: '', endereco: '', cep: '',
     admissao: '', limite_ferias: '', salario: '', pagador: '', observacoes: '',
     ...colab,
@@ -485,6 +485,14 @@ const ColabForm = ({ colab, onClose, onSaved, onDeleted, toast }) => {
             Entra na folha mensal (5º dia útil) com o salário
           </label>
         </Field>
+        {form.folha_fixa && (
+          <Field label="Grupo de pagamento">
+            <select style={inputRH} value={form.grupo_folha || '5dia'} onChange={e => setForm({ ...form, grupo_folha: e.target.value })}>
+              <option value="5dia">Folha — 5º dia útil</option>
+              <option value="dia20">Dia 20</option>
+            </select>
+          </Field>
+        )}
         <Field label="Cargo"><input style={inputRH} value={form.cargo || ''} onChange={e => setForm({ ...form, cargo: e.target.value })} /></Field>
         <Field label="Setor">
           <select style={inputRH} value={form.setor || 'Administrativo'} onChange={e => setForm({ ...form, setor: e.target.value })}>
