@@ -40,22 +40,21 @@ const rhDeleteColab = (id) => sbRH(`/colaboradores?id=eq.${id}`, { method: 'DELE
 async function autoAddPagamento(created, form, profile) {
   const RD = window.__repasseData;
   if (!RD || !RD.createPagamento) return;
+  // Só FOLHA RECORRENTE entra automático na folha (5º dia). Profissional de repasse
+  // NÃO entra aqui — ele cai na aba Pagamentos quando o fechamento do repasse é salvo.
+  if (!form.folha_fixa) return;
   try {
-    const convenio = !!form.atende_convenio;
-    const dias = convenio ? 60 : 30;
-    const base = form.admissao ? new Date(form.admissao + 'T00:00:00') : new Date();
-    const alvo = new Date(base.getTime() + dias * 86400000);
-    const competencia = `${alvo.getFullYear()}-${String(alvo.getMonth() + 1).padStart(2, '0')}`;
-    const grupo = convenio ? 'dia20' : '5dia';
+    const hoje = new Date();
+    const competencia = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
     const row = Array.isArray(created) ? created[0] : created;
     const colaborador_id = (row && row.id) || null;
-    if (colaborador_id && await RD.pagamentoExiste(profile.company_id, competencia, grupo, colaborador_id)) return;
+    if (colaborador_id && await RD.pagamentoExiste(profile.company_id, competencia, '5dia', colaborador_id)) return;
     await RD.createPagamento({
-      competencia, grupo, colaborador_id,
+      competencia, grupo: '5dia', colaborador_id,
       nome: form.nome, cargo: form.cargo || null, regime: form.regime || null,
-      valor_liquido: grupo === '5dia' ? (parseFloat(form.salario) || 0) : 0,
-      conta: form.pagador || null, status: 'pendente', origem: 'auto',
-      observacao: `Cadastro novo — 1º pagamento (${dias} dias após admissão)`,
+      valor_liquido: parseFloat(form.salario) || 0,
+      conta: form.pagador || null, status: 'pendente', origem: 'folha',
+      observacao: 'Folha (cadastro novo)',
     }, profile.company_id, profile.id);
   } catch (e) { /* silencioso: pagamento é complementar ao cadastro */ }
 }
