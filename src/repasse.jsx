@@ -73,6 +73,37 @@ async function createFechamento(f, companyId, userId) {
   });
 }
 
+// ---- Pagamentos (folha 5º dia + repasse Dia 20) ----
+async function fetchPagamentos(companyId, competencia) {
+  let q = `/pagamentos?company_id=eq.${companyId}&select=*&order=grupo.asc,nome.asc&limit=1000`;
+  if (competencia) q += `&competencia=eq.${competencia}`;
+  return sbR(q);
+}
+async function createPagamento(p, companyId, userId) {
+  return sbR('/pagamentos', {
+    method: 'POST', prefer: 'return=representation',
+    body: JSON.stringify({ ...p, company_id: companyId, created_by: userId }),
+  });
+}
+async function updatePagamento(id, patch) {
+  return sbR(`/pagamentos?id=eq.${id}`, {
+    method: 'PATCH', prefer: 'return=representation',
+    body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
+  });
+}
+async function deletePagamento(id) {
+  return sbR(`/pagamentos?id=eq.${id}`, { method: 'DELETE' });
+}
+// remove os lançamentos vindos do repasse de uma competência (antes de regerar)
+async function deletePagamentosRepasse(companyId, competencia) {
+  return sbR(`/pagamentos?company_id=eq.${companyId}&competencia=eq.${competencia}&origem=eq.repasse`, { method: 'DELETE' });
+}
+// verifica se já existe pagamento de um colaborador num mês/grupo (para o auto-add não duplicar)
+async function pagamentoExiste(companyId, competencia, grupo, colaboradorId) {
+  const r = await sbR(`/pagamentos?company_id=eq.${companyId}&competencia=eq.${competencia}&grupo=eq.${grupo}&colaborador_id=eq.${colaboradorId}&select=id&limit=1`);
+  return Array.isArray(r) && r.length > 0;
+}
+
 const brlR = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const hojeR = () => new Date().toISOString().slice(0, 10);
 
@@ -256,5 +287,6 @@ const CaixaPage = () => {
 Object.assign(window, {
   CaixaPage,
   // expõe data layer para a RepassePage (arquivo repasse2.jsx) e outros
-  __repasseData: { fetchCaixa, fetchRegras, upsertRegra, fetchTarifas, fetchFechamentos, createFechamento, brlR },
+  __repasseData: { fetchCaixa, fetchRegras, upsertRegra, fetchTarifas, fetchFechamentos, createFechamento, brlR,
+    fetchPagamentos, createPagamento, updatePagamento, deletePagamento, deletePagamentosRepasse, pagamentoExiste },
 });
