@@ -98,6 +98,10 @@ async function deletePagamento(id) {
 async function deletePagamentosRepasse(companyId, competencia) {
   return sbR(`/pagamentos?company_id=eq.${companyId}&competencia=eq.${competencia}&origem=eq.repasse`, { method: 'DELETE' });
 }
+// remove os lançamentos de folha de uma competência (antes de regerar a folha)
+async function deletePagamentosFolha(companyId, competencia) {
+  return sbR(`/pagamentos?company_id=eq.${companyId}&competencia=eq.${competencia}&origem=eq.folha`, { method: 'DELETE' });
+}
 // verifica se já existe pagamento de um colaborador num mês/grupo (para o auto-add não duplicar)
 async function pagamentoExiste(companyId, competencia, grupo, colaboradorId) {
   const r = await sbR(`/pagamentos?company_id=eq.${companyId}&competencia=eq.${competencia}&grupo=eq.${grupo}&colaborador_id=eq.${colaboradorId}&select=id&limit=1`);
@@ -288,5 +292,5 @@ Object.assign(window, {
   CaixaPage,
   // expõe data layer para a RepassePage (arquivo repasse2.jsx) e outros
   __repasseData: { fetchCaixa, fetchRegras, upsertRegra, fetchTarifas, fetchFechamentos, createFechamento, brlR,
-    fetchPagamentos, createPagamento, updatePagamento, deletePagamento, deletePagamentosRepasse, pagamentoExiste },
+    fetchPagamentos, createPagamento, updatePagamento, deletePagamento, deletePagamentosRepasse, deletePagamentosFolha, pagamentoExiste },
 });
