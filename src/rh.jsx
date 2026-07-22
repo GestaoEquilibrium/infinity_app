@@ -412,7 +412,7 @@ const ColabForm = ({ colab, onClose, onSaved, onDeleted, toast }) => {
   const [form, setForm] = React.useState({
     nome: '', cargo: '', setor: 'Administrativo', regime: 'CLT', status: 'Ativo',
     cpf: '', cnpj: '', rg: '', pis: '', ctps: '', titulo_eleitor: '', cnh: '', conselho: '',
-    nascimento: '', estado_civil: '', escolaridade: '', sexo: '', atende_convenio: false,
+    nascimento: '', estado_civil: '', escolaridade: '', sexo: '', atende_convenio: false, folha_fixa: false,
     telefone: '', email: '', endereco: '', cep: '',
     admissao: '', limite_ferias: '', salario: '', pagador: '', observacoes: '',
     ...colab,
@@ -478,6 +478,12 @@ const ColabForm = ({ colab, onClose, onSaved, onDeleted, toast }) => {
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, padding: '9px 0', cursor: 'pointer' }}>
             <input type="checkbox" checked={!!form.atende_convenio} onChange={e => setForm({ ...form, atende_convenio: e.target.checked })} />
             Sim — 1º pagamento em 60 dias (senão 30)
+          </label>
+        </Field>
+        <Field label="Folha recorrente">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, padding: '9px 0', cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!form.folha_fixa} onChange={e => setForm({ ...form, folha_fixa: e.target.checked })} />
+            Entra na folha mensal (5º dia útil) com o salário
           </label>
         </Field>
         <Field label="Cargo"><input style={inputRH} value={form.cargo || ''} onChange={e => setForm({ ...form, cargo: e.target.value })} /></Field>
