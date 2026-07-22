@@ -81,11 +81,20 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
     const holding = Number(regra.holding_mensal || 0);
     let sessoes = 0, receita = 0, repasse = 0, faltas = 0, ausencias = 0, pendentes = 0;
     const convCount = {};
+    const diaInfo = {};       // dia -> { realizado, ausente } para saber se faltou o dia inteiro
+    let ausenteProprio = 0;   // só "Profissional Ausente" (não conta desmarcação estando presente)
 
     for (const a of atends) {
       const status = a['Status'] || '';
       const conv = a['Convênio'] || '';
       const proc = a['Procedimento'] || '';
+      const dia = a['Dia'] || '';
+      if (dia) {
+        const di = (diaInfo[dia] = diaInfo[dia] || { realizado: false, ausente: false });
+        if (STATUS_COMPUTA.includes(status)) di.realizado = true;
+        if (status === 'Profissional Ausente') di.ausente = true;
+      }
+      if (status === 'Profissional Ausente') ausenteProprio++;
       if (STATUS_FALTA.includes(status)) faltas++;
       else if (STATUS_AUSENTE.includes(status)) ausencias++;
       else if (STATUS_PENDENTE.includes(status)) pendentes++;
@@ -121,21 +130,36 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
       else repassePart = cx.total * (1 - IMPOSTO_RP) * Number(regra.pct_particular || 0);
     }
 
-    const receitaTotal = receita + cx.total;
-    const bruto = repasse + repassePart;
+    const isFixoMensal = !!regra.fixo_mensal;
+    const receitaTotal0 = receita + cx.total;
+    // dia só é descontado se ela faltou o dia INTEIRO (ausente e sem nenhum atendimento realizado)
+    const diasAusentesReais = Object.values(diaInfo).filter(d => d.ausente && !d.realizado).length;
+    let receitaTotal = receitaTotal0;
+    let bruto = repasse + repassePart;
+    let baseMensal = 0, descontoFalta = 0, faltasQtd = 0;
+    if (isFixoMensal) {
+      baseMensal = Number(regra.valor_base_mensal || 0);
+      if (regra.desconto_por === 'dia') { faltasQtd = diasAusentesReais; descontoFalta = faltasQtd * (baseMensal / 30); }
+      // por atendimento: desconta CADA desmarque dela (Cancelado Profissional) + falta dela (Profissional Ausente)
+      else { faltasQtd = ausencias; descontoFalta = faltasQtd * Number(regra.valor_falta || 0); }
+      bruto = baseMensal - descontoFalta;
+      receitaTotal = baseMensal; // evita falso alerta de "repasse > receita" na fono
+    }
     const liquido = bruto - holding;
-    const imposto = receitaTotal * IMPOSTO_RP;
-    const margem = receitaTotal - imposto - liquido;
+    const imposto = isFixoMensal ? 0 : receitaTotal * IMPOSTO_RP;
+    const margem = isFixoMensal ? 0 : receitaTotal - imposto - liquido;
     const total = atends.length;
 
-    if (pendentes >= 0.15 * total && total > 5)
+    if (!isFixoMensal && pendentes >= 0.15 * total && total > 5)
       pendencias.push({ tipo: 'pendente', msg: `${nome}: ${pendentes} de ${total} agendamentos com status em aberto.` });
-    if (bruto > receitaTotal && receitaTotal > 0)
+    if (!isFixoMensal && bruto > receitaTotal && receitaTotal > 0)
       pendencias.push({ tipo: 'prejuizo', msg: `${nome}: repasse (${window.__repasseData.brlR(bruto)}) maior que a receita (${window.__repasseData.brlR(receitaTotal)}).` });
 
     resultados.push({
       nome, colaborador_id: colab?.id, categoria: colab?.cargo || regra.grupo_ciclo,
-      tipo: regra.tipo,
+      tipo: isFixoMensal ? 'fixo_mensal' : regra.tipo,
+      fixo_mensal: isFixoMensal, base_mensal: baseMensal, desconto_falta: descontoFalta, faltas_qtd: faltasQtd,
+      desconto_por: regra.desconto_por || 'atendimento',
       rep_convenio: repasse, rep_particular: repassePart,
       pct_conv: Number(regra.pct_convenio || 0), pct_part: Number(regra.pct_particular || 0),
       valor_fixo: Number(regra.valor_fixo || 0),
@@ -220,7 +244,15 @@ function gerarDemonstrativoPDF(r, competencia, assinante = 'Guilherme Marques', 
   const cardX = M, cardW = W - 2 * M;
   const isPerc = r.tipo === 'percentual';
   const rows = [];
-  if (isPerc) {
+  if (r.fixo_mensal) {
+    rows.push(['Base mensal', brl(r.base_mensal), false]);
+    if (r.desconto_falta > 0) {
+      const lbl = r.desconto_por === 'dia'
+        ? `Faltas do profissional (${r.faltas_qtd} dia${r.faltas_qtd === 1 ? '' : 's'} inteiro${r.faltas_qtd === 1 ? '' : 's'})`
+        : `Desmarques/faltas do profissional (${r.faltas_qtd})`;
+      rows.push([lbl, '- ' + brl(r.desconto_falta).replace('R$ ', ''), true]);
+    }
+  } else if (isPerc) {
     rows.push([`Repasse conv\u00eanio (${mesNomeLower(compConv)}) \u2014 ${Math.round((r.pct_conv || 0) * 100)}% ap\u00f3s imposto`, brl(r.rep_convenio), false]);
     if (temPart) rows.push([`Repasse particular (${mesNomeLower(compPart)}) \u2014 ${Math.round((r.pct_part || 0) * 100)}% ap\u00f3s imposto`, brl(r.rep_particular), false]);
     rows.push(['Imposto retido (13,33%)', brl(r.imposto), true]);
@@ -712,8 +744,8 @@ const RegrasTab = ({ companyId, colabs, regras, setRegras }) => {
               onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-alt)'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
               <td style={{ padding: '10px 20px', fontWeight: 600 }}>{r.colaboradores?.nome || '—'}</td>
-              <td style={{ padding: '10px 20px' }}>{r.tipo}</td>
-              <td style={{ padding: '10px 20px' }}>{r.tipo === 'fixo' ? D.brlR(r.valor_fixo) : `${Math.round((r.pct_convenio || 0) * 100)}% / part ${Math.round((r.pct_particular || 0) * 100)}%`}</td>
+              <td style={{ padding: '10px 20px' }}>{r.fixo_mensal ? 'fixo mensal' : r.tipo}</td>
+              <td style={{ padding: '10px 20px' }}>{r.fixo_mensal ? `${D.brlR(r.valor_base_mensal)}/mês` : r.tipo === 'fixo' ? D.brlR(r.valor_fixo) : `${Math.round((r.pct_convenio || 0) * 100)}% / part ${Math.round((r.pct_particular || 0) * 100)}%`}</td>
               <td style={{ padding: '10px 20px' }}>{r.holding_mensal ? D.brlR(r.holding_mensal) : '—'}</td>
               <td style={{ padding: '10px 20px', color: 'var(--ink-soft)' }}>{r.grupo_ciclo}</td>
             </tr>
@@ -737,12 +769,15 @@ const ModalRegra = ({ regra, companyId, colabs, regras, onClose, onSaved }) => {
   const isNew = !regra.id;
   const [form, setForm] = useStateRP({
     colaborador_id: regra.colaborador_id || '',
-    tipo: regra.tipo || 'fixo',
+    tipo: regra.fixo_mensal ? 'fixomensal' : (regra.tipo || 'fixo'),
     valor_fixo: regra.valor_fixo ?? '',
     valor_fixo_aba: regra.valor_fixo_aba ?? '',
     pct_convenio: regra.pct_convenio != null ? Math.round(regra.pct_convenio * 100) : '',
     pct_particular: regra.pct_particular != null ? Math.round(regra.pct_particular * 100) : '',
     valor_particular: regra.valor_particular ?? '',
+    valor_base_mensal: regra.valor_base_mensal ?? '',
+    desconto_por: regra.desconto_por || 'atendimento',
+    valor_falta: regra.valor_falta ?? '',
     holding_mensal: regra.holding_mensal ?? '',
     grupo_ciclo: regra.grupo_ciclo || 'Grupo 1 (M-2)',
     competencia_convenio: regra.competencia_convenio || 'M-2',
@@ -761,9 +796,14 @@ const ModalRegra = ({ regra, companyId, colabs, regras, onClose, onSaved }) => {
   const salvar = async () => {
     if (!form.colaborador_id) return setErro('Escolha o profissional.');
     setErro(''); setSalvando(true);
+    const ehMensal = form.tipo === 'fixomensal';
     const payload = {
       colaborador_id: form.colaborador_id,
-      tipo: form.tipo,
+      tipo: ehMensal ? 'fixo' : form.tipo,
+      fixo_mensal: ehMensal,
+      valor_base_mensal: ehMensal ? num(form.valor_base_mensal) : null,
+      desconto_por: ehMensal ? form.desconto_por : null,
+      valor_falta: ehMensal && form.desconto_por === 'atendimento' ? num(form.valor_falta) : null,
       valor_fixo: form.tipo === 'fixo' ? num(form.valor_fixo) : null,
       valor_fixo_aba: form.tipo === 'fixo' ? num(form.valor_fixo_aba) : null,
       pct_convenio: form.tipo === 'percentual' ? (num(form.pct_convenio) || 0) / 100 : null,
@@ -805,7 +845,7 @@ const ModalRegra = ({ regra, companyId, colabs, regras, onClose, onSaved }) => {
         <div style={{ marginBottom: 14 }}>
           <label style={lbl}>Forma de repasse</label>
           <div style={{ display: 'flex', gap: 8 }}>
-            {[['fixo', 'Valor fixo por sessão'], ['percentual', 'Percentual']].map(([k, l]) => (
+            {[['fixo', 'Fixo por sessão'], ['percentual', 'Percentual'], ['fixomensal', 'Fixo mensal']].map(([k, l]) => (
               <button key={k} onClick={() => set('tipo', k)} style={{
                 flex: 1, padding: '10px', borderRadius: 'var(--r-md)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
                 background: form.tipo === k ? 'var(--accent)' : 'var(--bg-alt)',
@@ -816,7 +856,24 @@ const ModalRegra = ({ regra, companyId, colabs, regras, onClose, onSaved }) => {
           </div>
         </div>
 
-        {form.tipo === 'fixo' ? (
+        {form.tipo === 'fixomensal' ? (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div><label style={lbl}>Valor base mensal (R$)</label><input value={form.valor_base_mensal} onChange={e => set('valor_base_mensal', e.target.value)} placeholder="14000,00" style={inp} /></div>
+              <div>
+                <label style={lbl}>Desconto por falta</label>
+                <select value={form.desconto_por} onChange={e => set('desconto_por', e.target.value)} style={inp}>
+                  <option value="atendimento">Por atendimento faltado</option>
+                  <option value="dia">Por dia (base ÷ 30)</option>
+                </select>
+              </div>
+            </div>
+            {form.desconto_por === 'atendimento'
+              ? <div><label style={lbl}>Valor por atendimento desmarcado/faltado (R$)</label><input value={form.valor_falta} onChange={e => set('valor_falta', e.target.value)} placeholder="60,00" style={inp} /></div>
+              : <div style={{ fontSize: 12, color: 'var(--ink-mute)' }}>Cada dia em que o profissional falta o dia inteiro desconta 1/30 do valor base.</div>}
+            <div style={{ fontSize: 12, color: 'var(--ink-mute)', marginTop: 8 }}>Base fixa por mês. Desconta cada horário que o profissional <b>desmarca</b> (Cancelado Profissional) ou <b>falta</b> (Profissional Ausente). Falta/cancelamento do <b>paciente</b> não desconta.</div>
+          </div>
+        ) : form.tipo === 'fixo' ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
             <div><label style={lbl}>Valor por sessão (R$)</label><input value={form.valor_fixo} onChange={e => set('valor_fixo', e.target.value)} placeholder="22,50" style={inp} /></div>
             <div><label style={lbl}>Valor ABA (opcional)</label><input value={form.valor_fixo_aba} onChange={e => set('valor_fixo_aba', e.target.value)} placeholder="26,50" style={inp} /></div>
