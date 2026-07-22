@@ -383,6 +383,27 @@ const PagamentosTab = ({ companyId, userId, colabs, D }) => {
   const totalMes = (lista || []).reduce((s, r) => s + (Number(r.valor_liquido) || 0), 0);
   const totalPago = (lista || []).filter(r => r.status === 'pago').reduce((s, r) => s + (Number(r.valor_liquido) || 0), 0);
 
+  const [gerandoFolha, setGerandoFolha] = useStateRP(false);
+  const gerarFolhaMes = async () => {
+    const folha = (colabs || []).filter(c => c.folha_fixa && (!c.status || c.status === 'Ativo'));
+    if (!folha.length) { setMsg('Nenhum colaborador marcado como "folha recorrente" no cadastro.'); return; }
+    setGerandoFolha(true); setMsg('Gerando folha do mês...');
+    let add = 0;
+    for (const c of folha) {
+      try {
+        if (await D.pagamentoExiste(companyId, competencia, '5dia', c.id)) continue;
+        await D.createPagamento({
+          competencia, grupo: '5dia', colaborador_id: c.id, nome: c.nome, cargo: c.cargo, regime: c.regime,
+          valor_liquido: Number(c.salario) || 0, conta: c.pagador || null, status: 'pendente', origem: 'folha',
+          observacao: 'Folha do mês',
+        }, companyId, userId);
+        add++;
+      } catch (e) { /* segue */ }
+    }
+    setGerandoFolha(false); setMsg(`${add} colaborador(es) adicionado(s) à folha de ${competenciaExtenso(competencia)}.`);
+    carregar();
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <window.TiltCard interactive={false} padding={20}>
@@ -394,6 +415,7 @@ const PagamentosTab = ({ companyId, userId, colabs, D }) => {
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 22, alignItems: 'center', flexWrap: 'wrap' }}>
             <div><div style={{ fontSize: 11, color: 'var(--ink-mute)', textTransform: 'uppercase' }}>Total do mês</div><div className="mono" style={{ fontSize: 18, fontWeight: 700 }}>{brl(totalMes)}</div></div>
             <div><div style={{ fontSize: 11, color: 'var(--ink-mute)', textTransform: 'uppercase' }}>Já pago</div><div className="mono" style={{ fontSize: 18, fontWeight: 700, color: 'var(--c-pos)' }}>{brl(totalPago)}</div></div>
+            <window.Btn variant="ghost" size="sm" disabled={gerandoFolha} onClick={gerarFolhaMes}>{gerandoFolha ? 'Gerando...' : 'Gerar folha do mês'}</window.Btn>
             <window.Btn variant="ghost" size="sm" onClick={() => setAddOpen(v => !v)}>+ Adicionar linha</window.Btn>
           </div>
         </div>
