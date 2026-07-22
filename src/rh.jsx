@@ -34,6 +34,32 @@ const rhUpdateColab = (id, patch) => sbRH(`/colaboradores?id=eq.${id}`, { method
   body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }) });
 const rhDeleteColab = (id) => sbRH(`/colaboradores?id=eq.${id}`, { method: 'DELETE' });
 
+// Inclui automaticamente um colaborador recém-cadastrado no módulo de Pagamentos:
+// CLT/folha = 1º pagamento 30 dias após a admissão (grupo 5º dia);
+// atende convênio = 60 dias (grupo Dia 20). Best-effort: nunca bloqueia o cadastro.
+async function autoAddPagamento(created, form, profile) {
+  const RD = window.__repasseData;
+  if (!RD || !RD.createPagamento) return;
+  try {
+    const convenio = !!form.atende_convenio;
+    const dias = convenio ? 60 : 30;
+    const base = form.admissao ? new Date(form.admissao + 'T00:00:00') : new Date();
+    const alvo = new Date(base.getTime() + dias * 86400000);
+    const competencia = `${alvo.getFullYear()}-${String(alvo.getMonth() + 1).padStart(2, '0')}`;
+    const grupo = convenio ? 'dia20' : '5dia';
+    const row = Array.isArray(created) ? created[0] : created;
+    const colaborador_id = (row && row.id) || null;
+    if (colaborador_id && await RD.pagamentoExiste(profile.company_id, competencia, grupo, colaborador_id)) return;
+    await RD.createPagamento({
+      competencia, grupo, colaborador_id,
+      nome: form.nome, cargo: form.cargo || null, regime: form.regime || null,
+      valor_liquido: grupo === '5dia' ? (parseFloat(form.salario) || 0) : 0,
+      conta: form.pagador || null, status: 'pendente', origem: 'auto',
+      observacao: `Cadastro novo — 1º pagamento (${dias} dias após admissão)`,
+    }, profile.company_id, profile.id);
+  } catch (e) { /* silencioso: pagamento é complementar ao cadastro */ }
+}
+
 const rhListFaltas = (cid) => sbRH(`/faltas?company_id=eq.${cid}&select=*&order=data.desc&limit=1000`);
 const rhCreateFalta = (f, cid, uid) => sbRH('/faltas', { method: 'POST', prefer: 'return=representation',
   body: JSON.stringify({ ...f, company_id: cid, created_by: uid }) });
@@ -386,7 +412,7 @@ const ColabForm = ({ colab, onClose, onSaved, onDeleted, toast }) => {
   const [form, setForm] = React.useState({
     nome: '', cargo: '', setor: 'Administrativo', regime: 'CLT', status: 'Ativo',
     cpf: '', cnpj: '', rg: '', pis: '', ctps: '', titulo_eleitor: '', cnh: '', conselho: '',
-    nascimento: '', estado_civil: '', escolaridade: '', sexo: '',
+    nascimento: '', estado_civil: '', escolaridade: '', sexo: '', atende_convenio: false,
     telefone: '', email: '', endereco: '', cep: '',
     admissao: '', limite_ferias: '', salario: '', pagador: '', observacoes: '',
     ...colab,
@@ -411,7 +437,10 @@ const ColabForm = ({ colab, onClose, onSaved, onDeleted, toast }) => {
       delete payload.id; delete payload.created_at; delete payload.updated_at; delete payload.created_by; delete payload.company_id;
 
       if (isEdit) await rhUpdateColab(colab.id, payload);
-      else await rhCreateColab(payload, profile.company_id, profile.id);
+      else {
+        const created = await rhCreateColab(payload, profile.company_id, profile.id);
+        await autoAddPagamento(created, form, profile);
+      }
       onSaved();
     } catch (e) {
       toast.show('Erro: ' + e.message, 'error');
@@ -444,6 +473,12 @@ const ColabForm = ({ colab, onClose, onSaved, onDeleted, toast }) => {
           <select style={inputRH} value={form.regime} onChange={e => setForm({ ...form, regime: e.target.value })}>
             {['CLT', 'PJ', 'Estagiário', 'Prestador', 'Sócio'].map(x => <option key={x}>{x}</option>)}
           </select>
+        </Field>
+        <Field label="Atende convênio">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, padding: '9px 0', cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!form.atende_convenio} onChange={e => setForm({ ...form, atende_convenio: e.target.checked })} />
+            Sim — 1º pagamento em 60 dias (senão 30)
+          </label>
         </Field>
         <Field label="Cargo"><input style={inputRH} value={form.cargo || ''} onChange={e => setForm({ ...form, cargo: e.target.value })} /></Field>
         <Field label="Setor">
