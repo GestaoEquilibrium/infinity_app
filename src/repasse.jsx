@@ -108,6 +108,58 @@ async function pagamentoExiste(companyId, competencia, grupo, colaboradorId) {
   return Array.isArray(r) && r.length > 0;
 }
 
+// ---- Ponte Pagamentos -> Contas a Pagar ----
+// Feriados nacionais + Uberlândia (para achar o 5º dia útil)
+const FERIADOS_RP = new Set([
+  '01-01', '04-21', '05-01', '09-07', '10-12', '11-02', '11-15', '11-20', '12-25',
+  '2026-02-16', '2026-02-17', '2026-04-03', '2026-06-04', '2026-08-31',
+]);
+function ehFeriadoRP(d) {
+  const mmdd = String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const full = d.getFullYear() + '-' + mmdd;
+  return FERIADOS_RP.has(mmdd) || FERIADOS_RP.has(full);
+}
+// 5º dia útil do mês da competência ('YYYY-MM')
+function quintoDiaUtil(competencia) {
+  const [a, m] = competencia.split('-').map(Number);
+  let d = new Date(a, m - 1, 1), uteis = 0;
+  while (true) {
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6 && !ehFeriadoRP(d)) uteis++;
+    if (uteis === 5) break;
+    d = new Date(a, m - 1, d.getDate() + 1);
+  }
+  return `${a}-${String(m).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+// vencimento conforme o grupo: 5dia -> 5º dia útil; dia20 -> dia 20
+function vencimentoDoGrupo(competencia, grupo) {
+  if (grupo === 'dia20') return `${competencia}-20`;
+  return quintoDiaUtil(competencia);
+}
+// categoria da conta a partir da origem/grupo do pagamento
+function categoriaDoPagamento(p) {
+  if (p.origem === 'repasse') return 'Repasses';
+  if (p.origem === 'folha') return 'Folha/RH';
+  return p.grupo === 'dia20' ? 'Repasses' : 'Folha/RH';
+}
+// cria a conta a pagar e amarra no pagamento
+async function enviarPagamentoParaContas(p, companyId, userId) {
+  const conta = {
+    tipo: 'pagar',
+    category: categoriaDoPagamento(p),
+    description: `${p.nome}${p.cargo ? ' - ' + p.cargo : ''}`,
+    vencimento: vencimentoDoGrupo(p.competencia, p.grupo),
+    previsto: Number(p.valor_liquido) || 0,
+    realizado: p.status === 'pago' ? (Number(p.valor_liquido) || 0) : 0,
+    pago: p.status === 'pago',
+    pagoEm: p.status === 'pago' ? (p.data_pagamento || null) : null,
+  };
+  const res = await window.createConta(conta, companyId, userId);
+  const row = Array.isArray(res) ? res[0] : res;
+  if (row && row.id) await updatePagamento(p.id, { transaction_id: row.id });
+  return row;
+}
+
 const brlR = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const hojeR = () => new Date().toISOString().slice(0, 10);
 
@@ -292,5 +344,6 @@ Object.assign(window, {
   CaixaPage,
   // expõe data layer para a RepassePage (arquivo repasse2.jsx) e outros
   __repasseData: { fetchCaixa, fetchRegras, upsertRegra, fetchTarifas, fetchFechamentos, createFechamento, brlR,
-    fetchPagamentos, createPagamento, updatePagamento, deletePagamento, deletePagamentosRepasse, deletePagamentosFolha, pagamentoExiste },
+    fetchPagamentos, createPagamento, updatePagamento, deletePagamento, deletePagamentosRepasse, deletePagamentosFolha, pagamentoExiste,
+    enviarPagamentoParaContas, vencimentoDoGrupo, quintoDiaUtil },
 });
