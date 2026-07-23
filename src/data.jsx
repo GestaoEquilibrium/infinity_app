@@ -222,6 +222,7 @@ function rangeDoCiclo(month, corte) {
 }
 
 function availableMonths() {
+  const set = new Set();
   (window.COMPRAS || COMPRAS).forEach(t => { if (t.date) set.add(monthKey(t.date)); });
   (window.CONTAS || CONTAS).forEach(c => { if (c.vencimento) set.add(monthKey(c.vencimento)); });
   // Além dos meses com lançamento, oferece uma janela contínua: 12 meses para trás
