@@ -7,6 +7,8 @@
 // ─── Supabase RH API (sem SDK, mesmo padrão do supabase.jsx) ───
 const SB_URL_RH = () => window.SUPABASE_URL;
 const sbRH = async (path, opts = {}) => {
+  // usa o wrapper global (tem renovação automática de token)
+  if (window.__sbRest) return window.__sbRest(path, opts);
   const s = window.getSession?.();
   const res = await fetch(`${SB_URL_RH()}/rest/v1${path}`, {
     ...opts,
