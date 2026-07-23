@@ -18,6 +18,8 @@ const FilterBar = ({ filter, setFilter }) => {
             style={tabBtnStyle(filter.mode === 'month')}>Mês</button>
           <button onClick={() => setFilter({ mode: 'period', from: periodFrom, to: periodTo })}
             style={tabBtnStyle(filter.mode === 'period')}>Período</button>
+          <button onClick={() => setFilter({ mode: 'ciclo', month: filter.month || (window.availableMonths().slice(-1)[0]) })}
+            style={tabBtnStyle(filter.mode === 'ciclo')}>Ciclo</button>
         </div>
 
         {filter.mode === 'month' && (
@@ -39,6 +41,29 @@ const FilterBar = ({ filter, setFilter }) => {
           </div>
         )}
 
+        {filter.mode === 'ciclo' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 }}>
+            <button onClick={() => {
+              const i = months.indexOf(filter.month);
+              if (i > 0) setFilter({ ...filter, mode: 'ciclo', month: months[i - 1] });
+            }} style={navBtn}><Icon name="chevron_left" size={16} stroke={2.4} /></button>
+            <select value={filter.month} onChange={(e) => setFilter({ ...filter, mode: 'ciclo', month: e.target.value })} style={selectStyle}>
+              {months.map(m => <option key={m} value={m}>{window.monthLabel(m)}</option>)}
+            </select>
+            <button onClick={() => {
+              const i = months.indexOf(filter.month);
+              if (i < months.length - 1) setFilter({ ...filter, mode: 'ciclo', month: months[i + 1] });
+            }} style={navBtn}><Icon name="chevron_right" size={16} stroke={2.4} /></button>
+            <span style={{ fontSize: 12, color: 'var(--ink-mute)', marginLeft: 6 }}>vira dia</span>
+            <input type="number" min="1" max="28" value={filter.corte || 25}
+              onChange={(e) => setFilter({ ...filter, mode: 'ciclo', corte: Math.min(28, Math.max(1, Number(e.target.value) || 25)) })}
+              style={{ ...inputStyle, width: 62 }} />
+            <span style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>
+              (junta o convênio que cai no fim do mês com as despesas que ele paga)
+            </span>
+          </div>
+        )}
+
         {filter.mode === 'period' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 }}>
             <span style={{ fontSize: 12, color: 'var(--ink-mute)', fontWeight: 600 }}>De</span>
@@ -51,6 +76,9 @@ const FilterBar = ({ filter, setFilter }) => {
         <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-mute)' }}>
           {filter.mode === 'month'
             ? <>Exibindo <strong style={{ color: 'var(--ink)' }}>{window.monthLabel(filter.month)}</strong></>
+            : filter.mode === 'ciclo'
+            ? (() => { const r = window.rangeDoCiclo(filter.month, filter.corte || 25);
+                return <>Ciclo <strong style={{ color: 'var(--ink)' }}>{r.from.split('-').reverse().join('/')} a {r.to.split('-').reverse().join('/')}</strong></>; })()
             : <>Exibindo <strong style={{ color: 'var(--ink)' }}>{filter.from || '—'} até {filter.to || '—'}</strong></>}
         </div>
       </div>
@@ -1185,9 +1213,20 @@ const ContasPage = ({ filter, setFilter }) => {
   }, []);
   const [tab, setTab] = React.useState('todos'); // todos | pagar | receber
   const [status, setStatus] = React.useState('all'); // all | pago | recebido
-  const [tipoView, setTipoView] = React.useState('todos'); // todos | contas | pessoal
+  const [tipoView, setTipoView] = React.useState('todos'); // todos | contas | pessoal | entradas
+  const [bancos, setBancos] = React.useState(null);
+  const { profile: _prof } = window.useAuth();
+  React.useEffect(() => {
+    if (!_prof?.company_id || !window.fetchContasBancarias) return;
+    window.fetchContasBancarias(_prof.company_id)
+      .then(r => setBancos(window.saldosPorConta(r)))
+      .catch(() => setBancos([]));
+  }, [_prof?.company_id, (window.CONTAS || []).length]);
   const [q, setQ] = React.useState('');
-  const contas = window.filterContas(filter.mode === 'month' ? { month: filter.month } : { from: filter.from, to: filter.to });
+  const contas = window.filterContas(
+    filter.mode === 'month' ? { month: filter.month }
+    : filter.mode === 'ciclo' ? { mode: 'ciclo', month: filter.month, corte: filter.corte }
+    : { from: filter.from, to: filter.to });
 
   // Resumo do período: quanto é conta (fornecedor/despesa) x quanto é pagamento de colaborador
   const saidasPeriodo = contas.filter(c => c.tipo === 'pagar' && !(window.ehTransferenciaInterna && window.ehTransferenciaInterna(c)));
@@ -1252,6 +1291,32 @@ const ContasPage = ({ filter, setFilter }) => {
         } />
 
       <FilterBar filter={filter} setFilter={setFilter} />
+
+      {/* ── Saldo real nas contas ── */}
+      {bancos && bancos.length > 0 && (() => {
+        const total = bancos.reduce((a, b) => a + b.saldo, 0);
+        return (
+          <TiltCard interactive={false} padding={16}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>
+                Dinheiro em conta hoje
+              </div>
+              {bancos.map(b => (
+                <div key={b.id} style={{
+                  padding: '7px 13px', borderRadius: 'var(--r-md)', background: 'var(--bg-alt)', border: '1px solid var(--line)',
+                }}>
+                  <div style={{ fontSize: 10.5, color: 'var(--ink-mute)' }}>{b.nome}</div>
+                  <div className="mono" style={{ fontSize: 14, fontWeight: 700, color: b.saldo < 0 ? 'var(--c-neg)' : 'var(--ink)' }}>{window.fmt(b.saldo)}</div>
+                </div>
+              ))}
+              <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                <div style={{ fontSize: 10.5, color: 'var(--ink-mute)' }}>TOTAL DISPONÍVEL</div>
+                <div className="mono" style={{ fontSize: 21, fontWeight: 700, color: total < 0 ? 'var(--c-neg)' : (total < 20000 ? '#b8860b' : 'var(--c-pos)') }}>{window.fmt(total)}</div>
+              </div>
+            </div>
+          </TiltCard>
+        );
+      })()}
 
       {/* ── Resumo do mês: 3 números com explicação ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
