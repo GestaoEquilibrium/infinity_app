@@ -213,10 +213,14 @@ function availableMonths() {
   const set = new Set();
   (window.COMPRAS || COMPRAS).forEach(t => { if (t.date) set.add(monthKey(t.date)); });
   (window.CONTAS || CONTAS).forEach(c => { if (c.vencimento) set.add(monthKey(c.vencimento)); });
-  // Garantir mês atual sempre disponível
+  // Além dos meses com lançamento, oferece uma janela contínua: 12 meses para trás
+  // e 6 para frente. Sem isso, um mês vazio (ou futuro, como a folha do mês que vem)
+  // simplesmente não aparecia no seletor.
   const now = new Date();
-  const cur = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  set.add(cur);
+  for (let i = -12; i <= 6; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    set.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
   return [...set].sort();
 }
 
