@@ -30,25 +30,34 @@ function useWidgetData(filter) {
     filter = filter || DEFAULT_FILTER();
     const f = filter.mode === 'month'
       ? { month: filter.month }
+      : filter.mode === 'ciclo'
+      ? { mode: 'ciclo', month: filter.month, corte: filter.corte }
       : { from: filter.from, to: filter.to };
 
     const compras = window.filterCompras(f);
     const contas = window.filterContas(f);
     const agg = window.monthlyAggregates();
 
-    // Caixa (compras efetivas)
-    const totalIn = compras.filter(c => c.type === 'entrada').reduce((s, c) => s + c.amount, 0);
-    const totalOut = compras.filter(c => c.type === 'saida').reduce((s, c) => s + c.amount, 0);
+    // Caixa = lançamentos já pagos/recebidos das CONTAS (transactions).
+    // A tabela antiga de compras (purchases) está vazia — tudo vive em transactions.
+    // Transferência entre contas do grupo fica de fora (não é receita nem despesa).
+    const ehInterna = (c) => window.ehTransferenciaInterna && window.ehTransferenciaInterna(c);
+    const caixa = contas.filter(c => c.pago && !ehInterna(c));
+    const val = (c) => c.realizado || c.previsto || 0;
+    const totalIn = caixa.filter(c => c.tipo === 'receber').reduce((s, c) => s + val(c), 0);
+    const totalOut = caixa.filter(c => c.tipo === 'pagar').reduce((s, c) => s + val(c), 0);
     const saldoMes = totalIn - totalOut;
 
     // Contas previstas vs realizadas
-    const prev_in = contas.filter(c => c.tipo === 'receber').reduce((s, c) => s + c.previsto, 0);
-    const real_in = contas.filter(c => c.tipo === 'receber').reduce((s, c) => s + c.realizado, 0);
-    const prev_out = contas.filter(c => c.tipo === 'pagar').reduce((s, c) => s + c.previsto, 0);
-    const real_out = contas.filter(c => c.tipo === 'pagar').reduce((s, c) => s + c.realizado, 0);
+    const semInt = contas.filter(c => !ehInterna(c));
+    const prev_in = semInt.filter(c => c.tipo === 'receber').reduce((s, c) => s + c.previsto, 0);
+    const real_in = semInt.filter(c => c.tipo === 'receber').reduce((s, c) => s + c.realizado, 0);
+    const prev_out = semInt.filter(c => c.tipo === 'pagar').reduce((s, c) => s + c.previsto, 0);
+    const real_out = semInt.filter(c => c.tipo === 'pagar').reduce((s, c) => s + c.realizado, 0);
 
     // Saldo anterior (mês anterior ao início da janela)
-    const anchor = filter.mode === 'month' ? filter.month : (filter.from || '').slice(0, 7);
+    const anchor = (filter.mode === 'month' || filter.mode === 'ciclo')
+      ? filter.month : (filter.from || '').slice(0, 7);
     const saldoAnt = anchor ? window.saldoAnterior(anchor) : 0;
     const saldoAcumulado = saldoAnt + saldoMes;
 
@@ -60,8 +69,8 @@ function useWidgetData(filter) {
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     })();
     const prevAggMonth = agg.find(a => a.key === prevMonthKey);
-    const prevIn = prevAggMonth?.compras.in || 0;
-    const prevOut = prevAggMonth?.compras.out || 0;
+    const prevIn = prevAggMonth?.contas.real_in || 0;
+    const prevOut = prevAggMonth?.contas.real_out || 0;
     const prevSaldo = prevIn - prevOut;
 
     const saldoTrend = prevSaldo !== 0 ? ((saldoMes - prevSaldo) / Math.abs(prevSaldo)) * 100 : 0;
@@ -72,24 +81,25 @@ function useWidgetData(filter) {
     const last8 = agg.slice(-8);
     let running = 0;
     const flow = last8.map(m => {
-      running += (m.compras.in - m.compras.out);
-      return { label: m.label, in: m.compras.in, out: m.compras.out, balance: running };
+      running += (m.contas.real_in - m.contas.real_out);
+      return { label: m.label, in: m.contas.real_in, out: m.contas.real_out, balance: running };
     });
-    const sparkVals = last8.map(m => m.compras.in - m.compras.out);
+    const sparkVals = last8.map(m => m.contas.real_in - m.contas.real_out);
 
     // Ranking de receita por categoria (dentro do filtro)
     const revByCat = new Map();
-    compras.filter(c => c.type === 'entrada').forEach(t => {
-      if (!revByCat.has(t.category)) revByCat.set(t.category, { label: t.category, value: 0, color: t.color });
-      revByCat.get(t.category).value += t.amount;
+    caixa.filter(c => c.tipo === 'receber').forEach(t => {
+      if (!revByCat.has(t.category)) revByCat.set(t.category, { label: t.category, value: 0, color: window.catColor(t.category, 'entrada') });
+      revByCat.get(t.category).value += val(t);
     });
     const revRanking = [...revByCat.values()].sort((a, b) => b.value - a.value);
 
     // Últimas compras (dentro do filtro)
-    const recentTxs = [...compras].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 7);
+    const recentTxs = [...caixa].sort((a, b) => b.vencimento.localeCompare(a.vencimento)).slice(0, 7)
+      .map(c => ({ ...c, date: c.vencimento, type: c.tipo === 'receber' ? 'entrada' : 'saida', amount: val(c) }));
 
     // Contas pendentes próximas (não pagas, ordenadas por vencimento)
-    const pendentes = contas.filter(c => !c.pago).sort((a, b) => a.vencimento.localeCompare(b.vencimento)).slice(0, 6);
+    const pendentes = semInt.filter(c => !c.pago).sort((a, b) => a.vencimento.localeCompare(b.vencimento)).slice(0, 6);
 
     return {
       filter, compras, contas,
