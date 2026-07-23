@@ -40,11 +40,39 @@ function authHeaders(extra = {}) {
     ...extra,
   };
 }
-async function sbRest(path, opts = {}) {
+// Renova o access_token usando o refresh_token (o token do Supabase expira em ~1h).
+// Sem isso, o app quebra com "JWT expired" e obriga a deslogar/logar.
+let _refreshing = null;
+async function refreshSession() {
+  const s = getSession();
+  if (!s?.refresh_token) return null;
+  if (_refreshing) return _refreshing;
+  _refreshing = (async () => {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+        method: 'POST',
+        headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: s.refresh_token }),
+      });
+      if (!res.ok) return null;
+      const novo = await res.json();
+      if (novo?.access_token) { setSession({ ...s, ...novo }); return novo; }
+      return null;
+    } catch { return null; }
+    finally { setTimeout(() => { _refreshing = null; }, 0); }
+  })();
+  return _refreshing;
+}
+
+async function sbRest(path, opts = {}, _jaTentou) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
     ...opts,
     headers: { ...authHeaders(opts.prefer ? { Prefer: opts.prefer } : {}), ...(opts.headers || {}) },
   });
+  if (res.status === 401 && !_jaTentou) {
+    const novo = await refreshSession();
+    if (novo) return sbRest(path, opts, true);
+  }
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Supabase ${res.status}: ${err}`);
@@ -318,6 +346,7 @@ function canAccess(role, page) {
 
 Object.assign(window, {
   SUPABASE_URL, SUPABASE_ANON_KEY,
+  __sbRest: sbRest, refreshSession,
   getSession, setSession, signIn, signUp, signOut, updatePassword, getMe,
   getProfile, updateProfile, listTeam, inviteMember, updateMemberRole, removeMember,
   fetchContas, createConta, updateConta, deleteConta, markContaPaga, rowToConta, contaToRow,
