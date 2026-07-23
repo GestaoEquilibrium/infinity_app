@@ -1162,6 +1162,17 @@ const ReplicarPrestadoresModal = ({ onClose }) => {
 };
 
 
+// Classifica uma conta como pagamento de PESSOAL (repasse/folha) ou CONTA (fornecedor/despesa).
+// Usa a categoria "Repasses" e também palavras-chave da descrição, porque nem toda
+// linha de prestador está categorizada corretamente (ex.: Mona veio como "Outras Despesas").
+const RE_PESSOAL = /(repasse|prestador|sal[áa]rio|folha|pr[óo]-?labore|pro labore|bolsa|estagi|honor[áa]rio)/i;
+function ehPessoal(c) {
+  if (!c) return false;
+  if ((c.category || '').toLowerCase().includes('repasse')) return true;
+  if ((c.category || '').toLowerCase().includes('folha')) return true;
+  return RE_PESSOAL.test(c.description || '');
+}
+
 const ContasPage = ({ filter, setFilter }) => {
   const [editing, setEditing] = React.useState(null);
   const [confirmando, setConfirmando] = React.useState(null); // conta sendo confirmada
@@ -1174,9 +1185,21 @@ const ContasPage = ({ filter, setFilter }) => {
   }, []);
   const [tab, setTab] = React.useState('todos'); // todos | pagar | receber
   const [status, setStatus] = React.useState('all'); // all | pago | recebido
+  const [tipoView, setTipoView] = React.useState('todos'); // todos | contas | pessoal
   const [q, setQ] = React.useState('');
   const contas = window.filterContas(filter.mode === 'month' ? { month: filter.month } : { from: filter.from, to: filter.to });
+
+  // Resumo do período: quanto é conta (fornecedor/despesa) x quanto é pagamento de colaborador
+  const saidasPeriodo = contas.filter(c => c.tipo === 'pagar' && !(window.ehTransferenciaInterna && window.ehTransferenciaInterna(c)));
+  const somaPrev = (arr) => arr.reduce((s, c) => s + (c.previsto || 0), 0);
+  const resumoPessoal = somaPrev(saidasPeriodo.filter(ehPessoal));
+  const resumoContas  = somaPrev(saidasPeriodo.filter(c => !ehPessoal(c)));
+  const nPessoal = saidasPeriodo.filter(ehPessoal).length;
+  const nContas  = saidasPeriodo.filter(c => !ehPessoal(c)).length;
+
   const filtered = contas.filter(c => {
+    if (tipoView === 'contas'  && ehPessoal(c)) return false;
+    if (tipoView === 'pessoal' && !ehPessoal(c)) return false;
     // Aba "A pagar" → só saídas NÃO pagas
     if (tab === 'pagar' && (c.tipo !== 'pagar' || c.pago)) return false;
     // Aba "A receber" → só entradas NÃO recebidas
@@ -1190,9 +1213,10 @@ const ContasPage = ({ filter, setFilter }) => {
     return true;
   });
 
-  // Entradas e saídas separadas
-  const entradas = filtered.filter(c => c.tipo === 'receber');
-  const saidas   = filtered.filter(c => c.tipo === 'pagar');
+  // Entradas e saídas separadas — transferência interna fica FORA dos totais
+  const semInterna = filtered.filter(c => !(window.ehTransferenciaInterna && window.ehTransferenciaInterna(c)));
+  const entradas = semInterna.filter(c => c.tipo === 'receber');
+  const saidas   = semInterna.filter(c => c.tipo === 'pagar');
   const tot_prev_in  = entradas.reduce((s, c) => s + c.previsto, 0);
   const tot_prev_out = saidas.reduce((s, c) => s + c.previsto, 0);
   const tot_real_in  = entradas.reduce((s, c) => s + (c.pago ? (c.realizado || c.previsto) : 0), 0);
@@ -1206,6 +1230,8 @@ const ContasPage = ({ filter, setFilter }) => {
   const saldo_ant = filter.mode === 'month'
     ? window.saldoAnterior(filter.month)
     : (filter.from ? window.saldoAnterior(filter.from.slice(0, 7)) : 0);
+  // Saldo do período = saldo anterior (inclusive negativo) + realizado do período
+  const saldo_periodo = saldo_ant + tot_real_in - tot_real_out;
   // Mês anterior para exibir no label
   const mesAntLabel = (() => {
     const ref = filter.mode === 'month' ? filter.month : (filter.from || '').slice(0, 7);
@@ -1234,14 +1260,47 @@ const ContasPage = ({ filter, setFilter }) => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
         <KPI label="Saldo anterior"  value={saldo_ant}    color="var(--ink-soft)" icon="arrow_right" subtle />
         <KPI label="Prev. Entradas"  value={tot_prev_in}  color="var(--c-pos)" icon="arrow_down" />
-        <KPI label="Real. Entradas"  value={tot_real_in + (saldo_ant > 0 ? saldo_ant : 0)} color="var(--c-pos)" icon="check" />
+        <KPI label="Real. Entradas"  value={tot_real_in} color="var(--c-pos)" icon="check" />
         <KPI label="Prev. Saídas"    value={tot_prev_out} color="var(--c-neg)" icon="arrow_up" />
         <KPI label="Real. Saídas"    value={tot_real_out} color="var(--c-neg)" icon="check" />
-        <KPI label="Saldo do período" value={tot_real_in + (saldo_ant > 0 ? saldo_ant : 0) - tot_real_out} color={(tot_real_in + (saldo_ant > 0 ? saldo_ant : 0) - tot_real_out) >= 0 ? 'var(--c-pos)' : 'var(--c-neg)'} icon="wallet" emphasis />
+        <KPI label="Saldo do período" value={saldo_periodo} color={saldo_periodo >= 0 ? 'var(--c-pos)' : 'var(--c-neg)'} icon="wallet" emphasis />
+      </div>
+
+      {/* Resumo de saídas do período: contas x pagamentos de colaboradores (clique para filtrar) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+        {[
+          { k: 'contas',  lbl: 'Contas (fornecedores/despesas)', val: resumoContas,  n: nContas },
+          { k: 'pessoal', lbl: 'Pagamentos colaboradores',        val: resumoPessoal, n: nPessoal },
+        ].map(x => {
+          const on = tipoView === x.k;
+          return (
+            <button key={x.k} onClick={() => setTipoView(on ? 'todos' : x.k)} style={{
+              textAlign: 'left', padding: '16px 20px', borderRadius: 'var(--r-lg)', cursor: 'pointer',
+              background: on ? 'color-mix(in oklch, var(--c-primary) 10%, transparent)' : 'var(--surface)',
+              border: `1.5px solid ${on ? 'var(--c-primary)' : 'var(--line)'}`, transition: 'all .2s',
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                {x.lbl} · {x.n}
+              </div>
+              <div className="mono" style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: 'var(--c-neg)' }}>
+                {window.fmt ? window.fmt(x.val) : x.val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 2 }}>
+                {on ? 'exibindo só este grupo — clique para ver tudo' : 'clique para filtrar'}
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       <TiltCard interactive={false} padding={20}>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Tipo: todos / contas / colaboradores */}
+          <div style={{ display: 'flex', gap: 4, background: 'var(--bg-alt)', padding: 4, borderRadius: 999, border: '1px solid var(--line)' }}>
+            {[{k:'todos',l:'Tudo'},{k:'contas',l:'Contas'},{k:'pessoal',l:'Colaboradores'}].map(t => (
+              <button key={t.k} onClick={() => setTipoView(t.k)} style={tabBtnStyle(tipoView === t.k)}>{t.l}</button>
+            ))}
+          </div>
           {/* Tab todos / a pagar / a receber */}
           <div style={{ display: 'flex', gap: 4, background: 'var(--bg-alt)', padding: 4, borderRadius: 999, border: '1px solid var(--line)' }}>
             <button onClick={() => setTab('todos')} style={tabBtnStyle(tab === 'todos')}>Todos</button>
