@@ -1198,23 +1198,20 @@ const ContasPage = ({ filter, setFilter }) => {
   const nContas  = saidasPeriodo.filter(c => !ehPessoal(c)).length;
 
   const filtered = contas.filter(c => {
-    if (tipoView === 'contas'  && ehPessoal(c)) return false;
-    if (tipoView === 'pessoal' && !ehPessoal(c)) return false;
-    // Aba "A pagar" → só saídas NÃO pagas
-    if (tab === 'pagar' && (c.tipo !== 'pagar' || c.pago)) return false;
-    // Aba "A receber" → só entradas NÃO recebidas
-    if (tab === 'receber' && (c.tipo !== 'receber' || c.pago)) return false;
-    // Aba "Todos" com filtro de status
-    if (tab === 'todos') {
-      if (status === 'pago'     && !(c.pago && c.tipo === 'pagar'))   return false;
-      if (status === 'recebido' && !(c.pago && c.tipo === 'receber')) return false;
-    }
+    // Escopo: Tudo / Colaboradores / Fornecedores / Entradas
+    if (tipoView === 'entradas' && c.tipo !== 'receber') return false;
+    if (tipoView === 'contas'  && (c.tipo !== 'pagar' || ehPessoal(c))) return false;
+    if (tipoView === 'pessoal' && (c.tipo !== 'pagar' || !ehPessoal(c))) return false;
+    // "Só o que falta pagar"
+    if (status === 'pendente' && c.pago) return false;
     if (q && !(c.description.toLowerCase().includes(q.toLowerCase()) || c.category.toLowerCase().includes(q.toLowerCase()))) return false;
     return true;
   });
 
   // Entradas e saídas separadas — transferência interna fica FORA dos totais
-  const semInterna = filtered.filter(c => !(window.ehTransferenciaInterna && window.ehTransferenciaInterna(c)));
+  // Os números do topo são sempre do PERÍODO INTEIRO — os filtros abaixo afetam
+  // só a lista. Assim o resumo não muda de valor quando você filtra.
+  const semInterna = contas.filter(c => !(window.ehTransferenciaInterna && window.ehTransferenciaInterna(c)));
   const entradas = semInterna.filter(c => c.tipo === 'receber');
   const saidas   = semInterna.filter(c => c.tipo === 'pagar');
   const tot_prev_in  = entradas.reduce((s, c) => s + c.previsto, 0);
@@ -1245,7 +1242,7 @@ const ContasPage = ({ filter, setFilter }) => {
     <div className="anim-fade" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {showReplicar && <ReplicarPrestadoresModal onClose={() => setShowReplicar(false)} />}
       <PageHeader title="Contas"
-        subtitle="Controle de contas a pagar e a receber — previsto × realizado"
+        subtitle="O que entrou, o que saiu e o que ainda falta pagar no mês"
         action={
           <div style={{ display: 'flex', gap: 10 }}>
             <ExcelImporter target="contas" />
@@ -1256,76 +1253,85 @@ const ContasPage = ({ filter, setFilter }) => {
 
       <FilterBar filter={filter} setFilter={setFilter} />
 
-      {/* KPIs: Saldo anterior + Entradas e Saídas separadas + Saldo do período */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
-        <KPI label="Saldo anterior"  value={saldo_ant}    color="var(--ink-soft)" icon="arrow_right" subtle />
-        <KPI label="Prev. Entradas"  value={tot_prev_in}  color="var(--c-pos)" icon="arrow_down" />
-        <KPI label="Real. Entradas"  value={tot_real_in} color="var(--c-pos)" icon="check" />
-        <KPI label="Prev. Saídas"    value={tot_prev_out} color="var(--c-neg)" icon="arrow_up" />
-        <KPI label="Real. Saídas"    value={tot_real_out} color="var(--c-neg)" icon="check" />
-        <KPI label="Saldo do período" value={saldo_periodo} color={saldo_periodo >= 0 ? 'var(--c-pos)' : 'var(--c-neg)'} icon="wallet" emphasis />
-      </div>
-
-      {/* Resumo de saídas do período: contas x pagamentos de colaboradores (clique para filtrar) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+      {/* ── Resumo do mês: 3 números com explicação ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
         {[
-          { k: 'contas',  lbl: 'Contas (fornecedores/despesas)', val: resumoContas,  n: nContas },
-          { k: 'pessoal', lbl: 'Pagamentos colaboradores',        val: resumoPessoal, n: nPessoal },
-        ].map(x => {
-          const on = tipoView === x.k;
-          return (
-            <button key={x.k} onClick={() => setTipoView(on ? 'todos' : x.k)} style={{
-              textAlign: 'left', padding: '16px 20px', borderRadius: 'var(--r-lg)', cursor: 'pointer',
-              background: on ? 'color-mix(in oklch, var(--c-primary) 10%, transparent)' : 'var(--surface)',
-              border: `1.5px solid ${on ? 'var(--c-primary)' : 'var(--line)'}`, transition: 'all .2s',
-            }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                {x.lbl} · {x.n}
-              </div>
-              <div className="mono" style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: 'var(--c-neg)' }}>
-                {window.fmt ? window.fmt(x.val) : x.val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 2 }}>
-                {on ? 'exibindo só este grupo — clique para ver tudo' : 'clique para filtrar'}
-              </div>
-            </button>
-          );
-        })}
+          { lbl: 'Entrou', val: tot_real_in, cor: 'var(--c-pos)',
+            desc: 'convênios, cartão e particular que caíram na conta' },
+          { lbl: 'Saiu', val: tot_real_out, cor: 'var(--c-neg)',
+            desc: 'repasses, folha, aluguel e fornecedores já pagos' },
+          { lbl: 'Resultado do mês', val: tot_real_in - tot_real_out,
+            cor: (tot_real_in - tot_real_out) >= 0 ? 'var(--c-pos)' : 'var(--c-neg)',
+            desc: 'o que entrou menos o que saiu', forte: true },
+        ].map(x => (
+          <div key={x.lbl} style={{
+            padding: '18px 22px', borderRadius: 'var(--r-lg)', background: 'var(--surface)',
+            border: x.forte ? `1.5px solid ${x.cor}` : '1px solid var(--line)',
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{x.lbl}</div>
+            <div className="mono" style={{ fontSize: 27, fontWeight: 700, color: x.cor, margin: '6px 0 4px' }}>{window.fmt(x.val)}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', lineHeight: 1.35 }}>{x.desc}</div>
+          </div>
+        ))}
       </div>
 
-      <TiltCard interactive={false} padding={20}>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          {/* Tipo: todos / contas / colaboradores */}
-          <div style={{ display: 'flex', gap: 4, background: 'var(--bg-alt)', padding: 4, borderRadius: 999, border: '1px solid var(--line)' }}>
-            {[{k:'todos',l:'Tudo'},{k:'contas',l:'Contas'},{k:'pessoal',l:'Colaboradores'}].map(t => (
-              <button key={t.k} onClick={() => setTipoView(t.k)} style={tabBtnStyle(tipoView === t.k)}>{t.l}</button>
-            ))}
-          </div>
-          {/* Tab todos / a pagar / a receber */}
-          <div style={{ display: 'flex', gap: 4, background: 'var(--bg-alt)', padding: 4, borderRadius: 999, border: '1px solid var(--line)' }}>
-            <button onClick={() => setTab('todos')} style={tabBtnStyle(tab === 'todos')}>Todos</button>
-            <button onClick={() => setTab('pagar')} style={tabBtnStyle(tab === 'pagar')}>A pagar</button>
-            <button onClick={() => setTab('receber')} style={tabBtnStyle(tab === 'receber')}>A receber</button>
-          </div>
-          {/* Status */}
-          <div style={{ display: 'flex', gap: 4, background: 'var(--bg-alt)', padding: 4, borderRadius: 999, border: '1px solid var(--line)' }}>
-            {[{k:'all',l:'Todos'},{k:'pago',l:'Pagos'},{k:'recebido',l:'Recebidos'}].map(t => (
-              <button key={t.k} onClick={() => setStatus(t.k)} style={tabBtnStyle(status === t.k)}>{t.l}</button>
-            ))}
-          </div>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 200,
-            background: 'var(--bg-alt)', border: '1.5px solid var(--line)', borderRadius: 999, padding: '10px 18px',
+      {/* ── Linha de contexto: de onde veio, o que falta, onde chegou ── */}
+      <div style={{
+        display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: '11px 18px',
+        background: 'var(--bg-alt)', border: '1px solid var(--line)', borderRadius: 'var(--r-md)',
+        fontSize: 12.5, color: 'var(--ink-soft)',
+      }}>
+        <span>Vinha de <b className="mono" style={{ color: saldo_ant >= 0 ? 'var(--c-pos)' : 'var(--c-neg)' }}>{window.fmt(saldo_ant)}</b> acumulado até {mesAntLabel}</span>
+        <span style={{ opacity: .4 }}>·</span>
+        <span>ainda a pagar <b className="mono">{window.fmt(tot_prev_out - tot_real_out)}</b></span>
+        <span style={{ opacity: .4 }}>·</span>
+        <span>acumulado agora <b className="mono" style={{ color: saldo_periodo >= 0 ? 'var(--c-pos)' : 'var(--c-neg)' }}>{window.fmt(saldo_periodo)}</b></span>
+        <span style={{ marginLeft: 'auto', fontSize: 11, opacity: .7 }}>resultado acumulado — não é saldo bancário</span>
+      </div>
+
+      {/* ── Filtros: escopo (com o valor de cada um) + pendentes + busca ── */}
+      <TiltCard interactive={false} padding={14}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          {[
+            { k: 'todos',   l: 'Tudo',          v: null },
+            { k: 'pessoal', l: 'Colaboradores', v: resumoPessoal, n: nPessoal },
+            { k: 'contas',  l: 'Fornecedores',  v: resumoContas,  n: nContas },
+            { k: 'entradas',l: 'Entradas',      v: tot_real_in },
+          ].map(x => {
+            const on = tipoView === x.k;
+            return (
+              <button key={x.k} onClick={() => setTipoView(x.k)} style={{
+                padding: '9px 16px', borderRadius: 'var(--r-md)', cursor: 'pointer', textAlign: 'left',
+                background: on ? 'var(--c-primary)' : 'var(--bg-alt)',
+                color: on ? '#fff' : 'var(--ink)',
+                border: `1px solid ${on ? 'var(--c-primary)' : 'var(--line)'}`, transition: 'all .15s',
+              }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700 }}>{x.l}{x.n != null ? ` · ${x.n}` : ''}</div>
+                {x.v != null && <div className="mono" style={{ fontSize: 12, opacity: on ? .9 : .65, marginTop: 1 }}>{window.fmt(x.v)}</div>}
+              </button>
+            );
+          })}
+          <label style={{
+            display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, cursor: 'pointer',
+            padding: '9px 14px', borderRadius: 'var(--r-md)', border: '1px solid var(--line)',
+            background: status === 'pendente' ? 'color-mix(in oklch, var(--c-neg) 12%, transparent)' : 'var(--bg-alt)',
           }}>
-            <Icon name="search" size={16} />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar..."
-              style={{ background: 'none', border: 'none', outline: 'none', flex: 1, fontSize: 14, color: 'var(--ink)', fontFamily: 'inherit' }} />
+            <input type="checkbox" checked={status === 'pendente'} onChange={e => setStatus(e.target.checked ? 'pendente' : 'all')} />
+            Só o que falta pagar
+          </label>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 9, flex: 1, minWidth: 170,
+            background: 'var(--bg-alt)', border: '1px solid var(--line)', borderRadius: 'var(--r-md)', padding: '9px 14px',
+          }}>
+            <Icon name="search" size={15} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nome..."
+              style={{ background: 'none', border: 'none', outline: 'none', flex: 1, fontSize: 13.5, color: 'var(--ink)', fontFamily: 'inherit' }} />
           </div>
         </div>
       </TiltCard>
 
       <TiltCard interactive={false} padding={0} style={{ overflow: 'hidden' }}>
-        <div style={{ maxHeight: '56vh', overflowY: 'auto' }}>
+        <div style={{ maxHeight: '64vh', overflowY: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ position: 'sticky', top: 0, background: 'var(--surface-solid)', zIndex: 5 }}>
               <tr style={{ borderBottom: '1px solid var(--line)' }}>
@@ -1365,7 +1371,7 @@ const ContasPage = ({ filter, setFilter }) => {
                 </tr>
               )}
               {filtered.map((c, i) => {
-                const color = window.catColor(c.category, tab === 'pagar' ? 'saida' : 'entrada');
+                const color = window.catColor(c.category, c.tipo === 'pagar' ? 'saida' : 'entrada');
                 const diff = c.realizado - c.previsto;
                 return (
                   <tr key={c.id} style={{
@@ -1387,7 +1393,7 @@ const ContasPage = ({ filter, setFilter }) => {
                       {c.pago ? (
                         <div>
                           <div style={{ fontSize: 14, fontWeight: 700, color: c.tipo === 'pagar' ? 'var(--c-neg)' : 'var(--c-pos)' }}>{window.fmt(c.realizado)}</div>
-                          <div style={{ fontSize: 10, color: diff === 0 ? 'var(--ink-mute)' : (tab === 'pagar' ? (diff < 0 ? 'var(--c-pos)' : 'var(--c-neg)') : (diff > 0 ? 'var(--c-pos)' : 'var(--c-neg)')) }}>
+                          <div style={{ fontSize: 10, color: diff === 0 ? 'var(--ink-mute)' : (c.tipo === 'pagar' ? (diff < 0 ? 'var(--c-pos)' : 'var(--c-neg)') : (diff > 0 ? 'var(--c-pos)' : 'var(--c-neg)')) }}>
                             {diff >= 0 ? '+' : ''}{window.fmtShort(diff)}
                           </div>
                         </div>
