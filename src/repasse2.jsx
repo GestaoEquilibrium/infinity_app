@@ -384,6 +384,25 @@ const PagamentosTab = ({ companyId, userId, colabs, D }) => {
   const totalPago = (lista || []).filter(r => r.status === 'pago').reduce((s, r) => s + (Number(r.valor_liquido) || 0), 0);
 
   const [gerandoFolha, setGerandoFolha] = useStateRP(false);
+  const [enviando, setEnviando] = useStateRP(false);
+
+  // Manda os pagamentos do mês para o Contas a Pagar (fluxo de caixa).
+  // Vencimento: 5º dia útil (folha) ou dia 20 (repasse). Não reenvia o que já foi.
+  const enviarParaContas = async () => {
+    const pend = (lista || []).filter(r => !r.transaction_id && (Number(r.valor_liquido) || 0) > 0);
+    if (!pend.length) { setMsg('Nada novo para enviar — todos os pagamentos deste mês já estão no Contas a Pagar.'); return; }
+    if (!window.confirm(`Enviar ${pend.length} pagamento(s) para o Contas a Pagar?`)) return;
+    setEnviando(true); setMsg('Enviando...');
+    let ok = 0, erro = 0;
+    for (const p of pend) {
+      try { await D.enviarPagamentoParaContas(p, companyId, userId); ok++; }
+      catch (e) { erro++; }
+    }
+    setEnviando(false);
+    setMsg(`${ok} pagamento(s) enviado(s) para o Contas a Pagar${erro ? ` · ${erro} com erro` : ''}.`);
+    carregar();
+    window.dispatchEvent(new Event('sb-data-hydrated'));
+  };
   const [grupoView, setGrupoView] = useStateRP('5dia');
   const gerarFolhaMes = async () => {
     const folha = (colabs || []).filter(c => c.folha_fixa && (!c.status || c.status === 'Ativo'));
@@ -418,6 +437,14 @@ const PagamentosTab = ({ companyId, userId, colabs, D }) => {
             <div><div style={{ fontSize: 11, color: 'var(--ink-mute)', textTransform: 'uppercase' }}>Total do mês</div><div className="mono" style={{ fontSize: 18, fontWeight: 700 }}>{brl(totalMes)}</div></div>
             <div><div style={{ fontSize: 11, color: 'var(--ink-mute)', textTransform: 'uppercase' }}>Já pago</div><div className="mono" style={{ fontSize: 18, fontWeight: 700, color: 'var(--c-pos)' }}>{brl(totalPago)}</div></div>
             <window.Btn variant="ghost" size="sm" disabled={gerandoFolha} onClick={gerarFolhaMes}>{gerandoFolha ? 'Gerando...' : 'Gerar folha do mês'}</window.Btn>
+            {(() => {
+              const naoEnv = (lista || []).filter(r => !r.transaction_id && (Number(r.valor_liquido) || 0) > 0).length;
+              return (
+                <window.Btn variant={naoEnv ? 'primary' : 'ghost'} size="sm" disabled={enviando} onClick={enviarParaContas}>
+                  {enviando ? 'Enviando...' : `Enviar p/ Contas a Pagar${naoEnv ? ` (${naoEnv})` : ''}`}
+                </window.Btn>
+              );
+            })()}
             <window.Btn variant="ghost" size="sm" onClick={() => setAddOpen(v => !v)}>+ Adicionar linha</window.Btn>
           </div>
         </div>
@@ -472,7 +499,10 @@ const PagamentosTab = ({ companyId, userId, colabs, D }) => {
                       const st = PAG_STATUS.find(s => s[0] === r.status) || PAG_STATUS[0];
                       return (
                         <tr key={r.id} style={{ borderTop: '1px solid var(--line)' }}>
-                          <td style={{ padding: '4px 12px', fontWeight: 600 }}>{r.nome}<span style={{ fontSize: 11, color: 'var(--ink-mute)', fontWeight: 400 }}>{r.cargo ? ' · ' + r.cargo : ''}</span></td>
+                          <td style={{ padding: '4px 12px', fontWeight: 600 }}>
+                            {r.transaction_id && <span title="Já está no Contas a Pagar" style={{ color: 'var(--c-pos)', marginRight: 5 }}>✓</span>}
+                            {r.nome}<span style={{ fontSize: 11, color: 'var(--ink-mute)', fontWeight: 400 }}>{r.cargo ? ' · ' + r.cargo : ''}</span>
+                          </td>
                           <td style={{ padding: '4px 12px', color: 'var(--ink-mute)' }}>{r.regime || '—'}</td>
                           <td style={{ padding: '4px 12px', textAlign: 'right' }}>
                             <input type="number" defaultValue={r.valor_liquido} onBlur={e => { const v = Number(e.target.value) || 0; if (v !== Number(r.valor_liquido)) patch(r, 'valor_liquido', v); }} style={{ ...inp, width: 88, textAlign: 'right', padding: '5px 8px' }} className="mono" />
