@@ -247,15 +247,24 @@ function monthlyAggregates() {
   };
   // Sempre usa window.CONTAS/COMPRAS para refletir dados após hydrate
   (window.COMPRAS || COMPRAS).forEach(t => {
+    if (window.ehTransferenciaInterna && window.ehTransferenciaInterna(t)) return;
     const m = ensure(monthKey(t.date));
     if (t.type === 'entrada') m.compras.in += t.amount; else m.compras.out += t.amount;
   });
   (window.CONTAS || CONTAS).forEach(c => {
+    if (window.ehTransferenciaInterna && window.ehTransferenciaInterna(c)) return;
     const m = ensure(monthKey(c.vencimento));
     if (c.tipo === 'receber') { m.contas.prev_in += c.previsto; m.contas.real_in += c.realizado; }
     else { m.contas.prev_out += c.previsto; m.contas.real_out += c.realizado; }
   });
   return [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+// Transferência entre contas do mesmo grupo: aparece na lista, mas NÃO conta
+// como receita nem como despesa (o dinheiro não entrou nem saiu do grupo).
+function ehTransferenciaInterna(x) {
+  const c = (x && (x.category || x.categoria)) || '';
+  return c.toLowerCase().indexOf('transfer') === 0 || c === 'Transferência Interna';
 }
 
 // Saldo anterior — net cumulative balance up to (but not including) a month
@@ -474,7 +483,7 @@ Object.assign(window, {
   CATS_ENTRADA, CATS_SAIDA,
   fmt, fmtShort, fmtDate, months,
   monthKey, monthLabel, availableMonths,
-  filterCompras, filterContas, monthlyAggregates, saldoAnterior,
+  filterCompras, filterContas, monthlyAggregates, saldoAnterior, ehTransferenciaInterna,
   parseExcel, addCompras, parseExcelContas, addContas, catColor,
   hydrateFromSupabase,
   updateCompraLocal, deleteCompraLocal, updateContaLocal, deleteContaLocal,
