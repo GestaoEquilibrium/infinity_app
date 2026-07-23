@@ -188,6 +188,7 @@ function rowToConta(r) {
     realizado: Number(r.actual_value || (r.status === 'pago' || r.status === 'recebido' ? r.value : 0) || 0),
     pago: r.status === 'pago' || r.status === 'recebido',
     pagoEm: r.settled_at,
+    conta: r.conta || null,
     created_by: r.created_by,
   };
 }
@@ -203,6 +204,7 @@ function contaToRow(c, companyId, userId) {
     date: c.vencimento,
     status: c.pago ? (c.tipo === 'receber' ? 'recebido' : 'pago') : 'pendente',
     settled_at: c.pagoEm || null,
+    conta: c.conta || null,
   };
 }
 async function fetchContas(companyId) {
@@ -217,6 +219,32 @@ async function markContaPaga(id, actualValue) {
     method: 'PATCH',
     body: JSON.stringify({ status: 'pago', actual_value: actualValue, settled_at: new Date().toISOString().slice(0, 10) }),
     prefer: 'return=representation',
+  });
+}
+
+// ---- Contas bancárias / saldo real ----
+async function fetchContasBancarias(companyId) {
+  return sbRest(`/contas_bancarias?company_id=eq.${companyId}&ativo=is.true&select=*&order=ordem.asc`);
+}
+async function updateContaBancaria(id, patch) {
+  return sbRest(`/contas_bancarias?id=eq.${id}`, {
+    method: 'PATCH', prefer: 'return=representation',
+    body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
+  });
+}
+// Saldo de cada conta = saldo de abertura + tudo que já foi pago/recebido desde então.
+// Aqui as transferências internas CONTAM: elas movimentam cada conta de verdade
+// (só se anulam quando se olha o grupo consolidado).
+function saldosPorConta(contasBancarias) {
+  const tx = window.CONTAS || [];
+  return (contasBancarias || []).map(cb => {
+    const mov = tx.reduce((s, c) => {
+      if (!c.pago) return s;
+      if ((c.conta || '') !== cb.nome) return s;
+      if (c.vencimento < cb.data_inicial) return s;
+      return s + (c.tipo === 'receber' ? (c.realizado || c.previsto) : -(c.realizado || c.previsto));
+    }, 0);
+    return { ...cb, movimento: mov, saldo: Number(cb.saldo_inicial || 0) + mov };
   });
 }
 
@@ -350,6 +378,7 @@ Object.assign(window, {
   getSession, setSession, signIn, signUp, signOut, updatePassword, getMe,
   getProfile, updateProfile, listTeam, inviteMember, updateMemberRole, removeMember,
   fetchContas, createConta, updateConta, deleteConta, markContaPaga, rowToConta, contaToRow,
+  fetchContasBancarias, updateContaBancaria, saldosPorConta,
   fetchCompras, createCompra, updateCompra, deleteCompra, rowToCompra, compraToRow,
   fetchCategories, createCategory, updateCategory, deleteCategory, fetchAuditLog, logAction,
   ROLE_ACCESS, canAccess,
