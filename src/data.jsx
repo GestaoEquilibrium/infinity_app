@@ -209,8 +209,19 @@ function monthKey(dateStr) { return dateStr.slice(0, 7); }
 function monthLabel(key) { const [y, m] = key.split('-'); return months[Number(m) - 1] + '/' + y.slice(2); }
 
 // Available months (for filter) — sempre lê window.CONTAS/COMPRAS para refletir hydrate
+// Ciclo de caixa: o convênio que cai no fim do mês paga as despesas do mês seguinte.
+// O ciclo de "julho, corte 25" vai de 25/06 a 24/07 — assim a Unimed de 30/06 entra
+// junto com o aluguel e a folha que ela financia.
+function rangeDoCiclo(month, corte) {
+  const c = Math.min(28, Math.max(1, Number(corte) || 25));
+  const [y, m] = String(month).split('-').map(Number);
+  const ini = new Date(y, m - 2, c);           // dia `c` do mês anterior
+  const fim = new Date(y, m - 1, c - 1);       // véspera do dia `c` deste mês
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return { from: iso(ini), to: iso(fim) };
+}
+
 function availableMonths() {
-  const set = new Set();
   (window.COMPRAS || COMPRAS).forEach(t => { if (t.date) set.add(monthKey(t.date)); });
   (window.CONTAS || CONTAS).forEach(c => { if (c.vencimento) set.add(monthKey(c.vencimento)); });
   // Além dos meses com lançamento, oferece uma janela contínua: 12 meses para trás
@@ -225,7 +236,8 @@ function availableMonths() {
 }
 
 // Filter compras by range { from, to } (YYYY-MM-DD strings) or single month (YYYY-MM)
-function filterCompras({ from, to, month }) {
+function filterCompras({ from, to, month, mode, corte }) {
+  if (mode === 'ciclo' && month) { const r = rangeDoCiclo(month, corte); from = r.from; to = r.to; month = null; }
   return (window.COMPRAS || COMPRAS).filter(t => {
     if (month) return t.date.slice(0, 7) === month;
     if (from && t.date < from) return false;
@@ -233,7 +245,8 @@ function filterCompras({ from, to, month }) {
     return true;
   });
 }
-function filterContas({ from, to, month }) {
+function filterContas({ from, to, month, mode, corte }) {
+  if (mode === 'ciclo' && month) { const r = rangeDoCiclo(month, corte); from = r.from; to = r.to; month = null; }
   return (window.CONTAS || CONTAS).filter(c => {
     if (month) return c.vencimento.slice(0, 7) === month;
     if (from && c.vencimento < from) return false;
@@ -486,7 +499,7 @@ Object.assign(window, {
   CONTAS, COMPRAS,
   CATS_ENTRADA, CATS_SAIDA,
   fmt, fmtShort, fmtDate, months,
-  monthKey, monthLabel, availableMonths,
+  monthKey, monthLabel, availableMonths, rangeDoCiclo,
   filterCompras, filterContas, monthlyAggregates, saldoAnterior, ehTransferenciaInterna,
   parseExcel, addCompras, parseExcelContas, addContas, catColor,
   hydrateFromSupabase,
