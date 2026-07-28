@@ -555,6 +555,73 @@ function saidasRecorrentesProjetadas(hoje, horizonteDias, categoriasComContaReal
   return ev;
 }
 
+// ============================================================
+// DRE — Demonstração do Resultado (consolidada do grupo)
+// Duas visões lado a lado: COMPETÊNCIA (o que a clínica gerou no mês,
+// pela produção) e CAIXA (o que de fato entrou/saiu no mês).
+// Imposto = o que foi efetivamente pago (categoria Impostos).
+// ============================================================
+
+// Mapa: categoria do banco -> linha da DRE (validado com o Guilherme em 28/07)
+const DRE_MAP = {
+  receita_convenio: ['Convênios', 'Convênios / Planos'],
+  receita_avulsa:   ['Cartão Mais Saúde', 'Particular', 'Consultas Particulares', 'Procedimentos', 'Pacotes / Planos Internos'],
+  receita_outras:   ['Outras Entradas', 'Receitas Financeiras'],
+  repasses:         ['Repasses', 'Profissionais / Prestadores'],
+  folha:            ['Folha/RH', 'Salários CLT'],
+  ocupacao:         ['Aluguel', 'Ocupação / Infraestrutura'],
+  impostos:         ['Impostos', 'Impostos e Tributos'],
+  outras_desp:      ['Outras Despesas', 'Materiais Clínicos', 'Marketing e Comercial'],
+  dividas:          ['Dívidas/Financiamentos', 'Dívidas', 'Financiamentos', 'Empréstimos'],
+};
+function _linhaDre(cat) {
+  for (const k in DRE_MAP) if (DRE_MAP[k].includes(cat)) return k;
+  return null;
+}
+
+// DRE de um mês 'YYYY-MM'. Retorna os dois blocos (competência e caixa).
+function gerarDRE(mes, producaoMensal) {
+  const tx = (window.CONTAS || []).filter(c => !(window.ehTransferenciaInterna && window.ehTransferenciaInterna(c)));
+
+  // ---- CAIXA: o que entrou/saiu no mês (pago/recebido, por vencimento) ----
+  const doMes = tx.filter(c => (c.vencimento || '').slice(0, 7) === mes && c.pago);
+  const cxAgrupa = {};
+  doMes.forEach(c => {
+    const linha = _linhaDre(c.category); if (!linha) return;
+    const v = c.realizado || c.previsto || 0;
+    cxAgrupa[linha] = (cxAgrupa[linha] || 0) + v;
+  });
+
+  // ---- COMPETÊNCIA: receita de convênio vem da PRODUÇÃO do mês ----
+  const prodMes = (producaoMensal || []).filter(p => p.competencia === mes);
+  const recConvComp = prodMes.reduce((s, p) => s + (Number(p.atendimentos) || 0) * (Number(p.valor_por_atend) || 0), 0);
+  // avulsas e despesas: usa o mesmo do caixa (não há competência separada para elas)
+  const compAgrupa = { ...cxAgrupa, receita_convenio: recConvComp || cxAgrupa.receita_convenio || 0 };
+
+  function montar(g) {
+    const rec_conv = g.receita_convenio || 0;
+    const rec_avulsa = g.receita_avulsa || 0;
+    const rec_outras = g.receita_outras || 0;
+    const receita_bruta = rec_conv + rec_avulsa + rec_outras;
+    const impostos = g.impostos || 0;
+    const receita_liq = receita_bruta - impostos;
+    const repasses = g.repasses || 0;
+    const margem_contrib = receita_liq - repasses;
+    const folha = g.folha || 0, ocupacao = g.ocupacao || 0, outras = g.outras_desp || 0;
+    const desp_fixas = folha + ocupacao + outras;
+    const result_operacional = margem_contrib - desp_fixas;
+    const dividas = g.dividas || 0;
+    const resultado = result_operacional - dividas;
+    return { rec_conv, rec_avulsa, rec_outras, receita_bruta, impostos, receita_liq,
+      repasses, margem_contrib, folha, ocupacao, outras, desp_fixas,
+      result_operacional, dividas, resultado,
+      margem_pct: receita_bruta ? resultado / receita_bruta * 100 : 0,
+      op_pct: receita_bruta ? result_operacional / receita_bruta * 100 : 0,
+      mc_pct: receita_bruta ? margem_contrib / receita_bruta * 100 : 0 };
+  }
+  return { mes, competencia: montar(compAgrupa), caixa: montar(cxAgrupa) };
+}
+
 // Quando cada convênio PAGA a produção de uma competência 'YYYY-MM'.
 // Unimed: atende M -> fatura até ~20 de M+1 -> RECEBE fim de M+1.
 // NDI:    atende M -> fatura M+1 -> RECEBE dia 15 de M+2.
@@ -653,6 +720,7 @@ Object.assign(window, {
   fmt, fmtShort, fmtDate, months,
   monthKey, monthLabel, availableMonths, rangeDoCiclo,
   projetarCaixa, entradasProjetadas, dataRecebimento, mediaEntradasAvulsas,
+  gerarDRE,
   filterCompras, filterContas, monthlyAggregates, saldoAnterior, ehTransferenciaInterna,
   parseExcel, addCompras, parseExcelContas, addContas, catColor,
   hydrateFromSupabase,
