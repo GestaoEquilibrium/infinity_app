@@ -1392,6 +1392,41 @@ const ProjecaoPage = () => {
         </div>
       </TiltCard>
 
+      {/* painel de produção — ver e ajustar */}
+      <TiltCard interactive={false} padding={0}>
+        <details>
+          <summary style={{ padding: '14px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', listStyle: 'none' }}>
+            📋 Produção guardada — ver e ajustar
+            <span style={{ fontSize: 11.5, fontWeight: 400, color: 'var(--ink-mute)', marginLeft: 8 }}>
+              (é a base dos recebimentos projetados; corrija aqui se algum mês veio errado)
+            </span>
+          </summary>
+          <div style={{ padding: '0 18px 16px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ color: 'var(--ink-mute)', textAlign: 'left', fontSize: 11 }}>
+                  <th style={{ padding: '6px 8px' }}>MÊS</th>
+                  <th style={{ padding: '6px 8px' }}>CONVÊNIO</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>ATENDIMENTOS</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>R$/ATEND</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>RECEBIMENTO</th>
+                  <th style={{ padding: '6px 8px' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...producao].sort((a, b) => (a.competencia + a.convenio).localeCompare(b.competencia + b.convenio)).map(p => (
+                  <ProducaoRow key={p.id || p.competencia + p.convenio} p={p} companyId={profile?.company_id} />
+                ))}
+                {producao.length === 0 && <tr><td colSpan={6} style={{ padding: 14, color: 'var(--ink-mute)' }}>Nenhuma produção guardada ainda. Importe um relatório no módulo Repasse.</td></tr>}
+              </tbody>
+            </table>
+            <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 8 }}>
+              A produção é guardada sozinha quando você importa o relatório no Repasse. Edite um número aqui só se um mês veio incompleto (ex: maio, por causa da migração de sistema).
+            </div>
+          </div>
+        </details>
+      </TiltCard>
+
       <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', lineHeight: 1.5 }}>
         <b>A projeção vai até {proj.ultimoRecebimento ? proj.ultimoRecebimento.split('-').reverse().slice(0,2).join('/') : ''}</b> porque é até onde há produção importada dos dois lados.
         Importe o relatório do mês seguinte para estender o horizonte.<br/><br/>
@@ -1400,6 +1435,43 @@ const ProjecaoPage = () => {
         importados, o horizonte se estende sozinho.
       </div>
     </div>
+  );
+};
+
+// Linha editável da tabela de produção
+const ProducaoRow = ({ p, companyId }) => {
+  const [atend, setAtend] = React.useState(p.atendimentos);
+  const [editando, setEditando] = React.useState(false);
+  const [salvando, setSalvando] = React.useState(false);
+  const meses = ['', 'jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const [y, m] = p.competencia.split('-');
+  const receb = (Number(atend) || 0) * (Number(p.valor_por_atend) || 0);
+  const salvar = async () => {
+    if (Number(atend) === p.atendimentos) { setEditando(false); return; }
+    setSalvando(true);
+    try {
+      await window.upsertProducaoMensal(companyId, null, p.competencia, p.convenio, Number(atend), p.valor_por_atend, true, 'ajustado manualmente');
+      window.dispatchEvent(new Event('sb-data-hydrated'));
+    } catch (e) { setAtend(p.atendimentos); }
+    setSalvando(false); setEditando(false);
+  };
+  return (
+    <tr style={{ borderTop: '1px solid var(--line)' }}>
+      <td style={{ padding: '7px 8px' }}>{meses[parseInt(m)]}/{y.slice(2)}</td>
+      <td style={{ padding: '7px 8px', fontWeight: 600 }}>{p.convenio}</td>
+      <td style={{ padding: '7px 8px', textAlign: 'right' }}>
+        {editando
+          ? <input type="number" value={atend} autoFocus onChange={e => setAtend(e.target.value)} onBlur={salvar}
+              onKeyDown={e => e.key === 'Enter' && salvar()}
+              style={{ width: 70, textAlign: 'right', padding: '2px 6px', border: '1px solid var(--c-primary)', borderRadius: 4, fontFamily: 'inherit', fontSize: 12.5 }} />
+          : <span className="mono" onClick={() => setEditando(true)} style={{ cursor: 'pointer', borderBottom: '1px dashed var(--ink-mute)' }}>{atend}</span>}
+      </td>
+      <td className="mono" style={{ padding: '7px 8px', textAlign: 'right', color: 'var(--ink-mute)' }}>{window.fmt(p.valor_por_atend)}</td>
+      <td className="mono" style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 700 }}>{window.fmt(receb)}</td>
+      <td style={{ padding: '7px 8px', fontSize: 11 }}>
+        {salvando ? '...' : p.ajustado ? <span title={p.observacao} style={{ color: '#b8860b' }}>ajustado</span> : ''}
+      </td>
+    </tr>
   );
 };
 
