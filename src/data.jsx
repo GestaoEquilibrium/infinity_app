@@ -503,6 +503,58 @@ async function hydrateFromSupabase(companyId) {
 // particular) e as saídas conhecidas (folha, repasse, aluguel, fixas).
 // ============================================================
 
+// Saídas recorrentes que acontecem TODO mês, mesmo sem estarem lançadas.
+// Valores = média mai-jul/2026 (validados). A projeção assume estes automaticamente,
+// exceto no mês em que já existe a conta real lançada (aí a real vale e esta é ignorada).
+const SAIDAS_RECORRENTES = [
+  { categoria: 'Folha/RH',     valor: 80826.82, dia: 'quinto_util' },
+  { categoria: 'Repasses',     valor: 112220.10, dia: 20 },
+  { categoria: 'Aluguel',      valor: 23496.41, dia: 10 },
+  { categoria: 'Outras Despesas', valor: 32295.92, dia: 15 },
+  { categoria: 'Impostos',     valor: 9176.45, dia: 20 },
+];
+
+// 5º dia útil de um mês 'YYYY-MM' (feriados nacionais + Uberlândia)
+function quintoDiaUtilProj(ano, mes) {
+  const fer = new Set(['01-01','04-21','05-01','09-07','10-12','11-02','11-15','11-20','12-25',
+    '2026-06-04','2026-08-31']);
+  let d = new Date(ano, mes - 1, 1), u = 0;
+  while (true) {
+    const w = d.getDay();
+    const mmdd = String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    if (w !== 0 && w !== 6 && !fer.has(mmdd) && !fer.has(d.getFullYear() + '-' + mmdd)) u++;
+    if (u === 5) break;
+    d = new Date(ano, mes - 1, d.getDate() + 1);
+  }
+  return d;
+}
+
+// Gera as saídas recorrentes para cada mês entre hoje e o fim do horizonte,
+// pulando (categoria+mês) que já tem conta real lançada.
+function saidasRecorrentesProjetadas(hoje, horizonteDias, categoriasComContaReal) {
+  const ev = [];
+  const fim = new Date(hoje.getTime() + horizonteDias * 86400000);
+  let cursor = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  while (cursor <= fim) {
+    const y = cursor.getFullYear(), m = cursor.getMonth() + 1;
+    const chaveMes = `${y}-${String(m).padStart(2, '0')}`;
+    SAIDAS_RECORRENTES.forEach(s => {
+      // se já existe conta real dessa categoria nesse mês, não duplica
+      if (categoriasComContaReal.has(`${s.categoria}|${chaveMes}`)) return;
+      let dia;
+      if (s.dia === 'quinto_util') dia = quintoDiaUtilProj(y, m);
+      else dia = new Date(y, m - 1, s.dia);
+      const iso = `${dia.getFullYear()}-${String(dia.getMonth() + 1).padStart(2, '0')}-${String(dia.getDate()).padStart(2, '0')}`;
+      const hojeISO = hoje.toISOString().slice(0, 10);
+      if (iso <= hojeISO) return;  // já passou
+      ev.push({ data: iso, tipo: 'saida', categoria: s.categoria,
+        descricao: `${s.categoria} (estimado)`, valor: s.valor, origem: 'recorrente' });
+    });
+    cursor = new Date(y, m, 1);  // próximo mês
+  }
+  return ev;
+}
+
 // Quando cada convênio PAGA a produção de uma competência 'YYYY-MM'.
 // Unimed: atende M -> fatura até ~20 de M+1 -> RECEBE fim de M+1.
 // NDI:    atende M -> fatura M+1 -> RECEBE dia 15 de M+2.
@@ -549,34 +601,50 @@ function mediaEntradasAvulsas(dias = 30) {
 // Monta a projeção dia a dia de hoje até `horizonteDias` à frente.
 function projetarCaixa({ producao, saldoInicial, horizonteDias = 75, incluirAvulsas = true, fatorProducao = 1 }) {
   const hoje = new Date(); const hojeISO = hoje.toISOString().slice(0, 10);
+  // Horizonte confiável: até quando temos ENTRADA de convênio projetada.
+  // Sem isso, o gráfico mostraria só despesas nos meses sem produção importada
+  // e o saldo despencaria por falta de dado (não por falta de dinheiro).
+  let ultimoRecebimento = hojeISO;
+  (producao || []).forEach(p => {
+    const dr = dataRecebimento(p.convenio, p.competencia);
+    if (dr > ultimoRecebimento) ultimoRecebimento = dr;
+  });
+  const limiteData = new Date(new Date(ultimoRecebimento).getTime() + 10 * 86400000);
+  const limiteDias = Math.ceil((limiteData - hoje) / 86400000);
+  const H = Math.max(15, Math.min(horizonteDias, limiteDias));
+
   // 1) eventos de convênio (aplicando cenário de queda/alta se fatorProducao != 1)
   const prodAjust = (producao || []).map(p => ({ ...p, atendimentos: Math.round((Number(p.atendimentos) || 0) * fatorProducao) }));
   const eventos = entradasProjetadas(prodAjust, hojeISO);
   // 2) contas a pagar/receber já lançadas com vencimento futuro (folha, repasse, fixas)
   const tx = window.CONTAS || [];
+  const categoriasComContaReal = new Set();
   tx.forEach(c => {
     if (c.pago) return;
     if (c.vencimento <= hojeISO) return;
     if (window.ehTransferenciaInterna && window.ehTransferenciaInterna(c)) return;
+    if (c.tipo === 'pagar') categoriasComContaReal.add(`${c.category}|${c.vencimento.slice(0, 7)}`);
     eventos.push({ data: c.vencimento, tipo: c.tipo === 'receber' ? 'entrada' : 'saida',
       categoria: c.category, descricao: c.description, valor: c.previsto || 0, origem: 'conta' });
   });
+  // 2b) saídas recorrentes estimadas só até o horizonte confiável
+  saidasRecorrentesProjetadas(hoje, H, categoriasComContaReal).forEach(e => eventos.push(e));
   // 3) entradas avulsas (cartão/particular) como pinga diário
   const mediaAvulsa = incluirAvulsas ? mediaEntradasAvulsas() : 0;
   // 4) percorre dia a dia
   const dias = []; let saldo = Number(saldoInicial) || 0; let alerta = null;
-  for (let i = 0; i <= horizonteDias; i++) {
+  for (let i = 0; i <= H; i++) {
     const d = new Date(hoje.getTime() + i * 86400000);
     const iso = d.toISOString().slice(0, 10);
     const doDia = eventos.filter(e => e.data === iso);
     let entra = doDia.filter(e => e.tipo === 'entrada').reduce((s, e) => s + e.valor, 0);
     const sai = doDia.filter(e => e.tipo === 'saida').reduce((s, e) => s + e.valor, 0);
-    if (i > 0) entra += mediaAvulsa;             // pinga diário (não no dia 0)
+    if (i > 0) entra += mediaAvulsa;
     saldo += entra - sai;
     if (saldo < 0 && !alerta) alerta = { data: iso, saldo };
     dias.push({ data: iso, entra, sai, saldo, eventos: doDia });
   }
-  return { dias, alerta, mediaAvulsa };
+  return { dias, alerta, mediaAvulsa, horizonteReal: H, ultimoRecebimento };
 }
 
 Object.assign(window, {
