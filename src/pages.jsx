@@ -1282,16 +1282,52 @@ const ProjecaoPage = () => {
         <span style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginLeft: 4 }}>simula a produção de convênio caindo ou subindo</span>
       </div>
 
+      {/* comparação dos 4 cenários lado a lado — como cada um fecha o período */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+        {[{ v: 1.1, l: 'Otimista' }, { v: 1, l: 'Base' }, { v: 0.9, l: 'Cauteloso' }, { v: 0.8, l: 'Pessimista' }].map(c => {
+          const pc = window.projetarCaixa({ producao, saldoInicial: saldoHoje, horizonteDias: 75, fatorProducao: c.v });
+          const fecha = pc.dias[pc.dias.length - 1].saldo;
+          const on = cenario === c.v;
+          return (
+            <div key={c.v} onClick={() => setCenario(c.v)} style={{
+              padding: '11px 14px', borderRadius: 'var(--r-md)', cursor: 'pointer',
+              background: on ? 'color-mix(in oklch, var(--c-primary) 8%, transparent)' : 'var(--bg-alt)',
+              border: `1.5px solid ${on ? 'var(--c-primary)' : 'var(--line)'}`,
+            }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--ink-mute)' }}>{c.l}</div>
+              <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: fecha < 0 ? 'var(--c-neg)' : 'var(--c-pos)', marginTop: 2 }}>{window.fmt(fecha)}</div>
+              {pc.alerta && <div style={{ fontSize: 10.5, color: 'var(--c-neg)', marginTop: 1 }}>⚠ negativo em {pc.alerta.data.split('-').reverse().slice(0, 2).join('/')}</div>}
+            </div>
+          );
+        })}
+      </div>
+
       {/* gráfico */}
       <TiltCard interactive={false} padding={18}>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Saldo projetado — próximos {proj.horizonteReal} dias</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>Saldo projetado — próximos {proj.horizonteReal} dias</div>
+          <div style={{ fontSize: 12.5 }}>
+            <span style={{ color: 'var(--ink-mute)' }}>fecha em </span>
+            <b className="mono" style={{ color: proj.dias[proj.dias.length - 1].saldo < 0 ? 'var(--c-neg)' : 'var(--c-pos)' }}>{window.fmt(proj.dias[proj.dias.length - 1].saldo)}</b>
+          </div>
+        </div>
         <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }}>
           <line x1={pad} y1={zeroY} x2={W - pad} y2={zeroY} stroke="var(--c-neg)" strokeWidth="1" strokeDasharray="4 4" opacity="0.5" />
           <path d={`${path} L${sx(pts.length - 1)},${zeroY} L${sx(0)},${zeroY} Z`} fill="var(--c-primary)" opacity="0.08" />
           <path d={path} fill="none" stroke="var(--c-primary)" strokeWidth="2" />
-          {proj.dias.map((d, i) => d.eventos.filter(e => e.valor >= 5000).map((e, j) => (
-            <circle key={i + '-' + j} cx={sx(i)} cy={sy(d.saldo)} r="3" fill={e.tipo === 'entrada' ? 'var(--c-pos)' : 'var(--c-neg)'} />
-          )))}
+          {proj.dias.map((d, i) => {
+            const grande = d.eventos.filter(e => e.valor >= 5000);
+            if (!grande.length) return null;
+            const cor = grande.some(e => e.tipo === 'entrada') ? 'var(--c-pos)' : 'var(--c-neg)';
+            const pY = sy(d.saldo);
+            const acima = pY > H / 2;
+            return (
+              <g key={i}>
+                <circle cx={sx(i)} cy={pY} r="3.5" fill={cor} />
+                <text x={sx(i)} y={acima ? pY - 8 : pY + 16} fontSize="11" fontWeight="700" textAnchor="middle" fill="var(--ink)">{(d.saldo / 1000).toFixed(0)}k</text>
+              </g>
+            );
+          })}
         </svg>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--ink-mute)', marginTop: 4 }}>
           <span>hoje</span><span>+{Math.round(proj.horizonteReal/3)}d</span><span>+{Math.round(proj.horizonteReal*2/3)}d</span><span>+{proj.horizonteReal}d</span>
