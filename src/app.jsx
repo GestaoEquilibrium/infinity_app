@@ -125,6 +125,7 @@ const Sidebar = ({ page, setPage, collapsed, setCollapsed }) => {
     { k: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
     { k: 'caixa', label: 'Caixa', icon: 'wallet' },
     { k: 'contas', label: 'Contas', icon: 'file' },
+    { k: 'projecao', label: 'Projeção', icon: 'chart' },
     { k: 'impostos', label: 'Impostos', icon: 'alert' },
     { k: 'repasse', label: 'Repasse', icon: 'chart' },
     { k: 'compras', label: 'Compras', icon: 'wallet' },
@@ -753,6 +754,7 @@ const AppShell = () => {
   const pages = {
     dashboard: <Dashboard filter={filter} setFilter={setFilter} />,
     contas: <ContasPage filter={filter} setFilter={setFilter} />,
+    projecao: <window.ProjecaoPage />,
     impostos: <window.ImpostosPage filter={filter} setFilter={setFilter} />,
     caixa: <window.CaixaPage />,
     repasse: <window.RepassePage />,
