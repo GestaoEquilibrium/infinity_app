@@ -1201,6 +1201,132 @@ function ehPessoal(c) {
   return RE_PESSOAL.test(c.description || '');
 }
 
+// ============================================================
+// PROJEÇÃO DE CAIXA — previsibilidade
+// ============================================================
+const ProjecaoPage = () => {
+  const { profile } = window.useAuth();
+  const [producao, setProducao] = React.useState(null);
+  const [bancos, setBancos] = React.useState(null);
+  const [cenario, setCenario] = React.useState(1);   // 1 = base; 0.9 = queda 10%; 1.1 = alta 10%
+  const [, tick] = React.useReducer(x => x + 1, 0);
+  React.useEffect(() => {
+    const h = () => tick(); window.addEventListener('sb-data-hydrated', h);
+    return () => window.removeEventListener('sb-data-hydrated', h);
+  }, []);
+  React.useEffect(() => {
+    if (!profile?.company_id) return;
+    if (window.fetchProducaoMensal) window.fetchProducaoMensal(profile.company_id).then(setProducao).catch(() => setProducao([]));
+    if (window.fetchContasBancarias) window.fetchContasBancarias(profile.company_id).then(r => setBancos(window.saldosPorConta(r))).catch(() => setBancos([]));
+  }, [profile?.company_id, (window.CONTAS || []).length]);
+
+  const saldoHoje = (bancos || []).reduce((a, b) => a + b.saldo, 0);
+  const proj = React.useMemo(() => {
+    if (!producao) return null;
+    return window.projetarCaixa({ producao, saldoInicial: saldoHoje, horizonteDias: 75, fatorProducao: cenario });
+  }, [producao, saldoHoje, cenario]);
+
+  if (!producao || !proj) {
+    return (<div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-mute)' }}>Carregando projeção…</div>);
+  }
+
+  // pontos do gráfico (saldo por dia)
+  const pts = proj.dias.map((d, i) => ({ i, x: i, y: d.saldo, data: d.data }));
+  const ys = pts.map(p => p.y); const ymax = Math.max(...ys, 0); const ymin = Math.min(...ys, 0);
+  const W = 900, H = 240, pad = 8;
+  const sx = i => pad + (i / (pts.length - 1)) * (W - 2 * pad);
+  const sy = v => H - pad - ((v - ymin) / (ymax - ymin || 1)) * (H - 2 * pad);
+  const zeroY = sy(0);
+  const path = pts.map((p, i) => `${i ? 'L' : 'M'}${sx(p.i).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ');
+
+  // eventos grandes para listar
+  const eventos = proj.dias.flatMap(d => d.eventos.filter(e => e.valor >= 1000).map(e => ({ ...e, data: d.data })));
+  const menorSaldo = proj.dias.reduce((min, d) => d.saldo < min.saldo ? d : min, proj.dias[0]);
+
+  const fmtD = iso => iso.split('-').reverse().slice(0, 2).join('/');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <PageHeader title="Projeção de Caixa" subtitle="Quanto vai entrar e sair nos próximos 75 dias — com base na produção que já aconteceu" />
+
+      {/* faixa de destaque */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+        <div style={{ padding: '18px 22px', borderRadius: 'var(--r-lg)', background: 'var(--surface)', border: '1px solid var(--line)' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Dinheiro hoje</div>
+          <div className="mono" style={{ fontSize: 26, fontWeight: 700, color: saldoHoje < 20000 ? '#b8860b' : 'var(--c-pos)', marginTop: 4 }}>{window.fmt(saldoHoje)}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>somando as 5 contas</div>
+        </div>
+        <div style={{ padding: '18px 22px', borderRadius: 'var(--r-lg)', background: 'var(--surface)', border: '1px solid var(--line)' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Menor saldo previsto</div>
+          <div className="mono" style={{ fontSize: 26, fontWeight: 700, color: menorSaldo.saldo < 0 ? 'var(--c-neg)' : menorSaldo.saldo < 20000 ? '#b8860b' : 'var(--c-pos)', marginTop: 4 }}>{window.fmt(menorSaldo.saldo)}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>em {fmtD(menorSaldo.data)}</div>
+        </div>
+        <div style={{ padding: '18px 22px', borderRadius: 'var(--r-lg)', background: proj.alerta ? 'color-mix(in oklch, var(--c-neg) 10%, transparent)' : 'var(--surface)', border: `1.5px solid ${proj.alerta ? 'var(--c-neg)' : 'var(--line)'}` }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Alerta</div>
+          {proj.alerta
+            ? <><div className="mono" style={{ fontSize: 20, fontWeight: 700, color: 'var(--c-neg)', marginTop: 4 }}>{fmtD(proj.alerta.data)}</div><div style={{ fontSize: 11.5, color: 'var(--c-neg)' }}>saldo fica negativo</div></>
+            : <><div style={{ fontSize: 20, fontWeight: 700, color: 'var(--c-pos)', marginTop: 4 }}>Tudo certo</div><div style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>caixa não fica negativo</div></>}
+        </div>
+      </div>
+
+      {/* cenários */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12.5, color: 'var(--ink-mute)', fontWeight: 600 }}>Cenário:</span>
+        {[{ v: 1.1, l: 'Otimista (+10%)' }, { v: 1, l: 'Base (real)' }, { v: 0.9, l: 'Cauteloso (−10%)' }, { v: 0.8, l: 'Pessimista (−20%)' }].map(c => (
+          <button key={c.v} onClick={() => setCenario(c.v)} style={{
+            padding: '7px 14px', borderRadius: 'var(--r-md)', border: `1px solid ${cenario === c.v ? 'var(--c-primary)' : 'var(--line)'}`,
+            background: cenario === c.v ? 'var(--c-primary)' : 'var(--bg-alt)', color: cenario === c.v ? '#fff' : 'var(--ink)',
+            fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+          }}>{c.l}</button>
+        ))}
+        <span style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginLeft: 4 }}>simula a produção de convênio caindo ou subindo</span>
+      </div>
+
+      {/* gráfico */}
+      <TiltCard interactive={false} padding={18}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Saldo projetado — próximos 75 dias</div>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }}>
+          <line x1={pad} y1={zeroY} x2={W - pad} y2={zeroY} stroke="var(--c-neg)" strokeWidth="1" strokeDasharray="4 4" opacity="0.5" />
+          <path d={`${path} L${sx(pts.length - 1)},${zeroY} L${sx(0)},${zeroY} Z`} fill="var(--c-primary)" opacity="0.08" />
+          <path d={path} fill="none" stroke="var(--c-primary)" strokeWidth="2" />
+          {proj.dias.map((d, i) => d.eventos.filter(e => e.valor >= 5000).map((e, j) => (
+            <circle key={i + '-' + j} cx={sx(i)} cy={sy(d.saldo)} r="3" fill={e.tipo === 'entrada' ? 'var(--c-pos)' : 'var(--c-neg)'} />
+          )))}
+        </svg>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--ink-mute)', marginTop: 4 }}>
+          <span>hoje</span><span>+25 dias</span><span>+50 dias</span><span>+75 dias</span>
+        </div>
+      </TiltCard>
+
+      {/* linha do tempo de eventos */}
+      <TiltCard interactive={false} padding={0}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', fontWeight: 700, fontSize: 13 }}>
+          Próximos eventos de caixa
+        </div>
+        <div style={{ maxHeight: '40vh', overflowY: 'auto' }}>
+          {eventos.length === 0 && <div style={{ padding: 20, color: 'var(--ink-mute)', fontSize: 13 }}>Nada relevante nos próximos 75 dias.</div>}
+          {eventos.map((e, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 18px', borderTop: i ? '1px solid var(--line)' : 'none' }}>
+              <div style={{ width: 52, fontSize: 12, fontWeight: 700, color: 'var(--ink-mute)' }}>{fmtD(e.data)}</div>
+              <div style={{ width: 8, height: 8, borderRadius: 999, background: e.tipo === 'entrada' ? 'var(--c-pos)' : 'var(--c-neg)' }} />
+              <div style={{ flex: 1, fontSize: 13 }}>{e.descricao}<span style={{ fontSize: 11, color: 'var(--ink-mute)', marginLeft: 6 }}>{e.origem === 'projecao' ? '· projetado' : ''}</span></div>
+              <div className="mono" style={{ fontWeight: 700, color: e.tipo === 'entrada' ? 'var(--c-pos)' : 'var(--c-neg)' }}>
+                {e.tipo === 'entrada' ? '+' : '−'}{window.fmt(e.valor)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </TiltCard>
+
+      <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', lineHeight: 1.5 }}>
+        A projeção usa a <b>produção de convênio que já aconteceu</b> (Unimed recebe no fim do mês seguinte, NDI no dia 15 do mês seguinte a esse),
+        as <b>contas já lançadas</b> com vencimento futuro, e uma média diária de cartão/particular. Conforme os relatórios de produção forem
+        importados, o horizonte se estende sozinho.
+      </div>
+    </div>
+  );
+};
+
 const ContasPage = ({ filter, setFilter }) => {
   const [editing, setEditing] = React.useState(null);
   const [confirmando, setConfirmando] = React.useState(null); // conta sendo confirmada
@@ -1912,6 +2038,6 @@ const PageHeader = ({ title, subtitle, action }) => (
   </div>
 );
 
-Object.assign(window, { ContasPage, ComprasPage, PacientesPage, AgendaPage, ConfigPage, PageHeader, FilterBar, ExcelImporter, KPI });
+Object.assign(window, { ContasPage, ProjecaoPage, ComprasPage, PacientesPage, AgendaPage, ConfigPage, PageHeader, FilterBar, ExcelImporter, KPI });
 
 window.ImpostosPage = ImpostosPage;
