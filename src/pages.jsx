@@ -1247,7 +1247,7 @@ const ProjecaoPage = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <PageHeader title="Projeção de Caixa" subtitle="Quanto vai entrar e sair nos próximos 75 dias — com base na produção que já aconteceu" />
+      <PageHeader title="Projeção de Caixa" subtitle={`Quanto vai entrar e sair até ${proj.ultimoRecebimento ? proj.ultimoRecebimento.split('-').reverse().slice(0,2).join('/') : ''} — com base na produção que já aconteceu`} />
 
       {/* faixa de destaque */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
@@ -1284,7 +1284,7 @@ const ProjecaoPage = () => {
 
       {/* gráfico */}
       <TiltCard interactive={false} padding={18}>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Saldo projetado — próximos 75 dias</div>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Saldo projetado — próximos {proj.horizonteReal} dias</div>
         <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }}>
           <line x1={pad} y1={zeroY} x2={W - pad} y2={zeroY} stroke="var(--c-neg)" strokeWidth="1" strokeDasharray="4 4" opacity="0.5" />
           <path d={`${path} L${sx(pts.length - 1)},${zeroY} L${sx(0)},${zeroY} Z`} fill="var(--c-primary)" opacity="0.08" />
@@ -1294,7 +1294,7 @@ const ProjecaoPage = () => {
           )))}
         </svg>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--ink-mute)', marginTop: 4 }}>
-          <span>hoje</span><span>+25 dias</span><span>+50 dias</span><span>+75 dias</span>
+          <span>hoje</span><span>+{Math.round(proj.horizonteReal/3)}d</span><span>+{Math.round(proj.horizonteReal*2/3)}d</span><span>+{proj.horizonteReal}d</span>
         </div>
       </TiltCard>
 
@@ -1319,7 +1319,9 @@ const ProjecaoPage = () => {
       </TiltCard>
 
       <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', lineHeight: 1.5 }}>
-        A projeção usa a <b>produção de convênio que já aconteceu</b> (Unimed recebe no fim do mês seguinte, NDI no dia 15 do mês seguinte a esse),
+        <b>A projeção vai até {proj.ultimoRecebimento ? proj.ultimoRecebimento.split('-').reverse().slice(0,2).join('/') : ''}</b> porque é até onde há produção importada dos dois lados.
+        Importe o relatório do mês seguinte para estender o horizonte.<br/><br/>
+        Ela usa a <b>produção de convênio que já aconteceu</b> (Unimed recebe no fim do mês seguinte, NDI no dia 15 do mês seguinte a esse),
         as <b>contas já lançadas</b> com vencimento futuro, e uma média diária de cartão/particular. Conforme os relatórios de produção forem
         importados, o horizonte se estende sozinho.
       </div>
