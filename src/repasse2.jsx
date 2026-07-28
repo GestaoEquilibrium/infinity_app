@@ -619,9 +619,39 @@ const RepassePage = () => {
       const [y, mm] = mesDetectado.split('-');
       const nomeMes = ['', 'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][parseInt(mm)];
       setMsg(`${parsed.length} linhas carregadas · competência detectada: ${nomeMes}/${y}.`);
+      // Guarda a produção de convênio deste mês (alimenta a Projeção de Caixa).
+      salvarProducaoDoRelatorio(parsed, mesDetectado);
     } else {
       setMsg(`${parsed.length} linhas carregadas.`);
     }
+  };
+
+  // Conta os atendimentos de convênio (Realizado + Em Espera) por convênio e salva
+  // em producao_mensal, para a Projeção de Caixa. Roda em silêncio; não trava a tela.
+  const salvarProducaoDoRelatorio = async (parsed, competencia) => {
+    if (!window.upsertProducaoMensal || !companyId) return;
+    const MAPA = { unimed: 'Unimed', 'ndi': 'NDI', gndi: 'NDI', 'notre dame': 'NDI',
+      geap: 'Geap', hapvida: 'HapVida', usisaude: 'Usisaúde' };
+    const VALOR = { Unimed: 79.21, NDI: 77.57, Geap: 79.21, HapVida: 60, 'Usisaúde': 40 };
+    const cont = {};
+    for (const r of parsed) {
+      const st = (r['Status'] || '').trim();
+      if (!STATUS_COMPUTA.includes(st)) continue;
+      const cvRaw = (r['Convênio'] || r['Convenio'] || '').toLowerCase();
+      let cv = null;
+      for (const k in MAPA) if (cvRaw.includes(k)) { cv = MAPA[k]; break; }
+      if (!cv) continue;
+      cont[cv] = (cont[cv] || 0) + 1;
+    }
+    const nomes = Object.keys(cont);
+    if (!nomes.length) return;
+    try {
+      for (const cv of nomes) {
+        await window.upsertProducaoMensal(companyId, userId, competencia, cv, cont[cv], VALOR[cv] || 0, false, 'importado automaticamente do relatório');
+      }
+      setMsg(m => m + ` Produção salva: ${nomes.map(c => `${c} ${cont[c]}`).join(', ')}.`);
+      window.dispatchEvent(new Event('sb-data-hydrated'));
+    } catch (e) { /* silencioso — não atrapalha o fechamento */ }
   };
 
   const { resultados, pendencias } = useMemoRP(
