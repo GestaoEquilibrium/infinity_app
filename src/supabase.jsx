@@ -222,6 +222,22 @@ async function markContaPaga(id, actualValue) {
   });
 }
 
+// ---- Produção mensal (base da projeção) ----
+async function fetchProducaoMensal(companyId) {
+  return sbRest(`/producao_mensal?company_id=eq.${companyId}&select=*&order=competencia.asc`);
+}
+async function upsertProducaoMensal(companyId, userId, comp, convenio, atendimentos, valorPorAtend, ajustado, obs) {
+  const body = {
+    company_id: companyId, competencia: comp, convenio,
+    atendimentos, valor_por_atend: valorPorAtend,
+    ajustado: !!ajustado, observacao: obs || null, updated_at: new Date().toISOString(),
+  };
+  return sbRest('/producao_mensal?on_conflict=company_id,competencia,convenio', {
+    method: 'POST', prefer: 'resolution=merge-duplicates,return=representation',
+    body: JSON.stringify(body),
+  });
+}
+
 // ---- Contas bancárias / saldo real ----
 async function fetchContasBancarias(companyId) {
   return sbRest(`/contas_bancarias?company_id=eq.${companyId}&ativo=is.true&select=*&order=ordem.asc`);
@@ -364,8 +380,8 @@ async function logAction(companyId, userId, action, tableName, recordId, newData
 // editor → Dashboard, Contas, Compras, Agenda, Relatórios, RH (sem excluir)
 // viewer → só Dashboard e leitura
 const ROLE_ACCESS = {
-  admin: ['dashboard', 'caixa', 'contas', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'rh', 'equipe', 'perfil', 'config'],
-  editor: ['dashboard', 'caixa', 'contas', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'rh', 'perfil'],
+  admin: ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'rh', 'equipe', 'perfil', 'config'],
+  editor: ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'rh', 'perfil'],
   viewer: ['dashboard', 'caixa', 'agenda', 'perfil'],
 };
 function canAccess(role, page) {
@@ -379,6 +395,7 @@ Object.assign(window, {
   getProfile, updateProfile, listTeam, inviteMember, updateMemberRole, removeMember,
   fetchContas, createConta, updateConta, deleteConta, markContaPaga, rowToConta, contaToRow,
   fetchContasBancarias, updateContaBancaria, saldosPorConta,
+  fetchProducaoMensal, upsertProducaoMensal,
   fetchCompras, createCompra, updateCompra, deleteCompra, rowToCompra, compraToRow,
   fetchCategories, createCategory, updateCategory, deleteCategory, fetchAuditLog, logAction,
   ROLE_ACCESS, canAccess,
