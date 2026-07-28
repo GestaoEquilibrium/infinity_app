@@ -496,11 +496,95 @@ async function hydrateFromSupabase(companyId) {
   }
 }
 
+// ============================================================
+// MOTOR DE PROJEÇÃO DE CAIXA
+// Projeta os próximos dias somando: recebimentos de convênio já
+// determinados (produção passada), entradas recorrentes (cartão/
+// particular) e as saídas conhecidas (folha, repasse, aluguel, fixas).
+// ============================================================
+
+// Quando cada convênio PAGA a produção de uma competência 'YYYY-MM'.
+// Unimed: atende M -> fatura até ~20 de M+1 -> RECEBE fim de M+1.
+// NDI:    atende M -> fatura M+1 -> RECEBE dia 15 de M+2.
+function dataRecebimento(convenio, competencia) {
+  const [y, m] = competencia.split('-').map(Number);   // m = 1..12
+  const cv = (convenio || '').toLowerCase();
+  if (cv.includes('ndi') || cv.includes('gndi')) {
+    // dia 15 de M+2: new Date(y, (m-1)+2, 15)
+    const d = new Date(y, (m - 1) + 2, 15);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-15`;
+  }
+  // Unimed/Geap/HapVida: último dia de M+1 = dia 0 do mês (M+1)+1 = new Date(y, (m-1)+2, 0)
+  const d = new Date(y, (m - 1) + 2, 0);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Gera os eventos de ENTRADA futura a partir da produção guardada.
+function entradasProjetadas(producao, hojeISO) {
+  const ev = [];
+  (producao || []).forEach(p => {
+    const valor = (Number(p.atendimentos) || 0) * (Number(p.valor_por_atend) || 0);
+    if (valor <= 0) return;
+    const data = dataRecebimento(p.convenio, p.competencia);
+    if (data <= hojeISO) return;                 // já deveria ter caído; não projeta
+    ev.push({ data, tipo: 'entrada', categoria: 'Convênios',
+      descricao: `${p.convenio} — produção ${p.competencia}`, valor, origem: 'projecao' });
+  });
+  return ev;
+}
+
+// Média diária de entradas avulsas (cartão/particular) das últimas semanas,
+// para projetar o "pinga-pinga" que não é convênio.
+function mediaEntradasAvulsas(dias = 30) {
+  const tx = window.CONTAS || [];
+  const hoje = new Date();
+  const ini = new Date(hoje.getTime() - dias * 86400000).toISOString().slice(0, 10);
+  const avulsas = tx.filter(c => c.tipo === 'receber' && c.pago && c.vencimento >= ini
+    && !['Convênios'].includes(c.category)
+    && !(window.ehTransferenciaInterna && window.ehTransferenciaInterna(c)));
+  const total = avulsas.reduce((s, c) => s + (c.realizado || c.previsto || 0), 0);
+  return total / dias;
+}
+
+// Monta a projeção dia a dia de hoje até `horizonteDias` à frente.
+function projetarCaixa({ producao, saldoInicial, horizonteDias = 75, incluirAvulsas = true, fatorProducao = 1 }) {
+  const hoje = new Date(); const hojeISO = hoje.toISOString().slice(0, 10);
+  // 1) eventos de convênio (aplicando cenário de queda/alta se fatorProducao != 1)
+  const prodAjust = (producao || []).map(p => ({ ...p, atendimentos: Math.round((Number(p.atendimentos) || 0) * fatorProducao) }));
+  const eventos = entradasProjetadas(prodAjust, hojeISO);
+  // 2) contas a pagar/receber já lançadas com vencimento futuro (folha, repasse, fixas)
+  const tx = window.CONTAS || [];
+  tx.forEach(c => {
+    if (c.pago) return;
+    if (c.vencimento <= hojeISO) return;
+    if (window.ehTransferenciaInterna && window.ehTransferenciaInterna(c)) return;
+    eventos.push({ data: c.vencimento, tipo: c.tipo === 'receber' ? 'entrada' : 'saida',
+      categoria: c.category, descricao: c.description, valor: c.previsto || 0, origem: 'conta' });
+  });
+  // 3) entradas avulsas (cartão/particular) como pinga diário
+  const mediaAvulsa = incluirAvulsas ? mediaEntradasAvulsas() : 0;
+  // 4) percorre dia a dia
+  const dias = []; let saldo = Number(saldoInicial) || 0; let alerta = null;
+  for (let i = 0; i <= horizonteDias; i++) {
+    const d = new Date(hoje.getTime() + i * 86400000);
+    const iso = d.toISOString().slice(0, 10);
+    const doDia = eventos.filter(e => e.data === iso);
+    let entra = doDia.filter(e => e.tipo === 'entrada').reduce((s, e) => s + e.valor, 0);
+    const sai = doDia.filter(e => e.tipo === 'saida').reduce((s, e) => s + e.valor, 0);
+    if (i > 0) entra += mediaAvulsa;             // pinga diário (não no dia 0)
+    saldo += entra - sai;
+    if (saldo < 0 && !alerta) alerta = { data: iso, saldo };
+    dias.push({ data: iso, entra, sai, saldo, eventos: doDia });
+  }
+  return { dias, alerta, mediaAvulsa };
+}
+
 Object.assign(window, {
   CONTAS, COMPRAS,
   CATS_ENTRADA, CATS_SAIDA,
   fmt, fmtShort, fmtDate, months,
   monthKey, monthLabel, availableMonths, rangeDoCiclo,
+  projetarCaixa, entradasProjetadas, dataRecebimento, mediaEntradasAvulsas,
   filterCompras, filterContas, monthlyAggregates, saldoAnterior, ehTransferenciaInterna,
   parseExcel, addCompras, parseExcelContas, addContas, catColor,
   hydrateFromSupabase,
