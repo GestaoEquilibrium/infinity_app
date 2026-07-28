@@ -1209,6 +1209,7 @@ const ProjecaoPage = () => {
   const [producao, setProducao] = React.useState(null);
   const [bancos, setBancos] = React.useState(null);
   const [cenario, setCenario] = React.useState(1);   // 1 = base; 0.9 = queda 10%; 1.1 = alta 10%
+  const [hover, setHover] = React.useState(null);    // ponto do gráfico sob o mouse
   const [, tick] = React.useReducer(x => x + 1, 0);
   React.useEffect(() => {
     const h = () => tick(); window.addEventListener('sb-data-hydrated', h);
@@ -1249,6 +1250,14 @@ const ProjecaoPage = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <PageHeader title="Projeção de Caixa" subtitle={`Quanto vai entrar e sair até ${proj.ultimoRecebimento ? proj.ultimoRecebimento.split('-').reverse().slice(0,2).join('/') : ''} — com base na produção que já aconteceu`} />
 
+      {/* explicação resumida */}
+      <div style={{ display: 'flex', gap: 12, padding: '13px 18px', borderRadius: 'var(--r-md)', background: 'var(--bg-alt)', border: '1px solid var(--line)', alignItems: 'flex-start' }}>
+        <span style={{ fontSize: 18, lineHeight: 1 }}>💡</span>
+        <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', lineHeight: 1.55 }}>
+          Como funciona: no convênio, o atendimento vira dinheiro dois meses depois — então o que a clínica atendeu em <b>junho</b> a gente <b>já sabe</b> que vai receber (Unimed no fim do mês seguinte, NDI no dia 15). A projeção soma esses recebimentos certos, desconta as saídas fixas de sempre (folha, repasse, aluguel, impostos) e mostra o saldo dia a dia. Use os <b>cenários</b> para ver o que acontece se a produção cair — é onde aparece se algum mês não fecha.
+        </div>
+      </div>
+
       {/* faixa de destaque */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
         <div style={{ padding: '18px 22px', borderRadius: 'var(--r-lg)', background: 'var(--surface)', border: '1px solid var(--line)' }}>
@@ -1269,37 +1278,34 @@ const ProjecaoPage = () => {
         </div>
       </div>
 
-      {/* cenários */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12.5, color: 'var(--ink-mute)', fontWeight: 600 }}>Cenário:</span>
-        {[{ v: 1.1, l: 'Otimista (+10%)' }, { v: 1, l: 'Base (real)' }, { v: 0.9, l: 'Cauteloso (−10%)' }, { v: 0.8, l: 'Pessimista (−20%)' }].map(c => (
-          <button key={c.v} onClick={() => setCenario(c.v)} style={{
-            padding: '7px 14px', borderRadius: 'var(--r-md)', border: `1px solid ${cenario === c.v ? 'var(--c-primary)' : 'var(--line)'}`,
-            background: cenario === c.v ? 'var(--c-primary)' : 'var(--bg-alt)', color: cenario === c.v ? '#fff' : 'var(--ink)',
-            fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
-          }}>{c.l}</button>
-        ))}
-        <span style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginLeft: 4 }}>simula a produção de convênio caindo ou subindo</span>
-      </div>
-
-      {/* comparação dos 4 cenários lado a lado — como cada um fecha o período */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-        {[{ v: 1.1, l: 'Otimista' }, { v: 1, l: 'Base' }, { v: 0.9, l: 'Cauteloso' }, { v: 0.8, l: 'Pessimista' }].map(c => {
-          const pc = window.projetarCaixa({ producao, saldoInicial: saldoHoje, horizonteDias: 75, fatorProducao: c.v });
-          const fecha = pc.dias[pc.dias.length - 1].saldo;
-          const on = cenario === c.v;
-          return (
-            <div key={c.v} onClick={() => setCenario(c.v)} style={{
-              padding: '11px 14px', borderRadius: 'var(--r-md)', cursor: 'pointer',
-              background: on ? 'color-mix(in oklch, var(--c-primary) 8%, transparent)' : 'var(--bg-alt)',
-              border: `1.5px solid ${on ? 'var(--c-primary)' : 'var(--line)'}`,
-            }}>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--ink-mute)' }}>{c.l}</div>
-              <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: fecha < 0 ? 'var(--c-neg)' : 'var(--c-pos)', marginTop: 2 }}>{window.fmt(fecha)}</div>
-              {pc.alerta && <div style={{ fontSize: 10.5, color: 'var(--c-neg)', marginTop: 1 }}>⚠ negativo em {pc.alerta.data.split('-').reverse().slice(0, 2).join('/')}</div>}
-            </div>
-          );
-        })}
+      {/* cenários — os cards SÃO os botões (clicáveis) */}
+      <div>
+        <div style={{ fontSize: 12.5, color: 'var(--ink-mute)', fontWeight: 600, marginBottom: 8 }}>
+          Cenário — e quanto sobra ao fim do período em cada um:
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+          {[{ v: 1.1, l: 'Otimista', s: '+10%' }, { v: 1, l: 'Base', s: 'real' }, { v: 0.9, l: 'Cauteloso', s: '−10%' }, { v: 0.8, l: 'Pessimista', s: '−20%' }].map(c => {
+            const pc = window.projetarCaixa({ producao, saldoInicial: saldoHoje, horizonteDias: 75, fatorProducao: c.v });
+            const fecha = pc.dias[pc.dias.length - 1].saldo;
+            const on = cenario === c.v;
+            return (
+              <div key={c.v} onClick={() => setCenario(c.v)} style={{
+                padding: '12px 15px', borderRadius: 'var(--r-md)', cursor: 'pointer', transition: 'all .12s',
+                background: on ? 'var(--c-primary)' : 'var(--bg-alt)',
+                border: `1.5px solid ${on ? 'var(--c-primary)' : 'var(--line)'}`,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: on ? 'rgba(255,255,255,.9)' : 'var(--ink)' }}>
+                  {c.l} <span style={{ fontWeight: 400, opacity: .7 }}>{c.s}</span>
+                </div>
+                <div className="mono" style={{ fontSize: 17, fontWeight: 700, marginTop: 3,
+                  color: on ? '#fff' : (fecha < 0 ? 'var(--c-neg)' : 'var(--c-pos)') }}>{window.fmt(fecha)}</div>
+                {pc.alerta
+                  ? <div style={{ fontSize: 10.5, marginTop: 1, color: on ? 'rgba(255,255,255,.85)' : 'var(--c-neg)' }}>⚠ negativo em {pc.alerta.data.split('-').reverse().slice(0, 2).join('/')}</div>
+                  : <div style={{ fontSize: 10.5, marginTop: 1, color: on ? 'rgba(255,255,255,.7)' : 'var(--ink-mute)' }}>caixa não fica negativo</div>}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* gráfico */}
@@ -1311,24 +1317,56 @@ const ProjecaoPage = () => {
             <b className="mono" style={{ color: proj.dias[proj.dias.length - 1].saldo < 0 ? 'var(--c-neg)' : 'var(--c-pos)' }}>{window.fmt(proj.dias[proj.dias.length - 1].saldo)}</b>
           </div>
         </div>
-        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }}>
+        <div style={{ position: 'relative' }}>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}
+          onMouseLeave={() => setHover(null)}>
           <line x1={pad} y1={zeroY} x2={W - pad} y2={zeroY} stroke="var(--c-neg)" strokeWidth="1" strokeDasharray="4 4" opacity="0.5" />
           <path d={`${path} L${sx(pts.length - 1)},${zeroY} L${sx(0)},${zeroY} Z`} fill="var(--c-primary)" opacity="0.08" />
           <path d={path} fill="none" stroke="var(--c-primary)" strokeWidth="2" />
+          {/* pontos de evento: bolinha discreta, sem número poluindo */}
           {proj.dias.map((d, i) => {
             const grande = d.eventos.filter(e => e.valor >= 5000);
             if (!grande.length) return null;
             const cor = grande.some(e => e.tipo === 'entrada') ? 'var(--c-pos)' : 'var(--c-neg)';
-            const pY = sy(d.saldo);
-            const acima = pY > H / 2;
-            return (
-              <g key={i}>
-                <circle cx={sx(i)} cy={pY} r="3.5" fill={cor} />
-                <text x={sx(i)} y={acima ? pY - 8 : pY + 16} fontSize="11" fontWeight="700" textAnchor="middle" fill="var(--ink)">{(d.saldo / 1000).toFixed(0)}k</text>
-              </g>
-            );
+            return <circle key={'ev' + i} cx={sx(i)} cy={sy(d.saldo)} r="3.5" fill={cor} />;
           })}
+          {/* linha-guia + ponto do hover */}
+          {hover != null && (
+            <g>
+              <line x1={sx(hover)} y1={pad} x2={sx(hover)} y2={H - pad} stroke="var(--ink-mute)" strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
+              <circle cx={sx(hover)} cy={sy(proj.dias[hover].saldo)} r="5" fill="var(--c-primary)" stroke="#fff" strokeWidth="2" />
+            </g>
+          )}
+          {/* faixas invisíveis para capturar o mouse por dia */}
+          {proj.dias.map((d, i) => (
+            <rect key={'hit' + i} x={sx(i) - (W / proj.dias.length) / 2} y={0}
+              width={W / proj.dias.length} height={H} fill="transparent"
+              onMouseEnter={() => setHover(i)} style={{ cursor: 'crosshair' }} />
+          ))}
         </svg>
+        {/* tooltip */}
+        {hover != null && (() => {
+          const d = proj.dias[hover];
+          const leftPct = (sx(hover) / W) * 100;
+          const alinhaDir = leftPct > 65;
+          return (
+            <div style={{
+              position: 'absolute', top: 6, left: `${Math.min(Math.max(leftPct, 12), 88)}%`,
+              transform: alinhaDir ? 'translateX(-100%)' : 'translateX(-50%)',
+              background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-md)',
+              padding: '8px 12px', pointerEvents: 'none', boxShadow: '0 4px 14px rgba(0,0,0,.12)', whiteSpace: 'nowrap', zIndex: 5,
+            }}>
+              <div style={{ fontSize: 11, color: 'var(--ink-mute)', fontWeight: 600 }}>{d.data.split('-').reverse().join('/')}</div>
+              <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: d.saldo < 0 ? 'var(--c-neg)' : 'var(--ink)' }}>{window.fmt(d.saldo)}</div>
+              {d.eventos.filter(e => e.valor >= 1000).map((e, j) => (
+                <div key={j} style={{ fontSize: 11, marginTop: 2, color: e.tipo === 'entrada' ? 'var(--c-pos)' : 'var(--c-neg)' }}>
+                  {e.tipo === 'entrada' ? '+' : '−'}{window.fmt(e.valor)} · {e.descricao.replace(' (estimado)', '').replace(' — produção', ' de').slice(0, 28)}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+        </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--ink-mute)', marginTop: 4 }}>
           <span>hoje</span><span>+{Math.round(proj.horizonteReal/3)}d</span><span>+{Math.round(proj.horizonteReal*2/3)}d</span><span>+{proj.horizonteReal}d</span>
         </div>
