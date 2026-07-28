@@ -470,6 +470,13 @@ const Dashboard = ({ filter, setFilter }) => {
 const RelatoriosPage = () => {
   const [mes, setMes] = React.useState(() => window.availableMonths?.().slice(-1)[0] || '');
   const [gerado, setGerado] = React.useState(null);
+  const [producao, setProducao] = React.useState([]);
+  const { profile } = window.useAuth();
+  React.useEffect(() => {
+    if (profile?.company_id && window.fetchProducaoMensal)
+      window.fetchProducaoMensal(profile.company_id).then(setProducao).catch(() => setProducao([]));
+  }, [profile?.company_id]);
+  const dreView = React.useMemo(() => (mes && window.gerarDRE) ? window.gerarDRE(mes, producao) : null, [mes, producao]);
 
   function exportXLSX(nome, dados, colunas) {
     if (!window.XLSX) { alert('Biblioteca XLSX não carregada.'); return; }
@@ -481,23 +488,27 @@ const RelatoriosPage = () => {
     setTimeout(() => setGerado(null), 3000);
   }
 
-  function gerarDRE() {
-    const contas = (window.CONTAS||[]).filter(c => c.vencimento?.startsWith(mes));
-    const entradas = contas.filter(c => c.tipo==='receber');
-    const saidas   = contas.filter(c => c.tipo==='pagar');
+  function exportarDRE() {
+    if (!dreView) return;
+    const C = dreView.competencia, X = dreView.caixa;
+    const L = (linha, k) => ({ 'Linha': linha, 'Competência': +C[k].toFixed(2), 'Caixa': +X[k].toFixed(2) });
     const dados = [
-      { Categoria: '── RECEITAS ──', Previsto: '', Realizado: '', Status: '' },
-      ...entradas.map(c => ({ Categoria: c.category, Descrição: c.description, Vencimento: c.vencimento, Previsto: c.previsto, Realizado: c.realizado||0, Status: c.pago?'Recebido':'Pendente' })),
-      { Categoria: '── DESPESAS ──', Previsto: '', Realizado: '', Status: '' },
-      ...saidas.map(c => ({ Categoria: c.category, Descrição: c.description, Vencimento: c.vencimento, Previsto: c.previsto, Realizado: c.realizado||0, Status: c.pago?'Pago':'Pendente' })),
-      { Categoria: '── RESULTADO ──', Descrição: 'Líquido (Receitas - Despesas)',
-        Previsto: entradas.reduce((s,c)=>s+c.previsto,0) - saidas.reduce((s,c)=>s+c.previsto,0),
-        Realizado: entradas.reduce((s,c)=>s+(c.realizado||0),0) - saidas.reduce((s,c)=>s+(c.realizado||0),0),
-        Status: '' },
+      L('RECEITA BRUTA', 'receita_bruta'),
+      L('  Convênios', 'rec_conv'),
+      L('  Cartão + Particular', 'rec_avulsa'),
+      L('  (−) Impostos pagos', 'impostos'),
+      L('= RECEITA LÍQUIDA', 'receita_liq'),
+      L('  (−) Repasses', 'repasses'),
+      L('= MARGEM DE CONTRIBUIÇÃO', 'margem_contrib'),
+      L('  (−) Folha/RH', 'folha'),
+      L('  (−) Aluguel', 'ocupacao'),
+      L('  (−) Outras despesas', 'outras'),
+      L('= RESULTADO OPERACIONAL', 'result_operacional'),
+      L('  (−) Dívidas/financiamentos', 'dividas'),
+      L('= RESULTADO DO MÊS', 'resultado'),
     ];
     exportXLSX('DRE_' + mes, dados);
   }
-
   function gerarFluxo() {
     const agg = window.monthlyAggregates();
     let saldo = 0;
@@ -548,7 +559,7 @@ const RelatoriosPage = () => {
 
   const meses = window.availableMonths?.() || [];
   const tiles = [
-    { title: 'DRE Mensal', desc: 'Receitas × Despesas — previsto e realizado', icon: 'file', fn: gerarDRE, precisaMes: true },
+    { title: 'DRE (Excel)', desc: 'Baixa a DRE acima em planilha', icon: 'file', fn: exportarDRE, precisaMes: true },
     { title: 'Fluxo de Caixa', desc: 'Saldo acumulado mês a mês com saldo anterior', icon: 'chart', fn: gerarFluxo, precisaMes: false },
     { title: 'Receita por Convênio', desc: 'Ranking de repasses — previsto vs realizado', icon: 'tag', fn: gerarConvenios, precisaMes: false },
     { title: 'Extrato de Contas', desc: 'Todas as contas do mês selecionado', icon: 'calendar', fn: gerarContas, precisaMes: true },
@@ -572,6 +583,64 @@ const RelatoriosPage = () => {
           {gerado && <Pill color="var(--ink)" size="sm">✓ {gerado}.xlsx baixado</Pill>}
         </div>
       </TiltCard>
+
+      {/* DRE VISUAL — as duas colunas lado a lado */}
+      {dreView && (() => {
+        const C = dreView.competencia, X = dreView.caixa;
+        const brl = v => window.fmt(v);
+        const Linha = ({ label, kc, ind = 0, forte = false, sub = false, pct }) => (
+          <tr style={{ borderTop: sub ? 'none' : '1px solid var(--line)', background: forte ? 'var(--bg-alt)' : 'transparent' }}>
+            <td style={{ padding: forte ? '9px 14px' : '6px 14px', paddingLeft: 14 + ind * 16, fontWeight: forte ? 700 : 400, fontSize: forte ? 13 : 12.5, color: sub ? 'var(--ink-mute)' : 'var(--ink)' }}>
+              {label}{pct != null && <span style={{ fontSize: 11, color: 'var(--ink-mute)', marginLeft: 6 }}>{pct >= 0 ? '' : ''}{pct.toFixed(1)}%</span>}
+            </td>
+            <td className="mono" style={{ padding: forte ? '9px 14px' : '6px 14px', textAlign: 'right', fontWeight: forte ? 700 : 400, fontSize: forte ? 13.5 : 12.5, color: C[kc] < 0 ? 'var(--c-neg)' : (forte ? 'var(--ink)' : 'var(--ink-soft)') }}>{brl(C[kc])}</td>
+            <td className="mono" style={{ padding: forte ? '9px 14px' : '6px 14px', textAlign: 'right', fontWeight: forte ? 700 : 400, fontSize: forte ? 13.5 : 12.5, color: X[kc] < 0 ? 'var(--c-neg)' : (forte ? 'var(--ink)' : 'var(--ink-soft)') }}>{brl(X[kc])}</td>
+          </tr>
+        );
+        return (
+          <TiltCard interactive={false} padding={0}>
+            <div style={{ padding: '16px 18px 10px' }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>DRE — {window.monthLabel(mes)}</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-mute)', marginTop: 2 }}>
+                Demonstração do resultado, grupo consolidado. <b>Competência</b> = o que a clínica gerou no mês · <b>Caixa</b> = o que de fato entrou e saiu.
+              </div>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ fontSize: 10.5, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  <th style={{ textAlign: 'left', padding: '4px 14px' }}></th>
+                  <th style={{ textAlign: 'right', padding: '4px 14px' }}>Competência</th>
+                  <th style={{ textAlign: 'right', padding: '4px 14px' }}>Caixa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <Linha label="RECEITA BRUTA" kc="receita_bruta" forte />
+                <Linha label="Convênios" kc="rec_conv" ind={1} sub />
+                <Linha label="Cartão + Particular" kc="rec_avulsa" ind={1} sub />
+                <Linha label="(−) Impostos pagos" kc="impostos" ind={1} sub />
+                <Linha label="= RECEITA LÍQUIDA" kc="receita_liq" forte />
+                <Linha label="(−) Repasses a profissionais" kc="repasses" ind={1} sub />
+                <Linha label="= MARGEM DE CONTRIBUIÇÃO" kc="margem_contrib" forte pct={C.mc_pct} />
+                <Linha label="(−) Folha / RH" kc="folha" ind={1} sub />
+                <Linha label="(−) Aluguel / ocupação" kc="ocupacao" ind={1} sub />
+                <Linha label="(−) Outras despesas" kc="outras" ind={1} sub />
+                <Linha label="= RESULTADO OPERACIONAL" kc="result_operacional" forte pct={C.op_pct} />
+                <Linha label="(−) Dívidas / financiamentos" kc="dividas" ind={1} sub />
+                <Linha label="= RESULTADO DO MÊS" kc="resultado" forte pct={C.margem_pct} />
+              </tbody>
+            </table>
+            <div style={{ padding: '12px 16px', display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 12 }}>
+              <div><span style={{ color: 'var(--ink-mute)' }}>Resultado competência: </span><b className="mono" style={{ color: C.resultado < 0 ? 'var(--c-neg)' : 'var(--c-pos)' }}>{brl(C.resultado)}</b></div>
+              <div><span style={{ color: 'var(--ink-mute)' }}>Resultado caixa: </span><b className="mono" style={{ color: X.resultado < 0 ? 'var(--c-neg)' : 'var(--c-pos)' }}>{brl(X.resultado)}</b></div>
+              {Math.abs(C.resultado - X.resultado) > 1000 && (
+                <div style={{ color: 'var(--ink-mute)' }}>
+                  A diferença de <b className="mono">{brl(Math.abs(C.resultado - X.resultado))}</b> é o descasamento: o convênio recebe com defasagem.
+                </div>
+              )}
+            </div>
+          </TiltCard>
+        );
+      })()}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 16 }}>
         {tiles.map((t, i) => (
