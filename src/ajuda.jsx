@@ -340,12 +340,17 @@ const AjudaBanner = ({ page }) => {
           </div>
           {aberto && (
             <div style={{ marginTop: 8 }}>
-              <AjudaImagem chave={page} placeholder={false} />
               <AjudaDetalhe info={info} chave={page} comPrint={false} />
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+          {info.passos && info.passos.length > 0 && (
+            <button onClick={() => window.dispatchEvent(new CustomEvent('infinity-tutorial', { detail: { page } }))}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--accent)', color: 'var(--accent-ink)', border: 'none', borderRadius: 'var(--r-sm)', cursor: 'pointer', fontSize: 12, fontWeight: 700, padding: '5px 10px', whiteSpace: 'nowrap' }}>
+              ▶ Tutorial
+            </button>
+          )}
           <button onClick={() => setAberto(a => !a)} style={ajBtnLink}>{aberto ? 'Recolher ▲' : 'Como fazer ▾'}</button>
           <button onClick={dispensar} title="Não mostrar aqui" style={{ ...ajBtnLink, color: 'var(--ink-mute)' }}>✕</button>
         </div>
