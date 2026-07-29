@@ -136,9 +136,10 @@ const Sidebar = ({ page, setPage, collapsed, setCollapsed }) => {
   ];
   const items = allItems.filter(it => window.canAccess(role, it.k));
   const bottom = [
+    { k: 'ajuda', label: 'Ajuda', icon: 'help' },
     { k: 'perfil', label: 'Meu perfil', icon: 'user' },
     { k: 'config', label: 'Configurações', icon: 'settings' },
-  ].filter(it => window.canAccess(role, it.k) || it.k === 'perfil');
+  ].filter(it => window.canAccess(role, it.k) || it.k === 'perfil' || it.k === 'ajuda');
 
   return (
     <aside className="glass" style={{
@@ -834,6 +835,7 @@ const AppShell = () => {
     equipe: <EquipePage />,
     perfil: <PerfilPage />,
     config: <ConfigPage />,
+    ajuda: <window.AjudaPage />,
   };
 
   const density = tweaks.density === 'compact' ? 14 : tweaks.density === 'spacious' ? 26 : 20;
@@ -843,7 +845,10 @@ const AppShell = () => {
       <Sidebar page={page} setPage={setPage} collapsed={collapsed} setCollapsed={setCollapsed} />
       <main style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', paddingRight: 6 }}>
         <Topbar theme={theme} setTheme={setTheme} liveClock={tweaks.liveClock} onOpenTweaks={() => setTweaksVisible(v => !v)} />
-        <div key={page} style={{ paddingBottom: 24 }}>{pages[page]}</div>
+        <div key={page} style={{ paddingBottom: 24 }}>
+          {page !== 'ajuda' && <window.AjudaBanner page={page} />}
+          {pages[page]}
+        </div>
       </main>
       <TweaksPanel tweaks={tweaks} setTweaks={setTweaks} visible={tweaksVisible} onClose={() => setTweaksVisible(false)} />
     </div>
