@@ -851,6 +851,7 @@ const AppShell = () => {
         </div>
       </main>
       <TweaksPanel tweaks={tweaks} setTweaks={setTweaks} visible={tweaksVisible} onClose={() => setTweaksVisible(false)} />
+      <window.TutorialHost />
     </div>
   );
 };
