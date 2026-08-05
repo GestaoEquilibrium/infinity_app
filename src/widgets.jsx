@@ -451,12 +451,13 @@ const AgendaWidget = ({ data }) => {
 
 const WIDGETS = {
   kpis:      { title: 'Indicadores',          render: KpisWidget,      span: 12 },
+  // (span: kpis=12 faixa embaixo, flow=8 + agenda=4 lado a lado em cima)
   flow:      { title: 'Fluxo de caixa',       render: FlowWidget,      span: 8 },
   prevreal:  { title: 'Previsto × Realizado', render: PrevRealWidget,  span: 4 },
   ranking:   { title: 'Top receitas',         render: RankingWidget,   span: 4 },
   recent:    { title: 'Últimas compras',      render: RecentWidget,    span: 4 },
   pendentes: { title: 'Contas pendentes',     render: PendentesWidget, span: 4 },
-  agenda:    { title: 'Agenda da clínica',     render: AgendaWidget,    span: 4 },
+  agenda:    { title: 'Agenda da clínica',    render: AgendaWidget,    span: 4 },
 };
 
 Object.assign(window, {
