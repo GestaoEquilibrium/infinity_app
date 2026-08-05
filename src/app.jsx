@@ -13,6 +13,9 @@ const AuthProvider = ({ children }) => {
   const [profile, setProfile] = useState(null);
   const [ready, setReady] = useState(false);
   const [demo, setDemo] = useState(() => localStorage.getItem('infinity-demo') === '1');
+  // Empresas do grupo + empresa "de casa" (a real do perfil, onde pode editar)
+  const [companies, setCompanies] = useState([]);
+  const [homeCompanyId, setHomeCompanyId] = useState(null);
 
   const refresh = async () => {
     const u = await window.getMe();
@@ -20,10 +23,31 @@ const AuthProvider = ({ children }) => {
     if (u?.id) {
       try {
         const p = await window.getProfile(u.id);
-        setProfile(p);
-        if (p?.company_id) window.hydrateFromSupabase?.(p.company_id);
+        setHomeCompanyId(p?.company_id || null);
+        // empresa ativa = a salva no seletor (se ainda válida) ou a do perfil
+        let active = p?.company_id || null;
+        try {
+          const saved = localStorage.getItem('infinity-active-company');
+          if (saved) active = saved;
+        } catch {}
+        // aplica a empresa ativa no perfil em memória (as telas seguem isto)
+        setProfile(p ? { ...p, company_id: active } : null);
+        window.ACTIVE_COMPANY_ID = active;
+        window.HOME_COMPANY_ID = p?.company_id || null;
+        if (active) window.hydrateFromSupabase?.(active);
+        // carrega a lista de empresas para o seletor
+        try { setCompanies(await window.fetchCompanies()); } catch {}
       } catch { setProfile(null); }
-    } else setProfile(null);
+    } else { setProfile(null); setCompanies([]); setHomeCompanyId(null); }
+  };
+
+  // Troca a empresa ativa (só leitura nas outras; edição continua na "de casa").
+  const switchCompany = (id) => {
+    if (!id) return;
+    try { localStorage.setItem('infinity-active-company', id); } catch {}
+    window.ACTIVE_COMPANY_ID = id;
+    setProfile(prev => prev ? { ...prev, company_id: id } : prev);
+    window.hydrateFromSupabase?.(id);
   };
 
   useEffect(() => {
@@ -38,7 +62,7 @@ const AuthProvider = ({ children }) => {
   const logout = async () => { await window.signOut(); setUser(null); setProfile(null); exitDemo(); };
 
   return (
-    <AuthCtx.Provider value={{ user, profile, ready, demo, enterDemo, exitDemo, logout, refresh }}>
+    <AuthCtx.Provider value={{ user, profile, ready, demo, enterDemo, exitDemo, logout, refresh, companies, homeCompanyId, switchCompany }}>
       {children}
     </AuthCtx.Provider>
   );
@@ -229,6 +253,55 @@ const pillStyle = {
   height: 44, padding: '0 16px', borderRadius: 'var(--r-sm)',
 };
 
+const CompanySelector = () => {
+  const { companies, profile, homeCompanyId, switchCompany, demo } = useAuth();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+  if (demo || !companies || companies.length < 2) return null; // só aparece com 2+ empresas
+  const activeId = profile?.company_id;
+  const active = companies.find(c => c.id === activeId);
+  const nome = (c) => c?.name || 'Empresa';
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button className="glass" onClick={() => setOpen(o => !o)} title="Trocar empresa"
+        style={{ height: 44, borderRadius: 'var(--r-sm)', display: 'flex', alignItems: 'center',
+          gap: 8, padding: '0 14px', color: 'var(--ink)', fontFamily: 'inherit', fontSize: 13, fontWeight: 600 }}>
+        <Icon name="wallet" size={16} />
+        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome(active)}</span>
+        <span style={{ fontSize: 10, color: 'var(--ink-mute)' }}>▾</span>
+      </button>
+      {open && (
+        <div className="glass" style={{ position: 'absolute', top: 50, right: 0, minWidth: 220, zIndex: 50,
+          borderRadius: 12, padding: 6, boxShadow: '0 8px 30px rgba(0,0,0,0.15)' }}>
+          {companies.map(c => {
+            const isActive = c.id === activeId;
+            const isHome = c.id === homeCompanyId;
+            return (
+              <button key={c.id} onClick={() => { switchCompany(c.id); setOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+                  padding: '10px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                  background: isActive ? 'var(--bg-alt)' : 'transparent', color: 'var(--ink)',
+                  fontFamily: 'inherit', fontSize: 13, fontWeight: isActive ? 600 : 400 }}
+                onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-alt)'; }}
+                onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}>
+                <Icon name="wallet" size={15} />
+                <span style={{ flex: 1 }}>{c.name}</span>
+                {isActive && <Icon name="check" size={15} />}
+                {!isHome && <span style={{ fontSize: 10, color: 'var(--ink-mute)', border: '1px solid var(--line)', borderRadius: 5, padding: '1px 5px' }}>leitura</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Topbar = ({ theme, setTheme, liveClock, onOpenTweaks }) => {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -288,6 +361,8 @@ const Topbar = ({ theme, setTheme, liveClock, onOpenTweaks }) => {
         <Icon name="bell" size={18} />
         <span style={{ position: 'absolute', top: 11, right: 12, width: 7, height: 7, borderRadius: 4, background: 'var(--ink)', border: '2px solid var(--surface-solid)' }} />
       </button>
+
+      <CompanySelector />
 
       <UserChip />
     </header>
