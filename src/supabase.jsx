@@ -388,11 +388,19 @@ function canAccess(role, page) {
   return (ROLE_ACCESS[role] || ROLE_ACCESS.viewer).includes(page);
 }
 
+// ---- Empresas (para o seletor multi-empresa) ----
+// Com a RLS multi-empresa, isto retorna todas as empresas do grupo.
+async function fetchCompanies() {
+  const rows = await sbRest('/companies?select=id,name,cnpj&order=name.asc');
+  return Array.isArray(rows) ? rows : [];
+}
+
 Object.assign(window, {
   SUPABASE_URL, SUPABASE_ANON_KEY,
   __sbRest: sbRest, refreshSession,
   getSession, setSession, signIn, signUp, signOut, updatePassword, getMe,
   getProfile, updateProfile, listTeam, inviteMember, updateMemberRole, removeMember,
+  fetchCompanies,
   fetchContas, createConta, updateConta, deleteConta, markContaPaga, rowToConta, contaToRow,
   fetchContasBancarias, updateContaBancaria, saldosPorConta,
   fetchProducaoMensal, upsertProducaoMensal,
