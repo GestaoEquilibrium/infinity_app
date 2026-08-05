@@ -1,6 +1,42 @@
 // Animated charts: line (cash flow), donut (categories), bars, sparkline
 
 // Smooth line/area chart with draw-in animation
+// Gráfico de COLUNAS: entradas (verde) e saídas (vermelho) por período,
+// com os valores impressos embaixo de cada grupo de colunas.
+const FlowBars = ({ data, height = 260, colorIn = 'var(--c-pos)', colorOut = 'var(--c-neg)' }) => {
+  const max = Math.max(...data.flatMap(d => [d.in, d.out]), 1);
+  const fmtShort = window.fmtShort || (v => v);
+  const barsH = height - 54; // espaço p/ rótulos embaixo
+  return (
+    <div style={{ width: '100%', overflowX: 'auto' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: data.length > 15 ? 6 : 14, minHeight: height, paddingTop: 10 }}>
+        {data.map((d, i) => (
+          <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, flex: '1 0 auto', minWidth: data.length > 15 ? 34 : 48 }}>
+            {/* colunas */}
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: barsH }}>
+              <div title={`Entradas ${fmtShort(d.in)}`} style={{
+                width: data.length > 15 ? 10 : 16, height: `${Math.max(2, (d.in / max) * barsH)}px`,
+                background: colorIn, borderRadius: '4px 4px 0 0', transition: 'height .5s ease',
+              }} />
+              <div title={`Saídas ${fmtShort(d.out)}`} style={{
+                width: data.length > 15 ? 10 : 16, height: `${Math.max(2, (d.out / max) * barsH)}px`,
+                background: colorOut, borderRadius: '4px 4px 0 0', transition: 'height .5s ease', opacity: 0.85,
+              }} />
+            </div>
+            {/* rótulo do dia/mês */}
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)' }}>{d.label}</div>
+            {/* valores embaixo */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.35 }}>
+              <span className="mono" style={{ fontSize: 10, fontWeight: 700, color: colorIn }}>{fmtShort(d.in)}</span>
+              <span className="mono" style={{ fontSize: 10, fontWeight: 700, color: colorOut }}>{fmtShort(d.out)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const FlowChart = ({ data, height = 260, colorIn = 'var(--c-pos)', colorOut = 'var(--c-neg)', showOut = true }) => {
   const ref = React.useRef(null);
   const [hover, setHover] = React.useState(null);
@@ -251,4 +287,4 @@ const Donut = ({ segments, size = 180, thickness = 28, centerLabel, centerValue 
   );
 };
 
-Object.assign(window, { FlowChart, RankBars, Sparkline, Donut });
+Object.assign(window, { FlowChart, FlowBars, RankBars, Sparkline, Donut });
