@@ -72,8 +72,8 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "tema": "azul",
   "accent": "grafite",
   "density": "comfortable",
-  "showBlobs": true,
-  "showGrid": true,
+  "showBlobs": false,
+  "showGrid": false,
   "liveClock": false
 }/*EDITMODE-END*/;
 
@@ -101,7 +101,7 @@ const TEMAS = {
   azul: {
     label: 'Mais azul',
     grayChroma: 0, grayHue: 0,          // cenário = cinza NEUTRO (sem azul no fundo)
-    accent: 'oklch(0.48 0.17 250)',     // azul vivo = títulos, ativos, botões, cliques
+    accent: '#1068B0',                  // azul Cortex = títulos, ativos, botões, cliques
     semantic: true,                     // verde=positivo, vermelho=negativo
     gradient: null,
   },
@@ -113,31 +113,28 @@ const TEMAS = {
     gradient: 'linear-gradient(135deg, oklch(0.62 0.19 250) 0%, oklch(0.52 0.22 285) 55%, oklch(0.58 0.2 320) 100%)',
   },
 };
-// aplica um tema: reescreve --g-*, --accent, semântica e degradê
+// Rampa fixa estilo CORTEX (branco → tinta escura, levemente azulada)
+const CORTEX_RAMP = ['#FFFFFF','#FBFCFE','#F6F8FB','#EEF3F8','#E7EDF3','#8C97A4','#5B6572','#3E4A58','#2A343F','#1C2530'];
+
+// aplica um tema: mantém a rampa Cortex e troca só o accent/semântica/degradê
 function aplicarTema(chave) {
   const t = TEMAS[chave] || TEMAS.monocromatico;
-  const L = [1, 0.975, 0.94, 0.88, 0.78, 0.62, 0.46, 0.34, 0.24, 0.16];
-  const Cbase = [0, 0.003, 0.005, 0.008, 0.012, 0.02, 0.025, 0.03, 0.035, 0.03];
   const root = document.documentElement;
-  L.forEach((l, i) => {
-    const c = (Cbase[i] * t.grayChroma).toFixed(3);
-    root.style.setProperty(`--g-${i}`, `oklch(${l} ${c} ${t.grayHue})`);
-  });
+  CORTEX_RAMP.forEach((hex, i) => root.style.setProperty(`--g-${i}`, hex));
   root.style.setProperty('--accent', t.accent);
-  // semântica: verde para positivo, vermelho para negativo (senão, cinza do André)
+  // semântica: verde/vermelho do Cortex
   if (t.semantic) {
-    root.style.setProperty('--c-pos', 'oklch(0.55 0.13 155)');       // verde
-    root.style.setProperty('--c-pos-soft', 'oklch(0.55 0.13 155 / 0.12)');
-    root.style.setProperty('--c-neg', 'oklch(0.55 0.18 27)');        // vermelho
-    root.style.setProperty('--c-neg-soft', 'oklch(0.55 0.18 27 / 0.11)');
-    root.style.setProperty('--c-danger', 'oklch(0.55 0.18 27)');
-    root.style.setProperty('--c-danger-soft', 'oklch(0.55 0.18 27 / 0.11)');
+    root.style.setProperty('--c-pos', '#15803D');
+    root.style.setProperty('--c-pos-soft', '#E9F7EE');
+    root.style.setProperty('--c-neg', '#B91C1C');
+    root.style.setProperty('--c-neg-soft', '#FDECEC');
+    root.style.setProperty('--c-danger', '#B91C1C');
+    root.style.setProperty('--c-danger-soft', '#FDECEC');
   } else {
     ['--c-pos','--c-pos-soft','--c-neg','--c-neg-soft','--c-danger','--c-danger-soft']
       .forEach(v => root.style.removeProperty(v));
   }
-  // degradê de fundo (só no colorido)
-  root.style.setProperty('--brand-gradient', t.gradient || 'none');
+  root.style.setProperty('--brand-gradient', t.gradient || 'var(--grad)');
   document.body.dataset.tema = chave;
 }
 
