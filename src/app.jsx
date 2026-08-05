@@ -74,7 +74,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "density": "comfortable",
   "showBlobs": true,
   "showGrid": true,
-  "liveClock": true
+  "liveClock": false
 }/*EDITMODE-END*/;
 
 // Acentos monocromáticos — variações de grafite
@@ -484,10 +484,6 @@ const Dashboard = ({ filter, setFilter }) => {
               ? <>Exibindo <strong style={{ color: 'var(--ink)' }}>{window.monthLabel(filter.month)}</strong> · saldo anterior <span className="mono" style={{ color: 'var(--ink)', fontWeight: 600 }}>{window.fmt(data.saldoAnt)}</span></>
               : <>Exibindo período · saldo anterior <span className="mono" style={{ color: 'var(--ink)', fontWeight: 600 }}>{window.fmt(data.saldoAnt)}</span></>}
           </p>
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <window.ExcelImporter />
-          <Btn variant="primary" icon="plus">Nova compra</Btn>
         </div>
       </div>
 
@@ -960,16 +956,7 @@ const AppShell = () => {
     if (grid) grid.style.display = tweaks.showGrid ? 'block' : 'none';
   }, [tweaks.showBlobs, tweaks.showGrid]);
 
-  const [filter, setFilter] = useState(() => {
-    const saved = localStorage.getItem('infinity-filter-v2');
-    const avail = window.availableMonths();
-    if (saved) try {
-      const f = JSON.parse(saved);
-      if (f.mode === 'month' && avail.includes(f.month)) return f;
-      if (f.mode === 'period') return f;
-    } catch {}
-    return window.DEFAULT_FILTER();
-  });
+  const [filter, setFilter] = useState(() => window.DEFAULT_FILTER());
   useEffect(() => { localStorage.setItem('infinity-filter-v2', JSON.stringify(filter)); }, [filter]);
 
   const pages = {
