@@ -395,7 +395,25 @@ async function fetchCompanies() {
   return Array.isArray(rows) ? rows : [];
 }
 
+// ---- Eventos da agenda da clínica (manuais) ----
+async function fetchEventos(companyId) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const rows = await sbRest(`/eventos_agenda?company_id=eq.${companyId}&data=gte.${hoje}&select=*&order=data.asc`);
+  return Array.isArray(rows) ? rows : [];
+}
+async function createEvento(companyId, titulo, data, tipo, observacao) {
+  return sbRest(`/eventos_agenda`, {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify([{ company_id: companyId, titulo, data, tipo: tipo || 'evento', observacao: observacao || null }]),
+  });
+}
+async function deleteEvento(id) {
+  return sbRest(`/eventos_agenda?id=eq.${id}`, { method: 'DELETE' });
+}
+
 Object.assign(window, {
+  fetchEventos, createEvento, deleteEvento,
   SUPABASE_URL, SUPABASE_ANON_KEY,
   __sbRest: sbRest, refreshSession,
   getSession, setSession, signIn, signUp, signOut, updatePassword, getMe,
