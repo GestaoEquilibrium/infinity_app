@@ -16,8 +16,6 @@ const FilterBar = ({ filter, setFilter }) => {
         <div style={{ display: 'flex', gap: 4, background: 'var(--bg-alt)', padding: 4, borderRadius: 999, border: '1px solid var(--line)' }}>
           <button onClick={() => setFilter({ mode: 'month', month: filter.month || months[months.length - 1] })}
             style={tabBtnStyle(filter.mode === 'month')}>Mês</button>
-          <button onClick={() => setFilter({ mode: 'period', from: periodFrom, to: periodTo })}
-            style={tabBtnStyle(filter.mode === 'period')}>Período</button>
           <button onClick={() => setFilter({ mode: 'ciclo', month: filter.month || (window.availableMonths().slice(-1)[0]) })}
             style={tabBtnStyle(filter.mode === 'ciclo')}>Ciclo</button>
         </div>
