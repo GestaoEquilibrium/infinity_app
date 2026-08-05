@@ -142,23 +142,23 @@ function aplicarTema(chave) {
 }
 
 // ─── Sidebar ───
-const Sidebar = ({ page, setPage, collapsed, setCollapsed }) => {
+const Sidebar = ({ page, setPage, collapsed, setCollapsed, modulo, setModulo }) => {
   const { profile, demo } = useAuth();
   const role = demo ? 'admin' : (profile?.role || 'viewer');
   const allItems = [
-    { k: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-    { k: 'caixa', label: 'Caixa', icon: 'wallet' },
-    { k: 'contas', label: 'Contas', icon: 'file' },
-    { k: 'projecao', label: 'Projeção', icon: 'chart' },
-    { k: 'impostos', label: 'Impostos', icon: 'alert' },
-    { k: 'repasse', label: 'Repasse', icon: 'chart' },
-    { k: 'compras', label: 'Compras', icon: 'wallet' },
-    { k: 'agenda', label: 'Agenda', icon: 'calendar' },
-    { k: 'relatorios', label: 'Relatórios', icon: 'chart' },
-    { k: 'rh', label: 'RH', icon: 'users' },
-    { k: 'equipe', label: 'Equipe', icon: 'users' },
+    { k: 'dashboard', label: 'Dashboard', icon: 'dashboard', mod: 'financeiro' },
+    { k: 'caixa', label: 'Caixa', icon: 'wallet', mod: 'financeiro' },
+    { k: 'contas', label: 'Contas', icon: 'file', mod: 'financeiro' },
+    { k: 'projecao', label: 'Projeção', icon: 'chart', mod: 'financeiro' },
+    { k: 'impostos', label: 'Impostos', icon: 'alert', mod: 'financeiro' },
+    { k: 'repasse', label: 'Repasse', icon: 'chart', mod: 'financeiro' },
+    { k: 'compras', label: 'Compras', icon: 'wallet', mod: 'financeiro' },
+    { k: 'agenda', label: 'Agenda', icon: 'calendar', mod: 'financeiro' },
+    { k: 'relatorios', label: 'Relatórios', icon: 'chart', mod: 'financeiro' },
+    { k: 'rh', label: 'Folha / RH', icon: 'users', mod: 'rh' },
+    { k: 'equipe', label: 'Equipe', icon: 'users', mod: 'rh' },
   ];
-  const items = allItems.filter(it => window.canAccess(role, it.k));
+  const items = allItems.filter(it => window.canAccess(role, it.k) && (!modulo || it.mod === modulo));
   const bottom = [
     { k: 'ajuda', label: 'Ajuda', icon: 'help' },
     { k: 'perfil', label: 'Meu perfil', icon: 'user' },
@@ -198,8 +198,21 @@ const Sidebar = ({ page, setPage, collapsed, setCollapsed }) => {
 
       {!collapsed && (
         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--ink-mute)', padding: '0 10px', marginBottom: 8 }}>
-          Menu
+          {modulo === 'rh' ? 'Recursos Humanos' : modulo === 'financeiro' ? 'Financeiro' : 'Menu'}
         </div>
+      )}
+      {modulo && (
+        <button onClick={() => setModulo(null)} style={{
+          marginBottom: 8, padding: '10px 12px', borderRadius: 'var(--r-sm)',
+          display: 'flex', alignItems: 'center', gap: 12, width: '100%',
+          color: 'var(--ink-soft)', fontSize: 13, fontWeight: 500, transition: 'background 0.2s',
+          justifyContent: collapsed ? 'center' : 'flex-start', border: 'none', cursor: 'pointer', background: 'transparent',
+        }}
+        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-alt)'}
+        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+          <Icon name="infinity" size={18} />
+          {!collapsed && <span>Início</span>}
+        </button>
       )}
       <nav style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
         {items.map(it => (
@@ -843,12 +856,75 @@ const AppInner = () => {
   return <AppShell />;
 };
 
+const Hub = ({ onPick }) => {
+  const { profile, demo } = useAuth();
+  const nome = demo ? 'Demo' : (profile?.name || profile?.email?.split('@')[0] || 'você');
+  const card = (mod, titulo, desc, icone, cor, emBreve) => (
+    <button onClick={() => onPick(mod)} style={{
+      textAlign: 'left', cursor: 'pointer', background: 'var(--surface-solid)',
+      border: '1px solid var(--line)', borderRadius: 18, padding: 28,
+      display: 'flex', flexDirection: 'column', gap: 14, transition: 'transform .2s, box-shadow .2s',
+      position: 'relative', minWidth: 220, flex: 1,
+    }}
+    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.10)'; }}
+    onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}>
+      <div style={{ width: 52, height: 52, borderRadius: 14, background: cor, display: 'grid', placeItems: 'center' }}>
+        <Icon name={icone} size={26} />
+      </div>
+      <div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{titulo}</div>
+        <div style={{ fontSize: 13, color: 'var(--ink-mute)', marginTop: 6, lineHeight: 1.5 }}>{desc}</div>
+      </div>
+      {emBreve && (
+        <span style={{ position: 'absolute', top: 20, right: 20, fontSize: 10, fontWeight: 700,
+          color: 'var(--ink-mute)', background: 'var(--bg-alt)', border: '1px solid var(--line)',
+          borderRadius: 6, padding: '3px 8px', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          em construção
+        </span>
+      )}
+    </button>
+  );
+  return (
+    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
+      <div style={{ width: '100%', maxWidth: 620 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, justifyContent: 'center', marginBottom: 8 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 13, background: 'var(--accent)', display: 'grid', placeItems: 'center', color: 'var(--accent-ink)' }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+              <path d="M18.178 8c5.096 0 5.096 8 0 8-5.095 0-7.133-8-12.739-8-4.585 0-4.585 8 0 8 5.606 0 7.644-8 12.74-8z"/>
+            </svg>
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: -0.5, color: 'var(--ink)' }}>Infinity</div>
+        </div>
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--ink)' }}>Olá, {nome}</div>
+          <div style={{ fontSize: 14, color: 'var(--ink-mute)', marginTop: 4 }}>O que você vai gerenciar hoje?</div>
+        </div>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          {card('financeiro', 'Financeiro', 'Dashboard, contas, projeção, bancos, repasse médico', 'wallet', 'var(--bg-alt)', false)}
+          {card('rh', 'Recursos Humanos', 'Ponto, folha, colaboradores, holerite, férias', 'users', 'var(--bg-alt)', true)}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const AppShell = () => {
   const [theme, setTheme] = useState(() => localStorage.getItem('infinity-theme') || 'light');
   const [page, setPage] = useState(() => localStorage.getItem('infinity-page') || 'dashboard');
+  const [modulo, setModulo] = useState(() => localStorage.getItem('infinity-modulo') || null);
   const [collapsed, setCollapsed] = useState(false);
   const [tweaks, setTweaks] = useState(TWEAK_DEFAULTS);
   const [tweaksVisible, setTweaksVisible] = useState(false);
+
+  useEffect(() => {
+    if (modulo) localStorage.setItem('infinity-modulo', modulo);
+    else localStorage.removeItem('infinity-modulo');
+  }, [modulo]);
+
+  const escolherModulo = (m) => {
+    setModulo(m);
+    setPage(m === 'financeiro' ? 'dashboard' : 'rh');
+  };
 
   useEffect(() => { document.body.dataset.theme = theme; localStorage.setItem('infinity-theme', theme); }, [theme]);
   useEffect(() => { localStorage.setItem('infinity-page', page); }, [page]);
@@ -915,9 +991,11 @@ const AppShell = () => {
 
   const density = tweaks.density === 'compact' ? 14 : tweaks.density === 'spacious' ? 26 : 20;
 
+  if (!modulo) return <Hub onPick={escolherModulo} />;
+
   return (
     <div style={{ display: 'flex', height: '100vh', padding: density, gap: density }}>
-      <Sidebar page={page} setPage={setPage} collapsed={collapsed} setCollapsed={setCollapsed} />
+      <Sidebar page={page} setPage={setPage} collapsed={collapsed} setCollapsed={setCollapsed} modulo={modulo} setModulo={setModulo} />
       <main style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', paddingRight: 6 }}>
         <Topbar theme={theme} setTheme={setTheme} liveClock={tweaks.liveClock} onOpenTweaks={() => setTweaksVisible(v => !v)} />
         <div key={page} style={{ paddingBottom: 24 }}>
