@@ -159,7 +159,11 @@ const Sidebar = ({ page, setPage, collapsed, setCollapsed, modulo, setModulo }) 
     { k: 'provisoes', label: 'Provisões', icon: 'wallet', mod: 'rh' },
     { k: 'equipe', label: 'Equipe', icon: 'users', mod: 'rh' },
   ];
-  const items = allItems.filter(it => window.canAccess(role, it.k) && (!modulo || it.mod === modulo));
+  const items = allItems.filter(it => {
+    // "Provisões" usa a mesma permissão do "Folha / RH"
+    const accessKey = it.k === 'provisoes' ? 'rh' : it.k;
+    return window.canAccess(role, accessKey) && (!modulo || it.mod === modulo);
+  });
   const bottom = [
     { k: 'ajuda', label: 'Ajuda', icon: 'help' },
     { k: 'perfil', label: 'Meu perfil', icon: 'user' },
