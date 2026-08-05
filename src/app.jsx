@@ -428,7 +428,7 @@ const UserChip = () => {
 };
 
 // ─── Dashboard (with drag to reorder widgets) ───
-const DEFAULT_ORDER = ['kpis', 'flow', 'prevreal', 'ranking', 'recent', 'pendentes'];
+const DEFAULT_ORDER = ['kpis', 'flow', 'agenda', 'prevreal', 'pendentes', 'ranking', 'recent'];
 
 const Dashboard = ({ filter, setFilter }) => {
   const data = window.useWidgetData(filter);
