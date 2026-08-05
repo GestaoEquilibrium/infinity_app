@@ -86,6 +86,21 @@ function useWidgetData(filter) {
     });
     const sparkVals = last8.map(m => m.contas.real_in - m.contas.real_out);
 
+    // Série DIÁRIA (dentro do período filtrado) — agrupa os lançamentos por dia
+    const porDia = {};
+    caixa.forEach(c => {
+      const dia = (c.vencimento || '').slice(0, 10);
+      if (!dia) return;
+      if (!porDia[dia]) porDia[dia] = { in: 0, out: 0 };
+      if (c.tipo === 'receber') porDia[dia].in += val(c);
+      else porDia[dia].out += val(c);
+    });
+    let runDia = 0;
+    const flowDaily = Object.keys(porDia).sort().map(dia => {
+      runDia += porDia[dia].in - porDia[dia].out;
+      return { label: dia.slice(8, 10), in: porDia[dia].in, out: porDia[dia].out, balance: runDia };
+    });
+
     // Ranking de receita por categoria (dentro do filtro)
     const revByCat = new Map();
     caixa.filter(c => c.tipo === 'receber').forEach(t => {
@@ -106,7 +121,7 @@ function useWidgetData(filter) {
       totalIn, totalOut, saldoMes, saldoAnt, saldoAcumulado,
       prev_in, real_in, prev_out, real_out,
       saldoTrend, inTrend, outTrend,
-      flow, sparkVals, revRanking, recentTxs, pendentes,
+      flow, sparkVals, flowDaily, revRanking, recentTxs, pendentes,
     };
   }, [filter, rev]);
 }
@@ -225,22 +240,42 @@ const PrevRealWidget = ({ data }) => {
   );
 };
 
-const FlowWidget = ({ data }) => (
-  <TiltCard interactive={false} padding={24} style={{ height: '100%' }}>
-    <CardHead title="Fluxo de caixa" subtitle="Últimos 8 meses"
-      right={
-        <div style={{ display: 'flex', gap: 14, fontSize: 12, paddingTop: 4 }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--ink-soft)' }}>
-            <span style={{ width: 14, height: 3, borderRadius: 2, background: 'var(--c-pos)' }} /> Entradas
-          </span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--ink-soft)' }}>
-            <span style={{ width: 14, height: 0, borderTop: '3px dashed var(--c-neg)' }} /> Saídas
-          </span>
-        </div>
-      } />
-    <FlowChart data={data.flow} height={252} />
-  </TiltCard>
-);
+const FlowWidget = ({ data }) => {
+  const [visao, setVisao] = React.useState('mes'); // 'mes' | 'dia'
+  const serie = visao === 'dia' ? (data.flowDaily || []) : data.flow;
+  const btn = (v, txt) => (
+    <button onClick={() => setVisao(v)} style={{
+      padding: '4px 12px', borderRadius: 7, border: 'none', cursor: 'pointer',
+      fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
+      background: visao === v ? 'var(--surface-solid)' : 'transparent',
+      color: visao === v ? 'var(--ink)' : 'var(--ink-mute)',
+      boxShadow: visao === v ? 'var(--shadow-sm)' : 'none',
+    }}>{txt}</button>
+  );
+  return (
+    <TiltCard interactive={false} padding={24} style={{ height: '100%' }}>
+      <CardHead title="Fluxo de caixa" subtitle={visao === 'dia' ? 'Por dia (período atual)' : 'Últimos 8 meses'}
+        right={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingTop: 2 }}>
+            <div style={{ display: 'flex', gap: 2, background: 'var(--bg-alt)', padding: 3, borderRadius: 9 }}>
+              {btn('dia', 'Dia')}{btn('mes', 'Mês')}
+            </div>
+            <div style={{ display: 'flex', gap: 14, fontSize: 12 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--ink-soft)' }}>
+                <span style={{ width: 14, height: 3, borderRadius: 2, background: 'var(--c-pos)' }} /> Entradas
+              </span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--ink-soft)' }}>
+                <span style={{ width: 14, height: 0, borderTop: '3px dashed var(--c-neg)' }} /> Saídas
+              </span>
+            </div>
+          </div>
+        } />
+      {serie.length === 0
+        ? <div style={{ height: 252, display: 'grid', placeItems: 'center', color: 'var(--ink-mute)', fontSize: 13 }}>Sem lançamentos no período.</div>
+        : <FlowChart data={serie} height={252} />}
+    </TiltCard>
+  );
+};
 
 // ── Linha de lista compacta (compras / pendências) ────────────
 const ListRow = ({ icon, iconColor, title, meta, value, valueColor, last, delay = 0 }) => (
