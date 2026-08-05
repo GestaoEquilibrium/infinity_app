@@ -428,14 +428,14 @@ const UserChip = () => {
 };
 
 // ─── Dashboard (with drag to reorder widgets) ───
-const DEFAULT_ORDER = ['kpis', 'flow', 'agenda', 'prevreal', 'pendentes', 'ranking', 'recent'];
+const DEFAULT_ORDER = ['flow', 'agenda', 'kpis'];
 
 const Dashboard = ({ filter, setFilter }) => {
   const data = window.useWidgetData(filter);
   const { profile, demo } = useAuth();
   const nomeUsuario = demo ? 'Demo' : (profile?.name || profile?.email?.split('@')[0] || 'você');
   const [order, setOrder] = useState(() => {
-    const saved = localStorage.getItem('infinity-widget-order-v3');
+    const saved = localStorage.getItem('infinity-widget-order-v4');
     if (saved) try {
       const o = JSON.parse(saved).filter(k => window.WIDGETS[k]);
       DEFAULT_ORDER.forEach(k => { if (!o.includes(k)) o.push(k); });
@@ -447,7 +447,7 @@ const Dashboard = ({ filter, setFilter }) => {
   const [dragOver, setDragOver] = useState(null);
 
   useEffect(() => {
-    localStorage.setItem('infinity-widget-order-v3', JSON.stringify(order));
+    localStorage.setItem('infinity-widget-order-v4', JSON.stringify(order));
   }, [order]);
 
   const handleDragStart = (k) => setDragging(k);
