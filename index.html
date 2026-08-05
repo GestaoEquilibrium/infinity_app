@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="public/apple-touch-icon.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
 
 <!-- ══════════════════════════════════════════════════════════════
      CONFIGURAÇÃO DO SUPABASE — troque aqui quando criar o banco novo
@@ -27,70 +27,70 @@
      Branco, cinza e preto. Sem cor — hierarquia por luz e peso.
      ═══════════════════════════════════════════════════════════ */
   :root {
-    /* Escala de cinzas (única fonte de cor da interface) */
-    --g-0:  oklch(1 0 0);        /* branco   */
-    --g-1:  oklch(0.975 0 0);
-    --g-2:  oklch(0.94 0 0);
-    --g-3:  oklch(0.88 0 0);
-    --g-4:  oklch(0.78 0 0);
-    --g-5:  oklch(0.62 0 0);
-    --g-6:  oklch(0.46 0 0);
-    --g-7:  oklch(0.32 0 0);
-    --g-8:  oklch(0.21 0 0);
-    --g-9:  oklch(0.14 0 0);     /* quase preto */
+    /* Rampa CORTEX — branco → tinta escura (levemente azulada) */
+    --g-0:  #FFFFFF;
+    --g-1:  #FBFCFE;
+    --g-2:  #F6F8FB;
+    --g-3:  #EEF3F8;
+    --g-4:  #E7EDF3;
+    --g-5:  #8C97A4;
+    --g-6:  #5B6572;
+    --g-7:  #3E4A58;
+    --g-8:  #2A343F;
+    --g-9:  #1C2530;     /* tinta principal */
 
-    /* Papéis */
-    --bg: var(--g-2);
-    --bg-alt: oklch(0 0 0 / 0.04);
-    --surface: oklch(1 0 0 / 0.62);          /* vidro claro   */
-    --surface-solid: var(--g-0);             /* modais, menus */
-    --surface-2: oklch(1 0 0 / 0.45);
-    --ink: var(--g-9);
-    --ink-soft: var(--g-6);
-    --ink-mute: var(--g-5);
-    --line: oklch(0 0 0 / 0.09);
-    --line-strong: oklch(0 0 0 / 0.16);
-    --accent: var(--g-8);                    /* “cor” de marca = grafite */
-    --accent-ink: #ffffff;                   /* texto sobre o accent     */
+    /* Papéis — Cortex: fundo claro, cards brancos sólidos */
+    --bg: #F6F8FB;
+    --bg-alt: #F0F7FC;
+    --surface: #FFFFFF;                       /* card sólido (sem vidro) */
+    --surface-solid: #FFFFFF;
+    --surface-2: #F6F8FB;
+    --ink: #1C2530;
+    --ink-soft: #5B6572;
+    --ink-mute: #8C97A4;
+    --line: #E7EDF3;
+    --line-strong: #C1DCF3;
+    --accent: #1068B0;                        /* azul Equilibrium */
+    --accent-ink: #FFFFFF;
 
-    /* Semântica (entrada/saída · pago/pendente) — versão estrita: cinzas */
-    --c-pos: oklch(0.25 0 0);
-    --c-pos-soft: oklch(0 0 0 / 0.07);
-    --c-neg: oklch(0.5 0 0);
-    --c-neg-soft: oklch(0 0 0 / 0.055);
-    --c-warn: oklch(0.42 0 0);
-    --c-warn-soft: oklch(0 0 0 / 0.06);
+    /* Semântica Cortex */
+    --c-pos: #15803D;   --c-pos-soft: #E9F7EE;
+    --c-neg: #B91C1C;   --c-neg-soft: #FDECEC;
+    --c-warn: #92400E;  --c-warn-soft: #FFF4DC;
 
     /* Aliases legados (mantêm componentes antigos funcionando) */
     --c-primary: var(--accent);
-    --c-primary-soft: oklch(0 0 0 / 0.07);
-    --c-secondary: var(--g-6);
-    --c-secondary-soft: oklch(0 0 0 / 0.06);
-    --c-tertiary: var(--g-5);
-    --c-tertiary-soft: oklch(0 0 0 / 0.05);
+    --c-primary-soft: #E7F2FB;
+    --c-secondary: #5B6572;
+    --c-secondary-soft: #EEF3F8;
+    --c-tertiary: #8C97A4;
+    --c-tertiary-soft: #F0F7FC;
     --c-danger: var(--c-neg);
     --c-danger-soft: var(--c-neg-soft);
     --c-warning: var(--c-warn);
-    --c-violet: var(--g-7);
-    --c-violet-soft: oklch(0 0 0 / 0.06);
-    --c-pink: var(--g-5);
+    --c-violet: #6D28D9;
+    --c-violet-soft: #F1EAFE;
+    --c-pink: #BE185D;
 
-    /* Vidro */
-    --glass-blur: blur(14px) saturate(1.04);
-    --glass-border: oklch(1 0 0 / 0.55);
-    --glass-inset: inset 0 1px 0 oklch(1 0 0 / 0.7);
+    /* Marca — gradiente Cortex (títulos/detalhes que quiserem usar) */
+    --grad: linear-gradient(135deg, #1068B0 0%, #2893EB 100%);
 
-    /* Sombras neutras */
-    --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.05), 0 4px 14px oklch(0 0 0 / 0.05);
-    --shadow-md: 0 4px 14px oklch(0 0 0 / 0.07), 0 14px 34px oklch(0 0 0 / 0.08);
-    --shadow-lg: 0 10px 28px oklch(0 0 0 / 0.12), 0 30px 70px oklch(0 0 0 / 0.16);
-    --glow-primary: 0 0 0 1px oklch(0 0 0 / 0.1), 0 10px 30px oklch(0 0 0 / 0.16);
+    /* Vidro DESLIGADO — Cortex é sólido/flat */
+    --glass-blur: none;
+    --glass-border: #E7EDF3;
+    --glass-inset: 0 0 rgba(0,0,0,0);
 
-    /* Raios — mais contidos, grid mais “arrumado” */
-    --r-lg: 22px;
-    --r-md: 16px;
-    --r-sm: 12px;
-    --r-xs: 9px;
+    /* Sombras Cortex */
+    --shadow-sm: 0 1px 2px rgba(28,37,48,.05), 0 4px 14px rgba(28,37,48,.06);
+    --shadow-md: 0 8px 22px rgba(12,80,136,.14), 0 2px 6px rgba(28,37,48,.06);
+    --shadow-lg: 0 18px 50px rgba(28,37,48,.18);
+    --glow-primary: 0 0 0 3px rgba(16,104,176,.14);
+
+    /* Raios Cortex */
+    --r-lg: 16px;
+    --r-md: 13px;
+    --r-sm: 10px;
+    --r-xs: 8px;
 
     color-scheme: light;
   }
@@ -169,7 +169,7 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
   body {
-    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-family: 'Outfit', system-ui, sans-serif;
     background: var(--bg);
     color: var(--ink);
     overflow: hidden;
