@@ -7,13 +7,7 @@
 //              → Top receitas (4) + Últimas compras (4) + Pendentes (4)
 
 const DEFAULT_FILTER = () => {
-  // Usa o último mês com dados (compras + contas) — garante que os widgets não fiquem vazios.
-  const avail = window.availableMonths();
-  if (avail && avail.length) {
-    const now = new Date();
-    const cur = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    return { mode: 'month', month: avail.includes(cur) ? cur : avail[avail.length - 1] };
-  }
+  // Sempre abre no mês atual (fixo).
   const now = new Date();
   return { mode: 'month', month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}` };
 };
@@ -98,7 +92,7 @@ function useWidgetData(filter) {
     let runDia = 0;
     const flowDaily = Object.keys(porDia).sort().map(dia => {
       runDia += porDia[dia].in - porDia[dia].out;
-      return { label: dia.slice(8, 10), in: porDia[dia].in, out: porDia[dia].out, balance: runDia };
+      return { label: `${dia.slice(8, 10)}/${dia.slice(5, 7)}`, in: porDia[dia].in, out: porDia[dia].out, balance: runDia };
     });
 
     // Ranking de receita por categoria (dentro do filtro)
@@ -241,8 +235,13 @@ const PrevRealWidget = ({ data }) => {
 };
 
 const FlowWidget = ({ data }) => {
-  const [visao, setVisao] = React.useState('mes'); // 'mes' | 'dia'
+  const [visao, setVisao] = React.useState('dia'); // 'mes' | 'dia'
   const serie = visao === 'dia' ? (data.flowDaily || []) : data.flow;
+  const hoje = new Date();
+  const mesNome = data.filter && data.filter.month && window.monthLabel ? window.monthLabel(data.filter.month) : '';
+  const subtitulo = visao === 'dia'
+    ? `Entradas e saídas por dia · ${mesNome}`
+    : `Entradas e saídas por mês`;
   const btn = (v, txt) => (
     <button onClick={() => setVisao(v)} style={{
       padding: '4px 12px', borderRadius: 7, border: 'none', cursor: 'pointer',
@@ -254,7 +253,7 @@ const FlowWidget = ({ data }) => {
   );
   return (
     <TiltCard interactive={false} padding={24} style={{ height: '100%' }}>
-      <CardHead title="Fluxo de caixa" subtitle={visao === 'dia' ? 'Por dia (período atual)' : 'Últimos 8 meses'}
+      <CardHead title="Fluxo de caixa" subtitle={subtitulo}
         right={
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingTop: 2 }}>
             <div style={{ display: 'flex', gap: 2, background: 'var(--bg-alt)', padding: 3, borderRadius: 9 }}>
@@ -262,17 +261,17 @@ const FlowWidget = ({ data }) => {
             </div>
             <div style={{ display: 'flex', gap: 14, fontSize: 12 }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--ink-soft)' }}>
-                <span style={{ width: 14, height: 3, borderRadius: 2, background: 'var(--c-pos)' }} /> Entradas
+                <span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--c-pos)' }} /> Entradas
               </span>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--ink-soft)' }}>
-                <span style={{ width: 14, height: 0, borderTop: '3px dashed var(--c-neg)' }} /> Saídas
+                <span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--c-neg)' }} /> Saídas
               </span>
             </div>
           </div>
         } />
       {serie.length === 0
         ? <div style={{ height: 252, display: 'grid', placeItems: 'center', color: 'var(--ink-mute)', fontSize: 13 }}>Sem lançamentos no período.</div>
-        : <FlowChart data={serie} height={252} />}
+        : <window.FlowBars data={serie} height={280} />}
     </TiltCard>
   );
 };
