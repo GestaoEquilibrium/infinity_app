@@ -366,6 +366,89 @@ const PendentesWidget = ({ data }) => (
   </TiltCard>
 );
 
+const AgendaWidget = ({ data }) => {
+  const [eventos, setEventos] = React.useState([]);
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [novoTitulo, setNovoTitulo] = React.useState('');
+  const [novaData, setNovaData] = React.useState('');
+  const companyId = window.ACTIVE_COMPANY_ID;
+  const isHome = companyId === window.HOME_COMPANY_ID;
+
+  const carregar = React.useCallback(() => {
+    if (!companyId || !window.fetchEventos) return;
+    window.fetchEventos(companyId).then(setEventos).catch(() => setEventos([]));
+  }, [companyId]);
+  React.useEffect(() => { carregar(); }, [carregar]);
+
+  const salvar = async () => {
+    if (!novoTitulo || !novaData) return;
+    try {
+      await window.createEvento(companyId, novoTitulo, novaData, 'evento', null);
+      setNovoTitulo(''); setNovaData(''); setAddOpen(false); carregar();
+    } catch (e) { console.warn('createEvento', e); }
+  };
+  const remover = async (id) => {
+    try { await window.deleteEvento(id); carregar(); } catch (e) { console.warn('deleteEvento', e); }
+  };
+
+  // junta contas a vencer (automático) + eventos manuais, ordena por data
+  const itens = [
+    ...(data.pendentes || []).map(c => ({
+      id: 'c_' + c.id, data: c.vencimento, titulo: c.description,
+      sub: c.tipo === 'receber' ? 'a receber' : 'a pagar',
+      valor: c.previsto, cor: c.tipo === 'receber' ? 'var(--c-pos)' : 'var(--c-neg)', manual: false,
+    })),
+    ...eventos.map(e => ({
+      id: e.id, data: e.data, titulo: e.titulo, sub: 'evento',
+      valor: null, cor: 'var(--accent)', manual: true,
+    })),
+  ].sort((a, b) => (a.data || '').localeCompare(b.data || '')).slice(0, 8);
+
+  return (
+    <TiltCard padding={24} style={{ height: '100%' }}>
+      <CardHead title="Agenda da clínica" subtitle="Compromissos próximos" icon="calendar"
+        right={isHome && (
+          <button onClick={() => setAddOpen(o => !o)} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 8,
+            border: '1px solid var(--line)', background: 'var(--surface-solid)', cursor: 'pointer',
+            color: 'var(--ink)', fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+          }}><Icon name="plus" size={13} /> Evento</button>
+        )} />
+      {addOpen && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <input value={novoTitulo} onChange={e => setNovoTitulo(e.target.value)} placeholder="Ex.: reunião com contador"
+            style={{ flex: 2, minWidth: 140, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-alt)', color: 'var(--ink)', fontFamily: 'inherit', fontSize: 13 }} />
+          <input type="date" value={novaData} onChange={e => setNovaData(e.target.value)}
+            style={{ flex: 1, minWidth: 120, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-alt)', color: 'var(--ink)', fontFamily: 'inherit', fontSize: 13 }} />
+          <button onClick={salvar} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: 'var(--accent)', color: 'var(--accent-ink)', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit', fontSize: 13 }}>Salvar</button>
+        </div>
+      )}
+      <div style={LIST_BODY}>
+        {itens.map((it, i, arr) => (
+          <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0', borderBottom: i === arr.length - 1 ? 'none' : '1px solid var(--line)' }}>
+            <div style={{ width: 46, textAlign: 'center', flexShrink: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', lineHeight: 1 }}>{(it.data || '').slice(8, 10)}</div>
+              <div style={{ fontSize: 10, color: 'var(--ink-mute)', textTransform: 'uppercase' }}>{window.monthLabel ? window.monthLabel((it.data || '').slice(0, 7)).slice(0, 3) : ''}</div>
+            </div>
+            <div style={{ width: 3, height: 30, borderRadius: 2, background: it.cor, flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.titulo}</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-mute)' }}>{it.sub}</div>
+            </div>
+            {it.valor != null && <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', flexShrink: 0 }}>{window.fmtShort(it.valor)}</span>}
+            {it.manual && isHome && (
+              <button onClick={() => remover(it.id)} title="Remover" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-mute)', padding: 4 }}><Icon name="x" size={13} /></button>
+            )}
+          </div>
+        ))}
+        {itens.length === 0 && (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-mute)', fontSize: 13 }}>Nada agendado ✨</div>
+        )}
+      </div>
+    </TiltCard>
+  );
+};
+
 const WIDGETS = {
   kpis:      { title: 'Indicadores',          render: KpisWidget,      span: 12 },
   flow:      { title: 'Fluxo de caixa',       render: FlowWidget,      span: 8 },
@@ -373,6 +456,7 @@ const WIDGETS = {
   ranking:   { title: 'Top receitas',         render: RankingWidget,   span: 4 },
   recent:    { title: 'Últimas compras',      render: RecentWidget,    span: 4 },
   pendentes: { title: 'Contas pendentes',     render: PendentesWidget, span: 4 },
+  agenda:    { title: 'Agenda da clínica',     render: AgendaWidget,    span: 4 },
 };
 
 Object.assign(window, {
