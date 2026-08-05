@@ -156,6 +156,7 @@ const Sidebar = ({ page, setPage, collapsed, setCollapsed, modulo, setModulo }) 
     { k: 'agenda', label: 'Agenda', icon: 'calendar', mod: 'financeiro' },
     { k: 'relatorios', label: 'Relatórios', icon: 'chart', mod: 'financeiro' },
     { k: 'rh', label: 'Folha / RH', icon: 'users', mod: 'rh' },
+    { k: 'provisoes', label: 'Provisões', icon: 'wallet', mod: 'rh' },
     { k: 'equipe', label: 'Equipe', icon: 'users', mod: 'rh' },
   ];
   const items = allItems.filter(it => window.canAccess(role, it.k) && (!modulo || it.mod === modulo));
@@ -970,6 +971,7 @@ const AppShell = () => {
     agenda: <AgendaPage filter={filter} setFilter={setFilter} />,
     relatorios: <RelatoriosPage />,
     rh: <window.RHPage />,
+    provisoes: <window.FolhaProvisoes />,
     equipe: <EquipePage />,
     perfil: <PerfilPage />,
     config: <ConfigPage />,
