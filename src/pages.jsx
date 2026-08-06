@@ -242,7 +242,7 @@ const EditModal = ({ kind, record, onClose, onSaved }) => {
   const isNew = !record?.id;
   const [form, setForm] = React.useState(() => ({
     // defaults para novo registro
-    ...(isConta ? { tipo: 'pagar', pago: false, previsto: 0, realizado: 0, category: '', description: '', vencimento: new Date().toISOString().slice(0,10) } : { type: 'saida', amount: 0, category: '', description: '', date: new Date().toISOString().slice(0,10), paymentMethod: 'PIX' }),
+    ...(isConta ? { tipo: 'pagar', pago: false, previsto: 0, realizado: 0, category: '', description: '', vencimento: new Date().toISOString().slice(0,10), recorrente: false, dia_venc: new Date().getDate(), data_fim: '' } : { type: 'saida', amount: 0, category: '', description: '', date: new Date().toISOString().slice(0,10), paymentMethod: 'PIX' }),
     ...record,
   }));
   const [saving, setSaving] = React.useState(false);
@@ -254,6 +254,28 @@ const EditModal = ({ kind, record, onClose, onSaved }) => {
     e?.preventDefault();
     setSaving(true); setErr('');
     try {
+      // Recorrente: cria o MOLDE (contas_recorrentes), não uma conta avulsa.
+      // A conta pendente de cada mês é gerada depois, pela tela Contas.
+      if (isConta && isNew && form.recorrente) {
+        const s = window.getSession?.();
+        const me = s ? await window.getMe?.() : null;
+        const prof = me ? await window.getProfile?.(me.id) : null;
+        const cid = window.ACTIVE_COMPANY_ID || prof?.company_id;
+        if (!cid) throw new Error('empresa não identificada');
+        await window.createRecorrente(cid, me?.id, {
+          description: form.description,
+          category: form.category,
+          tipo: form.tipo,
+          previsto: Number(form.previsto) || 0,
+          dia_vencimento: Number(form.dia_venc) || Number((form.vencimento || '').slice(8, 10)) || 10,
+          data_inicio: form.vencimento || new Date().toISOString().slice(0, 10),
+          data_fim: form.data_fim || null,
+        });
+        window.dispatchEvent(new CustomEvent('sb-recorrentes-changed'));
+        onSaved?.();
+        onClose();
+        return;
+      }
       if (isNew) {
         // Criar novo registro
         const tempId = 'new-' + Date.now();
@@ -358,6 +380,31 @@ const EditModal = ({ kind, record, onClose, onSaved }) => {
                 <option value="pago">{form.tipo === 'receber' ? 'Recebido' : 'Pago'}</option>
               </select>
             </FormField>
+
+            {/* ── Recorrente — só ao criar uma conta nova ── */}
+            {isNew && (
+              <div style={{ gridColumn: 'span 2', marginTop: 2, padding: '12px 14px', borderRadius: 10, background: 'var(--bg-alt)', border: '1px solid var(--line)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', fontSize: 13.5, fontWeight: 600 }}>
+                  <input type="checkbox" checked={!!form.recorrente} onChange={(e) => set('recorrente', e.target.checked)} />
+                  🔁 Repetir todo mês (recorrente)
+                </label>
+                {form.recorrente && (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+                      <FormField label="Dia do vencimento">
+                        <input type="number" min="1" max="31" value={form.dia_venc || ''} onChange={(e) => set('dia_venc', e.target.value)} style={editInput} />
+                      </FormField>
+                      <FormField label="Até quando (opcional)">
+                        <input type="date" value={form.data_fim || ''} onChange={(e) => set('data_fim', e.target.value)} style={editInput} />
+                      </FormField>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginTop: 8, lineHeight: 1.45 }}>
+                      Vai aparecer como <b>pendente</b> todo mês, no dia escolhido. Não entra no caixa até você confirmar o pagamento. Deixe "até quando" em branco pra repetir sem prazo.
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -1473,6 +1520,116 @@ const ProducaoRow = ({ p, companyId }) => {
   );
 };
 
+// ═══════════════════════════════════════════════════════
+// MODAL — criar / editar um MOLDE recorrente
+// ═══════════════════════════════════════════════════════
+const RecorrenteModal = ({ record, onClose }) => {
+  const { user, profile } = window.useAuth();
+  const isNew = !record?.id;
+  const [form, setForm] = React.useState(() => ({
+    description: record?.description || '',
+    category: record?.category || '',
+    tipo: record?.tipo || 'pagar',
+    previsto: record?.previsto || 0,
+    dia_vencimento: record?.dia_vencimento || 10,
+    data_inicio: record?.data_inicio || new Date().toISOString().slice(0, 10),
+    data_fim: record?.data_fim || '',
+    ativo: record?.ativo !== false,
+  }));
+  const [saving, setSaving] = React.useState(false);
+  const [err, setErr] = React.useState('');
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const cats = (window.APP_CATEGORIES?.[form.tipo === 'receber' ? 'entrada' : 'saida'] || []).filter(c => c.is_active !== false);
+
+  const save = async (e) => {
+    e?.preventDefault();
+    setSaving(true); setErr('');
+    try {
+      if (!form.description.trim()) throw new Error('Descreva o pagamento.');
+      const payload = { ...form, data_fim: form.data_fim || null };
+      if (isNew) {
+        const cid = window.ACTIVE_COMPANY_ID || profile?.company_id;
+        await window.createRecorrente(cid, user?.id, payload);
+      } else {
+        await window.updateRecorrente(record.id, payload);
+      }
+      window.dispatchEvent(new CustomEvent('sb-recorrentes-changed'));
+      onClose();
+    } catch (e) { setErr(e.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 1600,
+      background: 'oklch(0 0 0 / 0.45)', backdropFilter: 'blur(6px)',
+      display: 'grid', placeItems: 'center', padding: 30, animation: 'fadeIn 0.2s ease both',
+    }} onClick={onClose}>
+      <form onSubmit={save} onClick={(e) => e.stopPropagation()} style={{
+        background: 'var(--surface-solid)', borderRadius: 'var(--r-lg)', padding: 28, width: 'min(520px, 100%)',
+        boxShadow: 'var(--shadow-lg)', border: '1px solid var(--line)',
+        display: 'flex', flexDirection: 'column', gap: 14, animation: 'popIn 0.3s cubic-bezier(.22,1,.36,1) both',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <h3 style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5 }}>
+            🔁 {isNew ? 'Novo' : 'Editar'} pagamento recorrente
+          </h3>
+          <button type="button" onClick={onClose} style={{ ...navBtn, width: 34, height: 34 }}>
+            <Icon name="x" size={15} stroke={2.4} />
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <FormField label="Tipo">
+            <select value={form.tipo} onChange={(e) => set('tipo', e.target.value)} style={editInput}>
+              <option value="pagar">A pagar (saída)</option>
+              <option value="receber">A receber (entrada)</option>
+            </select>
+          </FormField>
+          <FormField label="Dia do vencimento">
+            <input type="number" min="1" max="31" value={form.dia_vencimento} onChange={(e) => set('dia_vencimento', e.target.value)} style={editInput} />
+          </FormField>
+          <div style={{ gridColumn: 'span 2' }}>
+            <FormField label="Descrição">
+              <input value={form.description} onChange={(e) => set('description', e.target.value)} style={editInput} required placeholder="Ex: Financiamento Sicoob" />
+            </FormField>
+          </div>
+          <FormField label="Categoria">
+            <select value={form.category || ''} onChange={e => set('category', e.target.value)} style={editInput}>
+              <option value="">— Selecione —</option>
+              {cats.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+              {form.category && !cats.some(c => c.name === form.category) && <option value={form.category}>{form.category}</option>}
+            </select>
+          </FormField>
+          <FormField label="Valor previsto">
+            <input type="number" step="0.01" value={form.previsto} onChange={(e) => set('previsto', parseFloat(e.target.value) || 0)} style={editInput} />
+          </FormField>
+          <FormField label="Começa em">
+            <input type="date" value={form.data_inicio} onChange={(e) => set('data_inicio', e.target.value)} style={editInput} />
+          </FormField>
+          <FormField label="Até quando (opcional)">
+            <input type="date" value={form.data_fim || ''} onChange={(e) => set('data_fim', e.target.value)} style={editInput} />
+          </FormField>
+          <div style={{ gridColumn: 'span 2' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', fontSize: 13.5, fontWeight: 600 }}>
+              <input type="checkbox" checked={!!form.ativo} onChange={(e) => set('ativo', e.target.checked)} />
+              Ativo (desmarque pra pausar sem excluir)
+            </label>
+          </div>
+        </div>
+
+        {err && <div style={{ fontSize: 13, color: 'var(--c-danger)', fontWeight: 500 }}>⚠ {err}</div>}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 6 }}>
+          <Btn variant="secondary" onClick={onClose} type="button">Cancelar</Btn>
+          <Btn variant="primary" icon="check" type="submit" disabled={saving}>{saving ? 'Salvando…' : isNew ? 'Criar' : 'Salvar'}</Btn>
+        </div>
+      </form>
+    </div>
+  );
+};
+
 const ContasPage = ({ filter, setFilter }) => {
   const [editing, setEditing] = React.useState(null);
   const [confirmando, setConfirmando] = React.useState(null); // conta sendo confirmada
@@ -1494,6 +1651,82 @@ const ContasPage = ({ filter, setFilter }) => {
       .then(r => setBancos(window.saldosPorConta(r)))
       .catch(() => setBancos([]));
   }, [_prof?.company_id, (window.CONTAS || []).length]);
+
+  // ── Recorrentes: molde + materialização do mês visível ──
+  const [recorrentes, setRecorrentes] = React.useState([]);
+  const [recEdit, setRecEdit] = React.useState(null); // {} = novo | objeto = editar | null = fechado
+  const matRef = React.useRef(new Set());
+
+  const mesRef = (filter.mode === 'month' || filter.mode === 'ciclo')
+    ? filter.month
+    : (filter.from ? filter.from.slice(0, 7) : new Date().toISOString().slice(0, 7));
+
+  const carregarRec = React.useCallback(() => {
+    if (!_prof?.company_id) return;
+    window.fetchRecorrentes(_prof.company_id).then(setRecorrentes).catch(() => {});
+  }, [_prof?.company_id]);
+  React.useEffect(() => { carregarRec(); }, [carregarRec]);
+  React.useEffect(() => {
+    const h = () => { matRef.current = new Set(); carregarRec(); };
+    window.addEventListener('sb-recorrentes-changed', h);
+    return () => window.removeEventListener('sb-recorrentes-changed', h);
+  }, [carregarRec]);
+
+  // Materializa a conta pendente de cada recorrente ativo no mês visível.
+  // Só grava na empresa de casa; em empresa de leitura apenas mostra os moldes.
+  React.useEffect(() => {
+    const cid = _prof?.company_id;
+    if (!cid || !recorrentes.length) return;
+    const soLeitura = window.ACTIVE_COMPANY_ID && window.HOME_COMPANY_ID && window.ACTIVE_COMPANY_ID !== window.HOME_COMPANY_ID;
+    if (soLeitura) return;
+    if (!(window.CONTAS || []).length) return; // espera hidratar (evita duplicar)
+    const chave = cid + '|' + mesRef;
+    if (matRef.current.has(chave)) return;
+    matRef.current.add(chave);
+    (async () => {
+      const [y, m] = mesRef.split('-').map(Number);
+      const ultimoDia = new Date(y, m, 0).getDate();
+      const inicioMes = `${mesRef}-01`;
+      const fimMes = `${mesRef}-${String(ultimoDia).padStart(2, '0')}`;
+      let criou = false;
+      for (const r of recorrentes) {
+        if (r.ativo === false) continue;
+        if (r.data_inicio && r.data_inicio > fimMes) continue;   // ainda não começou
+        if (r.data_fim && r.data_fim < inicioMes) continue;      // já terminou
+        const jaTem = (window.CONTAS || []).some(c => c.recorrente_id === r.id && (c.vencimento || '').slice(0, 7) === mesRef);
+        if (jaTem) continue;
+        const dia = Math.min(Number(r.dia_vencimento) || 10, ultimoDia);
+        const venc = `${mesRef}-${String(dia).padStart(2, '0')}`;
+        try {
+          const saved = await window.createConta({
+            description: r.description, category: r.category, tipo: r.tipo,
+            previsto: r.previsto, vencimento: venc, pago: false, recorrente_id: r.id,
+          }, cid, _prof.id);
+          const novo = {
+            id: saved?.[0]?.id || ('rec-' + r.id + '-' + mesRef),
+            tipo: r.tipo === 'receber' ? 'receber' : 'pagar',
+            category: r.category || 'Geral', description: r.description,
+            vencimento: venc, previsto: Number(r.previsto || 0), realizado: 0,
+            pago: false, pagoEm: null, conta: null, recorrente_id: r.id,
+          };
+          window.CONTAS = [novo, ...(window.CONTAS || [])];
+          criou = true;
+        } catch (e) { console.warn('recorrente falhou:', r.description, e.message); matRef.current.delete(chave); }
+      }
+      if (criou) window.dispatchEvent(new CustomEvent('sb-data-hydrated'));
+    })();
+  }, [_prof?.company_id, mesRef, recorrentes, (window.CONTAS || []).length]);
+
+  const excluirRec = async (r) => {
+    if (!confirm(`Excluir o recorrente "${r.description}"? As contas já geradas continuam na lista.`)) return;
+    try { await window.deleteRecorrente(r.id); window.dispatchEvent(new CustomEvent('sb-recorrentes-changed')); }
+    catch (e) { alert('Erro: ' + e.message); }
+  };
+  const toggleRec = async (r) => {
+    try { await window.updateRecorrente(r.id, { ativo: !(r.ativo !== false) }); window.dispatchEvent(new CustomEvent('sb-recorrentes-changed')); }
+    catch (e) { alert('Erro: ' + e.message); }
+  };
+
   const [q, setQ] = React.useState('');
   const contas = window.filterContas(
     filter.mode === 'month' ? { month: filter.month }
@@ -1548,6 +1781,8 @@ const ContasPage = ({ filter, setFilter }) => {
     const prev = new Date(y, m - 2, 1);
     return (window.months || [])[prev.getMonth()] + '/' + String(prev.getFullYear()).slice(2);
   })();
+
+  const recAtivos = recorrentes.filter(r => r.ativo !== false).length;
 
   return (
     <div className="anim-fade" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1625,6 +1860,79 @@ const ContasPage = ({ filter, setFilter }) => {
         <span>acumulado agora <b className="mono" style={{ color: saldo_periodo >= 0 ? 'var(--c-pos)' : 'var(--c-neg)' }}>{window.fmt(saldo_periodo)}</b></span>
         <span style={{ marginLeft: 'auto', fontSize: 11, opacity: .7 }}>resultado acumulado — não é saldo bancário</span>
       </div>
+
+      {/* ── Pagamentos recorrentes (moldes) ── */}
+      <TiltCard interactive={false} padding={0}>
+        <details>
+          <summary style={{ padding: '14px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
+            🔁 Pagamentos recorrentes
+            <span style={{ fontSize: 11.5, fontWeight: 400, color: 'var(--ink-mute)' }}>
+              ({recAtivos} ativo{recAtivos === 1 ? '' : 's'})
+            </span>
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRecEdit({}); }}
+              style={{ marginLeft: 'auto', padding: '6px 14px', borderRadius: 8, border: 'none', background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+              + Novo
+            </button>
+          </summary>
+          <div style={{ padding: '0 18px 16px' }}>
+            {recorrentes.length === 0 ? (
+              <div style={{ padding: '18px 0', color: 'var(--ink-mute)', fontSize: 13 }}>
+                Nenhum pagamento fixo cadastrado. Use "+ Novo" (ou marque "🔁 Repetir todo mês" ao criar uma conta) pra financiamento, sistema, Claude, etc.
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead>
+                  <tr style={{ color: 'var(--ink-mute)', textAlign: 'left', fontSize: 11 }}>
+                    <th style={{ padding: '6px 8px' }}>DESCRIÇÃO</th>
+                    <th style={{ padding: '6px 8px' }}>CATEGORIA</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'center' }}>DIA</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'right' }}>VALOR</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'center' }}>SITUAÇÃO</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'right' }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recorrentes.map(r => {
+                    const ativo = r.ativo !== false;
+                    return (
+                      <tr key={r.id} style={{ borderTop: '1px solid var(--line)', opacity: ativo ? 1 : 0.5 }}>
+                        <td style={{ padding: '8px', fontWeight: 600 }}>
+                          {r.tipo === 'receber' ? '↓ ' : ''}{r.description}
+                        </td>
+                        <td style={{ padding: '8px', color: 'var(--ink-soft)' }}>{r.category || '—'}</td>
+                        <td style={{ padding: '8px', textAlign: 'center' }} className="mono">{r.dia_vencimento}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700 }} className="mono">{window.fmt(r.previsto)}</td>
+                        <td style={{ padding: '8px', textAlign: 'center' }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: ativo ? 'var(--c-pos)' : 'var(--ink-mute)' }}>
+                            {ativo ? 'Ativo' : 'Pausado'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button onClick={() => setRecEdit(r)} title="Editar" style={rowActionBtn('var(--c-secondary)')}>
+                              <Icon name="edit" size={14} stroke={2.2} />
+                            </button>
+                            <button onClick={() => toggleRec(r)} title={ativo ? 'Pausar' : 'Reativar'} style={rowActionBtn('var(--c-warning)')}>
+                              <Icon name={ativo ? 'clock' : 'check'} size={14} stroke={2.2} />
+                            </button>
+                            <button onClick={() => excluirRec(r)} title="Excluir" style={rowActionBtn('var(--c-danger)')}>
+                              <Icon name="trash" size={14} stroke={2.2} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+            <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 10, lineHeight: 1.45 }}>
+              Cada recorrente vira uma conta <b>pendente</b> no mês que você abre — aparece na lista abaixo, mas só conta no caixa quando você confirmar o pagamento.
+            </div>
+          </div>
+        </details>
+      </TiltCard>
 
       {/* ── Filtros: escopo (com o valor de cada um) + pendentes + busca ── */}
       <TiltCard interactive={false} padding={14}>
@@ -1722,6 +2030,7 @@ const ContasPage = ({ filter, setFilter }) => {
                           <Icon name={tab === 'receber' ? 'arrow_down' : 'arrow_up'} size={14} stroke={2.4} />
                         </div>
                         {c.description}
+                        {c.recorrente_id && <span title="Pagamento recorrente" style={{ fontSize: 12 }}>🔁</span>}
                       </div>
                     </td>
                     <td style={{ padding: '9px 20px' }}><Pill color={color}>{c.category}</Pill></td>
@@ -1779,6 +2088,7 @@ const ContasPage = ({ filter, setFilter }) => {
       </TiltCard>
       {editing && <EditModal kind="conta" record={editing} onClose={() => setEditing(null)} onSaved={() => tick()} />}
       {confirmando && <ConfirmarPagamentoModal conta={confirmando} onClose={() => setConfirmando(null)} onSaved={() => { setConfirmando(null); tick(); }} />}
+      {recEdit !== null && <RecorrenteModal record={recEdit.id ? recEdit : null} onClose={() => setRecEdit(null)} />}
     </div>
   );
 };
