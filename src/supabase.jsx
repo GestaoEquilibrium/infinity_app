@@ -189,6 +189,7 @@ function rowToConta(r) {
     pago: r.status === 'pago' || r.status === 'recebido',
     pagoEm: r.settled_at,
     conta: r.conta || null,
+    recorrente_id: r.recorrente_id || null,
     created_by: r.created_by,
   };
 }
@@ -205,6 +206,7 @@ function contaToRow(c, companyId, userId) {
     status: c.pago ? (c.tipo === 'receber' ? 'recebido' : 'pago') : 'pendente',
     settled_at: c.pagoEm || null,
     conta: c.conta || null,
+    recorrente_id: c.recorrente_id || null,
   };
 }
 async function fetchContas(companyId) {
@@ -220,6 +222,43 @@ async function markContaPaga(id, actualValue) {
     body: JSON.stringify({ status: 'pago', actual_value: actualValue, settled_at: new Date().toISOString().slice(0, 10) }),
     prefer: 'return=representation',
   });
+}
+
+// ---- Contas recorrentes (moldes de pagamentos fixos) ----
+// Ex.: financiamento, assinatura do sistema, assinatura do Claude.
+// O molde fica aqui; cada mês vira uma conta PENDENTE em `transactions`
+// (vinculada por recorrente_id) só quando você abre o mês na tela Contas.
+async function fetchRecorrentes(companyId) {
+  const rows = await sbRest(`/contas_recorrentes?company_id=eq.${companyId}&select=*&order=description.asc`);
+  return Array.isArray(rows) ? rows : [];
+}
+async function createRecorrente(companyId, userId, r) {
+  const body = {
+    company_id: companyId, created_by: userId,
+    description: r.description, category: r.category || null,
+    tipo: r.tipo === 'receber' ? 'receber' : 'pagar',
+    previsto: Number(r.previsto || 0),
+    dia_vencimento: Math.min(31, Math.max(1, Number(r.dia_vencimento) || 10)),
+    data_inicio: r.data_inicio || new Date().toISOString().slice(0, 10),
+    data_fim: r.data_fim || null,
+    ativo: r.ativo !== false,
+  };
+  return sbRest('/contas_recorrentes', { method: 'POST', prefer: 'return=representation', body: JSON.stringify(body) });
+}
+async function updateRecorrente(id, patch) {
+  const body = {};
+  if (patch.description !== undefined) body.description = patch.description;
+  if (patch.category !== undefined) body.category = patch.category;
+  if (patch.tipo !== undefined) body.tipo = patch.tipo === 'receber' ? 'receber' : 'pagar';
+  if (patch.previsto !== undefined) body.previsto = Number(patch.previsto || 0);
+  if (patch.dia_vencimento !== undefined) body.dia_vencimento = Math.min(31, Math.max(1, Number(patch.dia_vencimento) || 10));
+  if (patch.data_inicio !== undefined) body.data_inicio = patch.data_inicio;
+  if (patch.data_fim !== undefined) body.data_fim = patch.data_fim || null;
+  if (patch.ativo !== undefined) body.ativo = !!patch.ativo;
+  return sbRest(`/contas_recorrentes?id=eq.${id}`, { method: 'PATCH', prefer: 'return=representation', body: JSON.stringify(body) });
+}
+async function deleteRecorrente(id) {
+  return sbRest(`/contas_recorrentes?id=eq.${id}`, { method: 'DELETE' });
 }
 
 // ---- Produção mensal (base da projeção) ----
@@ -420,6 +459,7 @@ Object.assign(window, {
   getProfile, updateProfile, listTeam, inviteMember, updateMemberRole, removeMember,
   fetchCompanies,
   fetchContas, createConta, updateConta, deleteConta, markContaPaga, rowToConta, contaToRow,
+  fetchRecorrentes, createRecorrente, updateRecorrente, deleteRecorrente,
   fetchContasBancarias, updateContaBancaria, saldosPorConta,
   fetchProducaoMensal, upsertProducaoMensal,
   fetchCompras, createCompra, updateCompra, deleteCompra, rowToCompra, compraToRow,
