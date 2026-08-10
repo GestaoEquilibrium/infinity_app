@@ -2399,7 +2399,10 @@ const PRESET_COLORS = [
 
 const ConfigPage = () => {
   const { user, profile } = useAuth();
-  const companyId = profile?.company_id;
+  // Usa a empresa ATIVA (segue o seletor de empresa) e bate com get_my_company_id()
+  // da policy do Supabase. Sem isso, criar categoria dá 403 quando o profile
+  // está com company_id diferente do que está selecionado.
+  const companyId = window.ACTIVE_COMPANY_ID || profile?.company_id;
   const [cats, setCats] = React.useState({ entrada: [], saida: [] });
   const [loading, setLoading] = React.useState(true);
   const [novaEntrada, setNovaEntrada] = React.useState('');
@@ -2409,7 +2412,7 @@ const ConfigPage = () => {
   const [saving, setSaving] = React.useState(false);
 
   const carregar = React.useCallback(async () => {
-    if (!companyId) { setLoading(false); setImpostos([]); return; }
+    if (!companyId) { setLoading(false); return; }
     setLoading(true);
     try {
       const rows = await window.fetchCategories(companyId);
