@@ -318,6 +318,8 @@ const Hub = ({ onPick }) => {
 
 // ─── Telas ainda não redesenhadas (usam a ponte de compat.) ───
 
+const DEFAULT_ORDER = ['flow', 'agenda', 'kpis'];
+
 const Dashboard = ({ filter, setFilter }) => {
   const data = window.useWidgetData(filter);
   const { profile, demo } = useAuth();
