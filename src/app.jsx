@@ -361,6 +361,9 @@ const Dashboard = ({ filter, setFilter }) => {
   const serieDia = (data.flowDaily || []).filter(s => (s.in > 0 || s.out > 0));
   const serie = seg === 'dia' ? serieDia : serieMes;
   const maxVal = Math.max(1, ...serie.map(s => Math.max(s.in, s.out)));
+  // Escala de raiz quadrada: mantém a ordem/proporção mas evita que valores
+  // pequenos sumam quando há um valor gigante no período (ex: 100k num mês).
+  const barH = (v) => v > 0 ? Math.max(4, Math.sqrt(v / maxVal) * 100) : 0;
 
   const hovered = hoverBar != null ? serie[hoverBar] : null;
 
@@ -422,8 +425,8 @@ const Dashboard = ({ filter, setFilter }) => {
                     <div key={i} onMouseEnter={() => setHoverBar(i)}
                       style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, cursor: 'default', minWidth: 0 }}>
                       <div style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 3 }}>
-                        <div title={`Entrou ${window.fmt(s.in)}`} style={{ width: '42%', maxWidth: 16, height: `${(s.in / maxVal) * 100}%`, minHeight: s.in > 0 ? 3 : 0, background: 'var(--chart-in)', borderRadius: '4px 4px 0 0', transition: 'height .3s ease', opacity: hoverBar == null || hoverBar === i ? 1 : .4 }} />
-                        <div title={`Saiu ${window.fmt(s.out)}`} style={{ width: '42%', maxWidth: 16, height: `${(s.out / maxVal) * 100}%`, minHeight: s.out > 0 ? 3 : 0, background: 'var(--chart-out)', borderRadius: '4px 4px 0 0', transition: 'height .3s ease', opacity: hoverBar == null || hoverBar === i ? 1 : .4 }} />
+                        <div title={`Entrou ${window.fmt(s.in)}`} style={{ width: '42%', maxWidth: 16, height: `${barH(s.in)}%`, background: 'var(--chart-in)', borderRadius: '4px 4px 0 0', transition: 'height .3s ease', opacity: hoverBar == null || hoverBar === i ? 1 : .4 }} />
+                        <div title={`Saiu ${window.fmt(s.out)}`} style={{ width: '42%', maxWidth: 16, height: `${barH(s.out)}%`, background: 'var(--chart-out)', borderRadius: '4px 4px 0 0', transition: 'height .3s ease', opacity: hoverBar == null || hoverBar === i ? 1 : .4 }} />
                       </div>
                       <div style={{ font: '500 9.5px var(--f-sans)', color: 'var(--ink-4)', whiteSpace: 'nowrap' }}>{s.label}</div>
                     </div>
