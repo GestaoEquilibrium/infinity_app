@@ -1,6 +1,43 @@
 // Pages — respeita as 5 estruturas obrigatórias
 // CONTAS e COMPRAS são páginas separadas.
 
+// ─── CAMPO DE VALOR EM MOEDA (R$ 1.150,00) ──────────────────────
+// Mostra o número formatado em Real enquanto digita, mas devolve
+// number puro pro formulário via onChange(valorNumerico).
+// Digitação estilo "caixa eletrônico": os dígitos entram pela direita
+// (ex: digita 1150 -> R$ 11,50 -> R$ 1.150,00). Backspace apaga da direita.
+const MoneyInput = ({ value, onChange, style, autoFocus, placeholder }) => {
+  const fmtBR = (n) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const [texto, setTexto] = React.useState(fmtBR(value));
+
+  // Sincroniza quando o valor muda de fora (ex: abrir o modal pra editar)
+  React.useEffect(() => {
+    const atual = Math.round((Number(value) || 0) * 100);
+    const digitado = Math.round((parseFloat(String(texto).replace(/\./g, '').replace(',', '.')) || 0) * 100);
+    if (atual !== digitado) setTexto(fmtBR(value));
+  }, [value]);
+
+  const handle = (e) => {
+    // Pega só os dígitos e trata como centavos
+    const digits = e.target.value.replace(/\D/g, '');
+    const num = digits ? parseInt(digits, 10) / 100 : 0;
+    setTexto(fmtBR(num));
+    onChange(num);
+  };
+
+  return (
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+      <span style={{ position: 'absolute', left: 14, fontSize: 13, color: 'var(--ink-mute)', fontWeight: 600, pointerEvents: 'none' }}>R$</span>
+      <input
+        type="text" inputMode="numeric"
+        value={texto} onChange={handle}
+        autoFocus={autoFocus} placeholder={placeholder}
+        style={{ ...style, paddingLeft: 38, textAlign: 'right', fontFamily: 'ui-monospace, monospace', fontWeight: 600 }}
+      />
+    </div>
+  );
+};
+
 // ─── FILTRO GLOBAL (mês ou período) ─────────────────────────────
 const FilterBar = ({ filter, setFilter }) => {
   const months = window.availableMonths();
@@ -369,10 +406,10 @@ const EditModal = ({ kind, record, onClose, onSaved }) => {
               </select>
             </FormField>
             <FormField label="Valor previsto">
-              <input type="number" step="0.01" value={form.previsto || 0} onChange={(e) => set('previsto', parseFloat(e.target.value))} style={editInput} />
+              <MoneyInput value={form.previsto || 0} onChange={(v) => set('previsto', v)} style={editInput} />
             </FormField>
             <FormField label="Valor realizado">
-              <input type="number" step="0.01" value={form.realizado || 0} onChange={(e) => set('realizado', parseFloat(e.target.value))} style={editInput} />
+              <MoneyInput value={form.realizado || 0} onChange={(v) => set('realizado', v)} style={editInput} />
             </FormField>
             <FormField label="Status">
               <select value={form.pago ? 'pago' : 'pendente'} onChange={(e) => set('pago', e.target.value === 'pago')} style={editInput}>
@@ -435,7 +472,7 @@ const EditModal = ({ kind, record, onClose, onSaved }) => {
               </select>
             </FormField>
             <FormField label="Valor">
-              <input type="number" step="0.01" value={form.amount || 0} onChange={(e) => set('amount', parseFloat(e.target.value))} style={editInput} />
+              <MoneyInput value={form.amount || 0} onChange={(v) => set('amount', v)} style={editInput} />
             </FormField>
             <div style={{ gridColumn: 'span 2' }}>
               <FormField label="Método">
@@ -577,16 +614,14 @@ const ConfirmarPagamentoModal = ({ conta, onClose, onSaved }) => {
         {/* Inputs */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <FormField label={isReceber ? 'Valor recebido (R$)' : 'Valor pago (R$)'}>
-            <input
-              type="number" step="0.01" min="0"
+            <MoneyInput
               value={valorReal}
-              onChange={(e) => setValorReal(e.target.value)}
+              onChange={(v) => setValorReal(v)}
               autoFocus
               style={{
                 width: '100%', padding: '12px 16px', borderRadius: 12,
                 border: '1.5px solid var(--c-primary)', background: 'var(--bg-alt)',
-                fontSize: 18, fontWeight: 700, color: 'var(--ink)', fontFamily: 'inherit', outline: 'none',
-                textAlign: 'right',
+                fontSize: 18, color: 'var(--ink)', outline: 'none',
               }}
             />
           </FormField>
@@ -1603,7 +1638,7 @@ const RecorrenteModal = ({ record, onClose }) => {
             </select>
           </FormField>
           <FormField label="Valor previsto">
-            <input type="number" step="0.01" value={form.previsto} onChange={(e) => set('previsto', parseFloat(e.target.value) || 0)} style={editInput} />
+            <MoneyInput value={form.previsto} onChange={(v) => set('previsto', v)} style={editInput} />
           </FormField>
           <FormField label="Começa em">
             <input type="date" value={form.data_inicio} onChange={(e) => set('data_inicio', e.target.value)} style={editInput} />
