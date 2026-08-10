@@ -3,17 +3,13 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Infinity — Dashboard</title>
+<title>Eq Finance</title>
 <link rel="icon" type="image/png" href="public/favicon.png" />
 <link rel="apple-touch-icon" href="public/apple-touch-icon.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
 
-<!-- ══════════════════════════════════════════════════════════════
-     CONFIGURAÇÃO DO SUPABASE — troque aqui quando criar o banco novo
-     Supabase Dashboard → Settings → API
-     ══════════════════════════════════════════════════════════════ -->
 <script>
   window.INFINITY_CONFIG = {
     SUPABASE_URL: 'https://wqgmjdpiahnlgdvitumt.supabase.co',
@@ -22,307 +18,125 @@
 </script>
 
 <style>
-  /* ═══════════════════════════════════════════════════════════
-     INFINITY — Design system monocromático · vidro
-     Branco, cinza e preto. Sem cor — hierarquia por luz e peso.
-     ═══════════════════════════════════════════════════════════ */
   :root {
-    /* Rampa CORTEX — branco → tinta escura (levemente azulada) */
-    --g-0:  #FFFFFF;
-    --g-1:  #FBFCFE;
-    --g-2:  #F6F8FB;
-    --g-3:  #EEF3F8;
-    --g-4:  #E7EDF3;
-    --g-5:  #8C97A4;
-    --g-6:  #5B6572;
-    --g-7:  #3E4A58;
-    --g-8:  #2A343F;
-    --g-9:  #1C2530;     /* tinta principal */
-
-    /* Papéis — Cortex: fundo claro, cards brancos sólidos */
-    --bg: #F6F8FB;
-    --bg-alt: #F0F7FC;
-    --surface: #FFFFFF;                       /* card sólido (sem vidro) */
-    --surface-solid: #FFFFFF;
-    --surface-2: #F6F8FB;
-    --ink: #1C2530;
-    --ink-soft: #5B6572;
-    --ink-mute: #8C97A4;
-    --line: #E7EDF3;
-    --line-strong: #C1DCF3;
-    --accent: #1068B0;                        /* azul Equilibrium */
-    --accent-ink: #FFFFFF;
-
-    /* Semântica Cortex */
-    --c-pos: #15803D;   --c-pos-soft: #E9F7EE;
-    --c-neg: #B91C1C;   --c-neg-soft: #FDECEC;
-    --c-warn: #92400E;  --c-warn-soft: #FFF4DC;
-
-    /* Aliases legados (mantêm componentes antigos funcionando) */
-    --c-primary: var(--accent);
-    --c-primary-soft: #E7F2FB;
-    --c-secondary: #5B6572;
-    --c-secondary-soft: #EEF3F8;
-    --c-tertiary: #8C97A4;
-    --c-tertiary-soft: #F0F7FC;
-    --c-danger: var(--c-neg);
-    --c-danger-soft: var(--c-neg-soft);
-    --c-warning: var(--c-warn);
-    --c-violet: #6D28D9;
-    --c-violet-soft: #F1EAFE;
-    --c-pink: #BE185D;
-
-    /* Marca — gradiente Cortex (títulos/detalhes que quiserem usar) */
-    --grad: linear-gradient(135deg, #1068B0 0%, #2893EB 100%);
-
-    /* Vidro DESLIGADO — Cortex é sólido/flat */
-    --glass-blur: none;
-    --glass-border: #E7EDF3;
-    --glass-inset: 0 0 rgba(0,0,0,0);
-
-    /* Sombras Cortex */
-    --shadow-sm: 0 1px 2px rgba(28,37,48,.05), 0 4px 14px rgba(28,37,48,.06);
-    --shadow-md: 0 8px 22px rgba(12,80,136,.14), 0 2px 6px rgba(28,37,48,.06);
-    --shadow-lg: 0 18px 50px rgba(28,37,48,.18);
-    --glow-primary: 0 0 0 3px rgba(16,104,176,.14);
-
-    /* Raios Cortex */
-    --r-lg: 16px;
-    --r-md: 13px;
-    --r-sm: 10px;
-    --r-xs: 8px;
-
-    color-scheme: light;
+    --accent:#1068B0; --accent-2:#2893EB; --accent-strong:#0D5893; --accent-soft:#EAF3FA;
+    --accent-band:linear-gradient(120deg,#0D5C9C 0%,#1068B0 48%,#2893EB 135%);
+    --bg:#F6F8FB; --surface:#FFFFFF; --surface-2:#FBFCFD; --surface-3:#F0F3F7; --field:#F6F8FB;
+    --ink:#1C2530; --ink-2:#5B6572; --ink-3:#8C97A4; --ink-4:#A9B2BD;
+    --line:rgba(28,37,48,.08); --line-2:rgba(28,37,48,.06); --line-strong:rgba(28,37,48,.12);
+    --c-pos:#15803D; --c-pos-bg:rgba(21,128,61,.10);
+    --c-neg:#B91C1C; --c-neg-bg:rgba(185,28,28,.10);
+    --c-warn:#92400E; --c-warn-bg:rgba(146,64,14,.12);
+    --c-neutral:#5B6572; --c-neutral-bg:rgba(28,37,48,.07);
+    --on-accent:#FFFFFF; --on-accent-2:rgba(255,255,255,.72); --on-accent-3:rgba(255,255,255,.22);
+    --on-accent-fill:rgba(255,255,255,.12); --on-accent-pos:#BEEFCF; --on-accent-neg:#FFC9C9;
+    --cat-1:#0F5C8C; --cat-2:#15803D; --cat-3:#7C3AED; --cat-4:#92400E;
+    --cat-5:#B91C1C; --cat-6:#0E7490; --cat-7:#5B6572; --cat-8:#8C97A4;
+    --chart-in:var(--accent); --chart-out:#C7D3E0; --chart-grid:rgba(28,37,48,.07); --chart-area:rgba(16,104,176,.10);
+    --r-sm:5px; --r-md:7px; --r-lg:9px; --r-xl:12px; --r-2xl:14px; --r-pill:999px;
+    --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:20px; --s-6:26px; --s-7:30px;
+    --sh-1:0 1px 2px rgba(28,37,48,.04);
+    --sh-2:0 2px 10px rgba(28,37,48,.07);
+    --sh-3:0 1px 3px rgba(28,37,48,.16);
+    --sh-accent:0 4px 14px rgba(16,104,176,.28);
+    --f-display:"Bricolage Grotesque","Outfit",system-ui,sans-serif;
+    --f-sans:"Outfit",system-ui,sans-serif;
+    --f-mono:"JetBrains Mono",ui-monospace,monospace;
+    --t-h1:700 21px/1.2 var(--f-display);
+    --t-h2:600 15.5px/1.3 var(--f-display);
+    --t-metric:500 30px/1 var(--f-mono);
+    --t-kpi:500 16px/1.2 var(--f-mono);
+    --t-money:500 12.5px/1.3 var(--f-mono);
+    --t-body:500 12.5px/1.4 var(--f-sans);
+    --t-body-2:400 11.5px/1.5 var(--f-sans);
+    --t-label:600 9.5px/1.2 var(--f-sans);
+    --tracking-label:.13em;
+    --ease:cubic-bezier(.4,0,.2,1); --dur-fast:.2s; --dur:.22s; --dur-slow:.3s;
+    --sidebar-w:244px; --header-h:60px; --band-pad:20px 30px 22px;
+    /* PONTE DE COMPATIBILIDADE (nomes antigos) */
+    --bg-alt:#F0F3F7; --surface-solid:#FFFFFF; --ink-soft:#5B6572; --ink-mute:#8C97A4; --accent-ink:#FFFFFF;
+    --c-pos-soft:rgba(21,128,61,.10); --c-neg-soft:rgba(185,28,28,.10); --c-warn-soft:rgba(146,64,14,.12);
+    --c-warning:#92400E; --c-danger:#B91C1C; --c-danger-soft:rgba(185,28,28,.10);
+    --c-primary:#1068B0; --c-secondary:#5B6572; --c-tertiary:#8C97A4;
+    --shadow-sm:0 1px 2px rgba(28,37,48,.05),0 4px 14px rgba(28,37,48,.06);
+    --shadow-md:0 8px 22px rgba(12,80,136,.14),0 2px 6px rgba(28,37,48,.06);
+    --shadow-lg:0 18px 50px rgba(28,37,48,.18);
+    --g-5:#8C97A4; --g-6:#5B6572; --g-7:#3E4A58; --g-8:#2A343F; --g-9:#1C2530;
+    --grad:var(--accent-band);
+    color-scheme:light;
   }
-
-  /* Variante semântica suave (verde/vermelho dessaturados) — opcional.
-     Ative com <body data-semantic="soft">                                 */
-  [data-semantic="soft"] {
-    --c-pos: oklch(0.52 0.09 155);
-    --c-pos-soft: oklch(0.52 0.09 155 / 0.1);
-    --c-neg: oklch(0.55 0.12 25);
-    --c-neg-soft: oklch(0.55 0.12 25 / 0.09);
-    --c-warn: oklch(0.62 0.1 85);
-    --c-warn-soft: oklch(0.62 0.1 85 / 0.12);
-  }
-
   [data-theme="dark"] {
-    /* Rampa invertida — categorias continuam legíveis sobre superfícies escuras */
-    --g-0: oklch(0.15 0 0);
-    --g-1: oklch(0.18 0 0);
-    --g-2: oklch(0.22 0 0);
-    --g-3: oklch(0.3 0 0);
-    --g-4: oklch(0.46 0 0);
-    --g-5: oklch(0.56 0 0);
-    --g-6: oklch(0.66 0 0);
-    --g-7: oklch(0.78 0 0);
-    --g-8: oklch(0.88 0 0);
-    --g-9: oklch(0.95 0 0);
-
-    --bg: oklch(0.145 0 0);
-    --bg-alt: oklch(1 0 0 / 0.05);
-    --surface: oklch(0.24 0 0 / 0.55);
-    --surface-solid: oklch(0.22 0 0);
-    --surface-2: oklch(0.3 0 0 / 0.4);
-    --ink: oklch(0.97 0 0);
-    --ink-soft: oklch(0.74 0 0);
-    --ink-mute: oklch(0.58 0 0);
-    --line: oklch(1 0 0 / 0.1);
-    --line-strong: oklch(1 0 0 / 0.18);
-    --accent: oklch(0.95 0 0);
-    --accent-ink: oklch(0.16 0 0);
-
-    --c-pos: oklch(0.9 0 0);
-    --c-pos-soft: oklch(1 0 0 / 0.09);
-    --c-neg: oklch(0.62 0 0);
-    --c-neg-soft: oklch(1 0 0 / 0.07);
-    --c-warn: oklch(0.75 0 0);
-    --c-warn-soft: oklch(1 0 0 / 0.08);
-
-    --c-primary-soft: oklch(1 0 0 / 0.09);
-    --c-secondary: oklch(0.68 0 0);
-    --c-secondary-soft: oklch(1 0 0 / 0.08);
-    --c-tertiary: oklch(0.6 0 0);
-    --c-tertiary-soft: oklch(1 0 0 / 0.07);
-    --c-violet: oklch(0.8 0 0);
-    --c-violet-soft: oklch(1 0 0 / 0.08);
-    --c-pink: oklch(0.65 0 0);
-
-    --glass-border: oklch(1 0 0 / 0.12);
-    --glass-inset: inset 0 1px 0 oklch(1 0 0 / 0.09);
-
-    --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.4), 0 4px 14px oklch(0 0 0 / 0.3);
-    --shadow-md: 0 4px 16px oklch(0 0 0 / 0.4), 0 14px 36px oklch(0 0 0 / 0.35);
-    --shadow-lg: 0 10px 28px oklch(0 0 0 / 0.5), 0 30px 70px oklch(0 0 0 / 0.5);
-    --glow-primary: 0 0 0 1px oklch(1 0 0 / 0.12), 0 10px 30px oklch(0 0 0 / 0.45);
-    color-scheme: dark;
+    --accent:#2893EB; --accent-2:#5FB0F2; --accent-strong:#1068B0; --accent-soft:rgba(40,147,235,.16);
+    --accent-band:linear-gradient(120deg,#0A3E68 0%,#0D5C9C 48%,#1068B0 135%);
+    --bg:#0F1720; --surface:#16202B; --surface-2:#1B2733; --surface-3:#223040; --field:#1B2733;
+    --ink:#EEF3F8; --ink-2:#A9B7C6; --ink-3:#7C8B9C; --ink-4:#63717F;
+    --line:rgba(255,255,255,.09); --line-2:rgba(255,255,255,.06); --line-strong:rgba(255,255,255,.16);
+    --c-pos:#4ADE80; --c-pos-bg:rgba(74,222,128,.14);
+    --c-neg:#F87171; --c-neg-bg:rgba(248,113,113,.14);
+    --c-warn:#FBBF24; --c-warn-bg:rgba(251,191,36,.14);
+    --c-neutral:#A9B7C6; --c-neutral-bg:rgba(255,255,255,.08);
+    --chart-out:#33455A; --chart-grid:rgba(255,255,255,.07); --chart-area:rgba(40,147,235,.14);
+    --sh-1:0 1px 2px rgba(0,0,0,.4); --sh-2:0 2px 12px rgba(0,0,0,.5); --sh-3:0 1px 3px rgba(0,0,0,.55);
+    --sh-accent:0 4px 14px rgba(40,147,235,.32);
+    --cat-1:#6FB6E8; --cat-2:#6EE7A0; --cat-3:#B39BF5; --cat-4:#E9B27A;
+    --cat-5:#F49B9B; --cat-6:#6FD4E0; --cat-7:#A9B7C6; --cat-8:#8697A8;
+    --bg-alt:#1B2733; --surface-solid:#16202B; --ink-soft:#A9B7C6; --ink-mute:#7C8B9C; --accent-ink:#FFFFFF;
+    --c-pos-soft:rgba(74,222,128,.14); --c-neg-soft:rgba(248,113,113,.14); --c-warn-soft:rgba(251,191,36,.14);
+    --c-warning:#FBBF24; --c-danger:#F87171; --c-danger-soft:rgba(248,113,113,.14);
+    --c-primary:#2893EB; --c-secondary:#A9B7C6; --c-tertiary:#7C8B9C;
+    --shadow-sm:0 1px 2px rgba(0,0,0,.4); --shadow-md:0 4px 16px rgba(0,0,0,.4); --shadow-lg:0 10px 28px rgba(0,0,0,.5);
+    --g-5:#7C8B9C; --g-6:#A9B7C6; --g-7:#C7D3E0; --g-8:#DCE5EE; --g-9:#EEF3F8;
+    color-scheme:dark;
   }
-  [data-theme="dark"][data-semantic="soft"] {
-    --c-pos: oklch(0.72 0.09 155);
-    --c-pos-soft: oklch(0.72 0.09 155 / 0.13);
-    --c-neg: oklch(0.68 0.12 25);
-    --c-neg-soft: oklch(0.68 0.12 25 / 0.12);
-    --c-warn: oklch(0.78 0.1 85);
-    --c-warn-soft: oklch(0.78 0.1 85 / 0.14);
-  }
-
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; }
   body {
-    font-family: 'Outfit', system-ui, sans-serif;
-    background: var(--bg);
-    color: var(--ink);
-    overflow: hidden;
-    -webkit-font-smoothing: antialiased;
-    font-feature-settings: "ss01", "ss02";
-    transition: background 0.5s ease, color 0.5s ease;
+    font-family:var(--f-sans); background:var(--bg); color:var(--ink);
+    overflow:hidden; -webkit-font-smoothing:antialiased;
+    transition:background .4s var(--ease), color .4s var(--ease);
   }
-  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
-
-  /* ── Cena de fundo monocromática ─────────────────────────── */
-  .bg-scene { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
-  .bg-scene::before {
-    content: '';
-    position: absolute; inset: 0;
-    background:
-      radial-gradient(1100px 700px at 18% -10%, oklch(1 0 0 / 0.9), transparent 60%),
-      radial-gradient(900px 620px at 100% 110%, oklch(0 0 0 / 0.1), transparent 55%);
-  }
-  [data-theme="dark"] .bg-scene::before {
-    background:
-      radial-gradient(1100px 700px at 18% -10%, oklch(1 0 0 / 0.07), transparent 60%),
-      radial-gradient(900px 620px at 100% 110%, oklch(0 0 0 / 0.55), transparent 55%);
-  }
-  .blob {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(60px);
-  }
-  /* animação dos blobs só quando o usuário não pediu menos movimento
-     e desligada por padrão para não pesar — reative trocando 'none' por 'blobFloat 26s...' */
-  .blob.b1 { width: 560px; height: 560px; background: oklch(0 0 0 / 0.07); top: -140px; left: -120px; }
-  .blob.b2 { width: 480px; height: 480px; background: oklch(0 0 0 / 0.055); bottom: -160px; right: -80px; animation-delay: -8s; animation-duration: 30s; }
-  .blob.b3 { width: 380px; height: 380px; background: oklch(1 0 0 / 0.5); top: 38%; left: 42%; animation-delay: -14s; animation-duration: 34s; }
-  [data-theme="dark"] .blob.b1 { background: oklch(1 0 0 / 0.05); }
-  [data-theme="dark"] .blob.b2 { background: oklch(1 0 0 / 0.04); }
-  [data-theme="dark"] .blob.b3 { background: oklch(1 0 0 / 0.06); }
-
-  /* ── Tema COLORIDO: blobs ganham cor (degradê orgânico via blur) ── */
-  [data-tema="colorido"] .blob.b1 { background: oklch(0.62 0.19 250 / 0.38); }
-  [data-tema="colorido"] .blob.b2 { background: oklch(0.56 0.21 300 / 0.34); }
-  [data-tema="colorido"] .blob.b3 { background: oklch(0.60 0.20 330 / 0.30); }
-  [data-tema="colorido"] .bg-scene::before {
-    background:
-      radial-gradient(1100px 700px at 18% -10%, oklch(0.7 0.16 250 / 0.28), transparent 60%),
-      radial-gradient(900px 620px at 100% 110%, oklch(0.62 0.2 300 / 0.26), transparent 55%);
-  }
-  /* botões primários/itens ativos com leve degradê no colorido */
-  [data-tema="colorido"] .glass { border-color: oklch(0.6 0.12 265 / 0.22); }
-  @keyframes blobFloat {
-    0%, 100% { transform: translate(0, 0) scale(1); }
-    33% { transform: translate(60px, -40px) scale(1.07); }
-    66% { transform: translate(-40px, 50px) scale(0.95); }
-  }
-
-  /* Grade sutil */
-  .bg-grid {
-    position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background-image:
-      linear-gradient(var(--line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--line) 1px, transparent 1px);
-    background-size: 56px 56px;
-    mask-image: radial-gradient(ellipse at 50% 30%, black 15%, transparent 72%);
-    -webkit-mask-image: radial-gradient(ellipse at 50% 30%, black 15%, transparent 72%);
-    opacity: 0.3;
-  }
-
-  #root { position: relative; z-index: 1; height: 100vh; }
-  button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
-
-  /* Vidro reutilizável */
-  .glass {
-    background: var(--surface);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--shadow-sm), var(--glass-inset);
-  }
-
-  /* Scrollbar */
-  ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--ink-mute); background-clip: padding-box; }
-
-  /* Focus */
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
-
-  /* Animações utilitárias — só transform, nunca opacity de entrada */
-  @keyframes slideUp { from { transform: translateY(16px); } to { transform: none; } }
-  @keyframes fadeIn { from { transform: translateY(4px); } to { transform: none; } }
-  @keyframes popIn { from { transform: scale(0.96); } to { transform: none; } }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
-  @keyframes barGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
-  @keyframes pulseRing { 0% { box-shadow: 0 0 0 0 currentColor; } 100% { box-shadow: 0 0 0 12px transparent; } }
-
-  .anim-slide { animation: slideUp 0.6s cubic-bezier(.22,1,.36,1) both; }
-  .anim-fade { animation: fadeIn 0.5s ease both; }
-  .anim-pop { animation: popIn 0.5s cubic-bezier(.22,1,.36,1) both; }
+  .mono { font-family:var(--f-mono); font-variant-numeric:tabular-nums; }
+  #root { position:relative; z-index:1; height:100vh; }
+  button { font-family:inherit; cursor:pointer; border:none; background:none; color:inherit; }
+  .glass { background:var(--surface); border:1px solid var(--line); box-shadow:var(--sh-1); }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:var(--line-strong); border-radius:10px; border:2px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:var(--ink-3); background-clip:padding-box; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:var(--r-md); }
+  @keyframes slideUp { from { transform:translateY(16px); } to { transform:none; } }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+  @keyframes popIn { from { transform:scale(0.96); } to { transform:none; } }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .anim-slide { animation:slideUp .5s var(--ease) both; }
+  .anim-fade { animation:fadeIn .4s var(--ease) both; }
 </style>
 </head>
 <body data-theme="light">
-  <div class="bg-scene">
-    <div class="blob b1"></div>
-    <div class="blob b2"></div>
-    <div class="blob b3"></div>
-  </div>
-  <div class="bg-grid"></div>
-
   <div id="root"></div>
 
-  <!-- XLSX (importação de Excel) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-
-  <!-- jsPDF (geração de demonstrativos de repasse em PDF) -->
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-
-  <!-- PizZip + docxtemplater (geração de contrato .docx a partir de modelo) -->
   <script src="https://cdn.jsdelivr.net/npm/pizzip@3.2.0/dist/pizzip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.69.0/build/docxtemplater.js"></script>
 
-  <!-- React -->
   <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
-  <!-- ══════════════════════════════════════════════════════════════
-       COMPONENTES (babel) — CACHE-BUSTING AUTOMÁTICO
-       Em vez de listar cada arquivo com um ?v= fixo (que precisava ser
-       trocado à mão a cada deploy, e por isso o navegador servia versão
-       velha), os scripts são injetados aqui com um ?v= que muda a cada
-       carregamento. Assim o navegador SEMPRE pega a versão mais nova do
-       GitHub — sem precisar limpar cache nem usar aba anônima.
-
-       Trade-off: os .jsx não ficam em cache entre recarregamentos (são
-       pequenos, o impacto é mínimo). Quando o app estabilizar e as
-       mudanças ficarem raras, troque a linha do BUST por uma versão fixa
-       (ex: var BUST = '2026-08-10a';) e bumpe manualmente a cada deploy
-       para reativar o cache entre versões.
-       ══════════════════════════════════════════════════════════════ -->
   <script>
     (function () {
       var ARQUIVOS = [
-        'supabase', 'data', 'ui', 'charts', 'widgets', 'pages',
-        'auth', 'salas', 'rh', 'repasse', 'repasse2',
-        'ajuda', 'tutorial', 'folha', 'app'
+        'supabase','data','ui','charts','widgets','pages',
+        'auth','salas','rh','repasse','repasse2',
+        'ajuda','tutorial','folha','app'
       ];
-      var BUST = Date.now(); // muda a cada load => nunca serve arquivo cacheado antigo
+      var BUST = Date.now();
       ARQUIVOS.forEach(function (nome) {
         var s = document.createElement('script');
         s.type = 'text/babel';
         s.src = 'src/' + nome + '.jsx?v=' + BUST;
-        s.async = false; // preserva a ordem de carregamento
+        s.async = false;
         document.body.appendChild(s);
       });
     })();
