@@ -419,12 +419,12 @@ const Dashboard = ({ filter, setFilter }) => {
               </div>
             ) : (
               <>
-                <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: `${Math.max(2, 40 / serie.length)}%`, minHeight: 200, paddingTop: 10 }}
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: `${Math.max(2, 40 / serie.length)}%`, height: 210, paddingTop: 10 }}
                   onMouseLeave={() => setHoverBar(null)}>
                   {serie.map((s, i) => (
                     <div key={i} onMouseEnter={() => setHoverBar(i)}
-                      style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, cursor: 'default', minWidth: 0 }}>
-                      <div style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 3 }}>
+                      style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, cursor: 'default', minWidth: 0 }}>
+                      <div style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 3, minHeight: 0 }}>
                         <div title={`Entrou ${window.fmt(s.in)}`} style={{ width: '42%', maxWidth: 16, height: `${barH(s.in)}%`, background: 'var(--chart-in)', borderRadius: '4px 4px 0 0', transition: 'height .3s ease', opacity: hoverBar == null || hoverBar === i ? 1 : .4 }} />
                         <div title={`Saiu ${window.fmt(s.out)}`} style={{ width: '42%', maxWidth: 16, height: `${barH(s.out)}%`, background: 'var(--chart-out)', borderRadius: '4px 4px 0 0', transition: 'height .3s ease', opacity: hoverBar == null || hoverBar === i ? 1 : .4 }} />
                       </div>
