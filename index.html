@@ -296,21 +296,36 @@
   <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
-  <!-- Componentes (babel) -->
-  <script type="text/babel" src="src/supabase.jsx?v=202607291200"></script>
-  <script type="text/babel" src="src/data.jsx?v=202607282200"></script>
-  <script type="text/babel" src="src/ui.jsx?v=202607291200"></script>
-  <script type="text/babel" src="src/charts.jsx?v=202607161500"></script>
-  <script type="text/babel" src="src/widgets.jsx?v=202607232000"></script>
-  <script type="text/babel" src="src/pages.jsx?v=202607282000"></script>
-  <script type="text/babel" src="src/auth.jsx?v=202607161500"></script>
-  <script type="text/babel" src="src/salas.jsx?v=202607161500"></script>
-  <script type="text/babel" src="src/rh.jsx?v=202607231600"></script>
-  <script type="text/babel" src="src/repasse.jsx?v=202607231600"></script>
-  <script type="text/babel" src="src/repasse2.jsx?v=202607282000"></script>
-  <script type="text/babel" src="src/ajuda.jsx?v=202607291600"></script>
-  <script type="text/babel" src="src/tutorial.jsx?v=202607291600"></script>
-  <script type="text/babel" src="src/folha.jsx?v=202608051200"></script>
-  <script type="text/babel" src="src/app.jsx?v=202607291600"></script>
+  <!-- ══════════════════════════════════════════════════════════════
+       COMPONENTES (babel) — CACHE-BUSTING AUTOMÁTICO
+       Em vez de listar cada arquivo com um ?v= fixo (que precisava ser
+       trocado à mão a cada deploy, e por isso o navegador servia versão
+       velha), os scripts são injetados aqui com um ?v= que muda a cada
+       carregamento. Assim o navegador SEMPRE pega a versão mais nova do
+       GitHub — sem precisar limpar cache nem usar aba anônima.
+
+       Trade-off: os .jsx não ficam em cache entre recarregamentos (são
+       pequenos, o impacto é mínimo). Quando o app estabilizar e as
+       mudanças ficarem raras, troque a linha do BUST por uma versão fixa
+       (ex: var BUST = '2026-08-10a';) e bumpe manualmente a cada deploy
+       para reativar o cache entre versões.
+       ══════════════════════════════════════════════════════════════ -->
+  <script>
+    (function () {
+      var ARQUIVOS = [
+        'supabase', 'data', 'ui', 'charts', 'widgets', 'pages',
+        'auth', 'salas', 'rh', 'repasse', 'repasse2',
+        'ajuda', 'tutorial', 'folha', 'app'
+      ];
+      var BUST = Date.now(); // muda a cada load => nunca serve arquivo cacheado antigo
+      ARQUIVOS.forEach(function (nome) {
+        var s = document.createElement('script');
+        s.type = 'text/babel';
+        s.src = 'src/' + nome + '.jsx?v=' + BUST;
+        s.async = false; // preserva a ordem de carregamento
+        document.body.appendChild(s);
+      });
+    })();
+  </script>
 </body>
 </html>
