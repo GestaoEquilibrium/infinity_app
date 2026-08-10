@@ -272,8 +272,8 @@ const Checkbox = ({ checked, onChange, label, style = {} }) => (
   </label>
 );
 
-// ─── Toggle ───
-const Toggle = ({ checked, onChange }) => (
+// ─── Switch (on/off) — nome "Switch" p/ não colidir com o Toggle do auth.jsx ───
+const Switch = ({ checked, onChange }) => (
   <button onClick={() => onChange(!checked)} style={{
     width: 40, height: 22, borderRadius: 'var(--r-pill)', border: 'none', cursor: 'pointer',
     background: checked ? 'var(--accent)' : '#D6DCE4', position: 'relative',
@@ -404,7 +404,7 @@ const TiltCard = ({ children, style = {}, padding = 20, interactive, glowColor, 
 
 Object.assign(window, {
   Icon, Counter, Money, fmtMoney: _brl,
-  Card, Btn, IconBtn, Pill, CatPill, Segmented, Chip, Checkbox, Toggle,
+  Card, Btn, IconBtn, Pill, CatPill, Segmented, Chip, Checkbox, Switch,
   Field, inputStyle, Band, MonthNav, EmptyState, Avatar, UserAvatar, Logo,
   // aliases
   TiltCard,
