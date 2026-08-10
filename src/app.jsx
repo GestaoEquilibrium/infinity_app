@@ -1,5 +1,8 @@
-// Main app: sidebar + topbar + page router + dashboard with drag-reorder
-// Tema monocromático · vidro
+// ═══════════════════════════════════════════════════════════════
+// Eq Finance — App shell (sidebar + header + faixa azul + router)
+// Lógica de auth, multi-empresa, filtros e rotas preservada.
+// Sistema de temas/tweaks/glass/tilt removido (visual único do design).
+// ═══════════════════════════════════════════════════════════════
 
 const { useState, useEffect, useRef, useMemo, createContext, useContext } = React;
 
@@ -13,7 +16,6 @@ const AuthProvider = ({ children }) => {
   const [profile, setProfile] = useState(null);
   const [ready, setReady] = useState(false);
   const [demo, setDemo] = useState(() => localStorage.getItem('infinity-demo') === '1');
-  // Empresas do grupo + empresa "de casa" (a real do perfil, onde pode editar)
   const [companies, setCompanies] = useState([]);
   const [homeCompanyId, setHomeCompanyId] = useState(null);
 
@@ -24,24 +26,17 @@ const AuthProvider = ({ children }) => {
       try {
         const p = await window.getProfile(u.id);
         setHomeCompanyId(p?.company_id || null);
-        // empresa ativa = a salva no seletor (se ainda válida) ou a do perfil
         let active = p?.company_id || null;
-        try {
-          const saved = localStorage.getItem('infinity-active-company');
-          if (saved) active = saved;
-        } catch {}
-        // aplica a empresa ativa no perfil em memória (as telas seguem isto)
+        try { const saved = localStorage.getItem('infinity-active-company'); if (saved) active = saved; } catch {}
         setProfile(p ? { ...p, company_id: active } : null);
         window.ACTIVE_COMPANY_ID = active;
         window.HOME_COMPANY_ID = p?.company_id || null;
         if (active) window.hydrateFromSupabase?.(active);
-        // carrega a lista de empresas para o seletor
         try { setCompanies(await window.fetchCompanies()); } catch {}
       } catch { setProfile(null); }
     } else { setProfile(null); setCompanies([]); setHomeCompanyId(null); }
   };
 
-  // Troca a empresa ativa (só leitura nas outras; edição continua na "de casa").
   const switchCompany = (id) => {
     if (!id) return;
     try { localStorage.setItem('infinity-active-company', id); } catch {}
@@ -68,207 +63,103 @@ const AuthProvider = ({ children }) => {
   );
 };
 
-const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "tema": "azul",
-  "accent": "grafite",
-  "density": "comfortable",
-  "showBlobs": false,
-  "showGrid": false,
-  "liveClock": false
-}/*EDITMODE-END*/;
-
-// Acentos monocromáticos — variações de grafite
-const ACCENTS = {
-  preto:   { label: 'Preto',   color: 'oklch(0.12 0 0)' },
-  grafite: { label: 'Grafite', color: 'oklch(0.21 0 0)' },
-  chumbo:  { label: 'Chumbo',  color: 'oklch(0.32 0 0)' },
-  aco:     { label: 'Aço',     color: 'oklch(0.46 0 0)' },
-  cinza:   { label: 'Cinza',   color: 'oklch(0.62 0 0)' },
-};
-
-// Temas de marca — 3 visuais que a pessoa escolhe.
-//  monocromatico: preto/branco/cinza puro, sem cor.
-//  azul: cinza neutro de base + AZUL nos detalhes/títulos/ativos; verde/vermelho nos status.
-//  colorido: base azulada + degradê no fundo/botões; verde/vermelho nos status.
-const TEMAS = {
-  monocromatico: {
-    label: 'Monocromático',
-    grayChroma: 0, grayHue: 0,          // cinza puro
-    accent: 'oklch(0.24 0 0)',          // grafite escuro
-    semantic: false,                    // positivo/negativo em cinza
-    gradient: null,
-  },
-  azul: {
-    label: 'Mais azul',
-    grayChroma: 0, grayHue: 0,          // cenário = cinza NEUTRO (sem azul no fundo)
-    accent: '#1068B0',                  // azul Cortex = títulos, ativos, botões, cliques
-    semantic: true,                     // verde=positivo, vermelho=negativo
-    gradient: null,
-  },
-  colorido: {
-    label: 'Colorido',
-    grayChroma: 0.6, grayHue: 262,      // base levemente colorida
-    accent: 'oklch(0.52 0.2 265)',      // azul-violeta vibrante
-    semantic: true,
-    gradient: 'linear-gradient(135deg, oklch(0.62 0.19 250) 0%, oklch(0.52 0.22 285) 55%, oklch(0.58 0.2 320) 100%)',
-  },
-};
-// Rampa fixa estilo CORTEX (branco → tinta escura, levemente azulada)
-const CORTEX_RAMP = ['#FFFFFF','#FBFCFE','#F6F8FB','#EEF3F8','#E7EDF3','#8C97A4','#5B6572','#3E4A58','#2A343F','#1C2530'];
-
-// aplica um tema: mantém a rampa Cortex e troca só o accent/semântica/degradê
-function aplicarTema(chave) {
-  const t = TEMAS[chave] || TEMAS.monocromatico;
-  const root = document.documentElement;
-  CORTEX_RAMP.forEach((hex, i) => root.style.setProperty(`--g-${i}`, hex));
-  root.style.setProperty('--accent', t.accent);
-  // semântica: verde/vermelho do Cortex
-  if (t.semantic) {
-    root.style.setProperty('--c-pos', '#15803D');
-    root.style.setProperty('--c-pos-soft', '#E9F7EE');
-    root.style.setProperty('--c-neg', '#B91C1C');
-    root.style.setProperty('--c-neg-soft', '#FDECEC');
-    root.style.setProperty('--c-danger', '#B91C1C');
-    root.style.setProperty('--c-danger-soft', '#FDECEC');
-  } else {
-    ['--c-pos','--c-pos-soft','--c-neg','--c-neg-soft','--c-danger','--c-danger-soft']
-      .forEach(v => root.style.removeProperty(v));
-  }
-  root.style.setProperty('--brand-gradient', t.gradient || 'var(--grad)');
-  document.body.dataset.tema = chave;
-}
-
 // ─── Sidebar ───
-const Sidebar = ({ page, setPage, collapsed, setCollapsed, modulo, setModulo }) => {
+const SIDE_GROUPS = [
+  { titulo: 'Financeiro', mod: 'financeiro', itens: [
+    { k: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
+    { k: 'caixa', label: 'Caixa', icon: 'wallet' },
+    { k: 'contas', label: 'Contas', icon: 'file' },
+    { k: 'projecao', label: 'Projeção', icon: 'chart' },
+    { k: 'impostos', label: 'Impostos', icon: 'alert' },
+    { k: 'repasse', label: 'Repasse', icon: 'pulse' },
+    { k: 'compras', label: 'Compras', icon: 'tag' },
+  ]},
+  { titulo: 'Gestão', mod: 'financeiro', itens: [
+    { k: 'relatorios', label: 'Relatórios', icon: 'chart' },
+    { k: 'agenda', label: 'Agenda', icon: 'calendar' },
+  ]},
+  { titulo: 'Recursos Humanos', mod: 'rh', itens: [
+    { k: 'rh', label: 'Folha / RH', icon: 'users' },
+    { k: 'provisoes', label: 'Provisões', icon: 'wallet' },
+    { k: 'equipe', label: 'Equipe', icon: 'users' },
+  ]},
+];
+
+const Sidebar = ({ page, setPage, modulo, setModulo }) => {
   const { profile, demo } = useAuth();
   const role = demo ? 'admin' : (profile?.role || 'viewer');
-  const allItems = [
-    { k: 'dashboard', label: 'Dashboard', icon: 'dashboard', mod: 'financeiro' },
-    { k: 'caixa', label: 'Caixa', icon: 'wallet', mod: 'financeiro' },
-    { k: 'contas', label: 'Contas', icon: 'file', mod: 'financeiro' },
-    { k: 'projecao', label: 'Projeção', icon: 'chart', mod: 'financeiro' },
-    { k: 'impostos', label: 'Impostos', icon: 'alert', mod: 'financeiro' },
-    { k: 'repasse', label: 'Repasse', icon: 'chart', mod: 'financeiro' },
-    { k: 'compras', label: 'Compras', icon: 'wallet', mod: 'financeiro' },
-    { k: 'agenda', label: 'Agenda', icon: 'calendar', mod: 'financeiro' },
-    { k: 'relatorios', label: 'Relatórios', icon: 'chart', mod: 'financeiro' },
-    { k: 'rh', label: 'Folha / RH', icon: 'users', mod: 'rh' },
-    { k: 'provisoes', label: 'Provisões', icon: 'wallet', mod: 'rh' },
-    { k: 'equipe', label: 'Equipe', icon: 'users', mod: 'rh' },
-  ];
-  const items = allItems.filter(it => {
-    // "Provisões" usa a mesma permissão do "Folha / RH"
-    const accessKey = it.k === 'provisoes' ? 'rh' : it.k;
-    return window.canAccess(role, accessKey) && (!modulo || it.mod === modulo);
-  });
+  const acess = (k) => window.canAccess(role, k === 'provisoes' ? 'rh' : k);
+
+  const grupos = SIDE_GROUPS
+    .filter(g => !modulo || g.mod === modulo)
+    .map(g => ({ ...g, itens: g.itens.filter(it => acess(it.k)) }))
+    .filter(g => g.itens.length);
+
   const bottom = [
     { k: 'ajuda', label: 'Ajuda', icon: 'help' },
-    { k: 'perfil', label: 'Meu perfil', icon: 'user' },
     { k: 'config', label: 'Configurações', icon: 'settings' },
-  ].filter(it => window.canAccess(role, it.k) || it.k === 'perfil' || it.k === 'ajuda');
+  ].filter(it => window.canAccess(role, it.k) || it.k === 'ajuda');
 
   return (
-    <aside className="glass" style={{
-      width: collapsed ? 84 : 248,
-      flexShrink: 0,
-      transition: 'width 0.4s cubic-bezier(.22,1,.36,1)',
-      borderRadius: 'var(--r-lg)',
-      display: 'flex', flexDirection: 'column',
-      padding: 16,
-      overflow: 'hidden',
+    <aside style={{
+      width: 'var(--sidebar-w)', flexShrink: 0, height: '100vh',
+      background: 'var(--surface)', borderRight: '1px solid var(--line)',
+      display: 'flex', flexDirection: 'column', padding: '20px 14px',
     }}>
       {/* Logo */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 8px', marginBottom: 18 }}>
-        <div style={{
-          width: 40, height: 40, borderRadius: 13,
-          background: 'var(--accent)',
-          display: 'grid', placeItems: 'center', color: 'var(--accent-ink)',
-          boxShadow: '0 6px 18px oklch(0 0 0 / 0.25)',
-          flexShrink: 0,
-        }}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-            <path d="M18.178 8c5.096 0 5.096 8 0 8-5.095 0-7.133-8-12.739-8-4.585 0-4.585 8 0 8 5.606 0 7.644-8 12.74-8z"/>
-          </svg>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '0 8px 8px', marginBottom: 14 }}>
+        <window.Logo size={36} />
+        <div>
+          <div style={{ font: '700 16px var(--f-display)', letterSpacing: '-.02em', color: 'var(--ink)' }}>Eq Finance</div>
+          <div style={{ font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--ink-3)' }}>Grupo Equilibrium</div>
         </div>
-        {!collapsed && (
-          <div style={{ overflow: 'hidden' }}>
-            <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: -0.5, color: 'var(--ink)' }}>Infinity</div>
-            <div style={{ fontSize: 10.5, color: 'var(--ink-mute)', fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase' }}>Clínica · v3</div>
-          </div>
-        )}
       </div>
 
-      {!collapsed && (
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--ink-mute)', padding: '0 10px', marginBottom: 8 }}>
-          {modulo === 'rh' ? 'Recursos Humanos' : modulo === 'financeiro' ? 'Financeiro' : 'Menu'}
-        </div>
-      )}
-      {modulo && (
-        <button onClick={() => setModulo(null)} style={{
-          marginBottom: 8, padding: '10px 12px', borderRadius: 'var(--r-sm)',
-          display: 'flex', alignItems: 'center', gap: 12, width: '100%',
-          color: 'var(--ink-soft)', fontSize: 13, fontWeight: 500, transition: 'background 0.2s',
-          justifyContent: collapsed ? 'center' : 'flex-start', border: 'none', cursor: 'pointer', background: 'transparent',
-        }}
-        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-alt)'}
-        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-          <Icon name="infinity" size={18} />
-          {!collapsed && <span>Início</span>}
-        </button>
-      )}
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
-        {items.map(it => (
-          <NavItem key={it.k} item={it} active={page === it.k} onClick={() => setPage(it.k)} collapsed={collapsed} />
+      {/* Seletor de empresa */}
+      <CompanySelectorSide />
+
+      {/* Navegação */}
+      <nav style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, marginTop: 14, overflowY: 'auto' }}>
+        {grupos.map(g => (
+          <div key={g.titulo} style={{ marginBottom: 10 }}>
+            <div style={{ font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--ink-3)', padding: '0 11px', marginBottom: 6 }}>{g.titulo}</div>
+            {g.itens.map(it => <NavItem key={it.k} item={it} active={page === it.k} onClick={() => setPage(it.k)} />)}
+          </div>
         ))}
       </nav>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-        {bottom.map(it => (
-          <NavItem key={it.k} item={it} active={page === it.k} onClick={() => setPage(it.k)} collapsed={collapsed} />
-        ))}
-        <button onClick={() => setCollapsed(!collapsed)} style={{
-          marginTop: 2, padding: '11px 12px', borderRadius: 'var(--r-sm)',
-          display: 'flex', alignItems: 'center', gap: 12,
-          color: 'var(--ink-mute)', fontSize: 13, fontWeight: 500, transition: 'background 0.2s',
-          justifyContent: collapsed ? 'center' : 'flex-start',
-        }}
-        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-alt)'}
-        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-          <Icon name="menu" size={18} />
-          {!collapsed && <span>Recolher</span>}
-        </button>
+      {/* Rodapé */}
+      <div style={{ paddingTop: 10, borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {modulo && (
+          <NavItem item={{ label: 'Início', icon: 'infinity' }} active={false} onClick={() => setModulo(null)} />
+        )}
+        {bottom.map(it => <NavItem key={it.k} item={it} active={page === it.k} onClick={() => setPage(it.k)} />)}
       </div>
     </aside>
   );
 };
 
-const NavItem = ({ item, active, onClick, collapsed }) => (
-  <button onClick={onClick}
-    style={{
-      display: 'flex', alignItems: 'center', gap: 12,
-      padding: '11px 12px', borderRadius: 'var(--r-sm)',
-      background: active ? 'var(--accent)' : 'transparent',
-      color: active ? 'var(--accent-ink)' : 'var(--ink-soft)',
-      fontSize: 13.5, fontWeight: active ? 600 : 500,
-      position: 'relative', transition: 'background 0.25s, color 0.25s, transform 0.2s',
-      justifyContent: collapsed ? 'center' : 'flex-start',
-      boxShadow: active ? '0 6px 16px oklch(0 0 0 / 0.18)' : 'none',
-    }}
-    onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg-alt)'; }}
-    onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
-    >
-    <Icon name={item.icon} size={18} stroke={active ? 2.2 : 1.8} />
-    {!collapsed && <span>{item.label}</span>}
-  </button>
-);
-
-// ─── Topbar ───
-const pillStyle = {
-  display: 'flex', alignItems: 'center', gap: 10,
-  height: 44, padding: '0 16px', borderRadius: 'var(--r-sm)',
+const NavItem = ({ item, active, onClick }) => {
+  const [hover, setHover] = useState(false);
+  return (
+    <button onClick={onClick}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 11,
+        height: 36, padding: '0 11px', borderRadius: 'var(--r-lg)', width: '100%',
+        background: active ? 'var(--accent)' : (hover ? 'rgba(28,37,48,.045)' : 'transparent'),
+        color: active ? '#fff' : (hover ? 'var(--ink)' : 'var(--ink-2)'),
+        font: `${active ? 600 : 500} 13.5px var(--f-sans)`,
+        transition: 'background var(--dur) var(--ease), color var(--dur) var(--ease)',
+      }}>
+      <window.Icon name={item.icon} size={18} stroke={active ? 2 : 1.8} />
+      <span>{item.label}</span>
+    </button>
+  );
 };
 
-const CompanySelector = () => {
+// Seletor de empresa (versão sidebar)
+const CompanySelectorSide = () => {
   const { companies, profile, homeCompanyId, switchCompany, demo } = useAuth();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -277,37 +168,37 @@ const CompanySelector = () => {
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
-  if (demo || !companies || companies.length < 2) return null; // só aparece com 2+ empresas
+  if (demo || !companies || companies.length < 2) return null;
   const activeId = profile?.company_id;
   const active = companies.find(c => c.id === activeId);
-  const nome = (c) => c?.name || 'Empresa';
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button className="glass" onClick={() => setOpen(o => !o)} title="Trocar empresa"
-        style={{ height: 44, borderRadius: 'var(--r-sm)', display: 'flex', alignItems: 'center',
-          gap: 8, padding: '0 14px', color: 'var(--ink)', fontFamily: 'inherit', fontSize: 13, fontWeight: 600 }}>
-        <Icon name="wallet" size={16} />
-        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome(active)}</span>
-        <span style={{ fontSize: 10, color: 'var(--ink-mute)' }}>▾</span>
+      <button onClick={() => setOpen(o => !o)} style={{
+        width: '100%', height: 40, padding: '0 12px', borderRadius: 'var(--r-lg)',
+        border: '1px solid var(--line-strong)', background: 'var(--field)',
+        display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+      }}>
+        <window.Icon name="wallet" size={16} style={{ color: 'var(--ink-3)' }} />
+        <span style={{ flex: 1, textAlign: 'left', font: '600 12.5px var(--f-sans)', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{active?.name || 'Empresa'}</span>
+        <window.Icon name="chevron_down" size={14} style={{ color: 'var(--ink-3)' }} />
       </button>
       {open && (
-        <div className="glass" style={{ position: 'absolute', top: 50, right: 0, minWidth: 220, zIndex: 50,
-          borderRadius: 12, padding: 6, boxShadow: '0 8px 30px rgba(0,0,0,0.15)' }}>
+        <div style={{ position: 'absolute', top: 46, left: 0, right: 0, zIndex: 50,
+          background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-xl)',
+          boxShadow: 'var(--sh-2)', padding: 5 }}>
           {companies.map(c => {
-            const isActive = c.id === activeId;
-            const isHome = c.id === homeCompanyId;
+            const isActive = c.id === activeId, isHome = c.id === homeCompanyId;
             return (
               <button key={c.id} onClick={() => { switchCompany(c.id); setOpen(false); }}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
-                  padding: '10px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                  background: isActive ? 'var(--bg-alt)' : 'transparent', color: 'var(--ink)',
-                  fontFamily: 'inherit', fontSize: 13, fontWeight: isActive ? 600 : 400 }}
-                onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-alt)'; }}
+                  padding: '9px 10px', borderRadius: 'var(--r-md)', cursor: 'pointer',
+                  background: isActive ? 'var(--accent-soft)' : 'transparent',
+                  color: isActive ? 'var(--accent)' : 'var(--ink)', font: `${isActive ? 600 : 500} 12.5px var(--f-sans)` }}
+                onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg)'; }}
                 onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}>
-                <Icon name="wallet" size={15} />
                 <span style={{ flex: 1 }}>{c.name}</span>
-                {isActive && <Icon name="check" size={15} />}
-                {!isHome && <span style={{ fontSize: 10, color: 'var(--ink-mute)', border: '1px solid var(--line)', borderRadius: 5, padding: '1px 5px' }}>leitura</span>}
+                {isActive && <window.Icon name="check" size={14} />}
+                {!isHome && <span style={{ font: '600 9px var(--f-sans)', color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: '1px 5px' }}>leitura</span>}
               </button>
             );
           })}
@@ -317,67 +208,29 @@ const CompanySelector = () => {
   );
 };
 
-const Topbar = ({ theme, setTheme, liveClock, onOpenTweaks }) => {
-  const [now, setNow] = useState(new Date());
-  useEffect(() => {
-    if (!liveClock) return;
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, [liveClock]);
+// ─── Header (60px) ───
+const Header = ({ theme, setTheme }) => {
   return (
     <header style={{
-      display: 'flex', alignItems: 'center', gap: 12,
-      padding: '10px 0', marginBottom: 16,
+      height: 'var(--header-h)', flexShrink: 0,
+      background: 'var(--surface)', borderBottom: '1px solid var(--line)',
+      display: 'flex', alignItems: 'center', gap: 12, padding: '0 20px',
     }}>
-      <div className="glass" style={{ ...pillStyle, flex: 1, padding: '0 18px' }}>
-        <Icon name="search" size={17} />
-        <input placeholder="Busque por transações, categorias, colaboradores..."
-          style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 14, color: 'var(--ink)', fontFamily: 'inherit' }} />
-        <kbd className="mono" style={{ padding: '3px 8px', borderRadius: 6, background: 'var(--bg-alt)', border: '1px solid var(--line)', fontSize: 11, color: 'var(--ink-mute)' }}>⌘K</kbd>
+      {/* Busca */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 1, maxWidth: 420,
+        height: 36, padding: '0 12px', borderRadius: 'var(--r-lg)',
+        border: '1px solid var(--line-strong)', background: 'var(--field)' }}>
+        <window.Icon name="search" size={16} style={{ color: 'var(--ink-3)' }} />
+        <input placeholder="Buscar…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', font: '400 12.5px var(--f-sans)', color: 'var(--ink)' }} />
+        <kbd className="mono" style={{ padding: '2px 6px', borderRadius: 'var(--r-sm)', background: 'var(--surface-3)', font: '500 10px var(--f-mono)', color: 'var(--ink-3)' }}>⌘K</kbd>
       </div>
 
-      {liveClock && (
-        <div className="glass" style={pillStyle}>
-          <span style={{ width: 7, height: 7, borderRadius: 4, background: 'var(--ink)', color: 'var(--ink)', animation: 'pulseRing 2s infinite' }} />
-          <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
-            {now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-          </span>
-        </div>
-      )}
+      <div style={{ flex: 1 }} />
 
-      <button className="glass" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-        style={{
-          width: 44, height: 44, borderRadius: 'var(--r-sm)',
-          display: 'grid', placeItems: 'center', color: 'var(--ink-soft)',
-          transition: 'transform 0.25s, color 0.25s',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.color = 'var(--ink)'; }}
-        onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.color = 'var(--ink-soft)'; }}
-      >
-        <Icon name={theme === 'light' ? 'moon' : 'sun'} size={18} />
-      </button>
+      <window.IconBtn name={theme === 'light' ? 'moon' : 'sun'} size={36} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} title="Tema" />
+      <window.IconBtn name="bell" size={36} title="Notificações" />
 
-      <button className="glass" onClick={onOpenTweaks} title="Aparência e tema"
-        style={{
-          width: 44, height: 44, borderRadius: 'var(--r-sm)',
-          display: 'grid', placeItems: 'center', color: 'var(--ink-soft)',
-          transition: 'transform 0.25s, color 0.25s',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.color = 'var(--ink)'; }}
-        onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.color = 'var(--ink-soft)'; }}
-      >
-        <Icon name="sparkles" size={18} />
-      </button>
-
-      <button className="glass" style={{
-        width: 44, height: 44, borderRadius: 'var(--r-sm)',
-        display: 'grid', placeItems: 'center', color: 'var(--ink-soft)', position: 'relative',
-      }}>
-        <Icon name="bell" size={18} />
-        <span style={{ position: 'absolute', top: 11, right: 12, width: 7, height: 7, borderRadius: 4, background: 'var(--ink)', border: '2px solid var(--surface-solid)' }} />
-      </button>
-
-      <CompanySelector />
+      <div style={{ width: 1, height: 26, background: 'var(--line)' }} />
 
       <UserChip />
     </header>
@@ -394,34 +247,24 @@ const UserChip = () => {
     return () => document.removeEventListener('click', h);
   }, []);
   const name = demo ? 'Demo' : (profile?.name || user?.email?.split('@')[0] || 'Usuário');
-  const roleTxt = demo ? 'Modo demonstração' : (window.roleLabel?.(profile?.role || 'viewer') || 'Visualizador');
+  const roleTxt = demo ? 'Modo demo' : (window.roleLabel?.(profile?.role || 'viewer') || 'Visualizador');
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button className="glass" onClick={() => setOpen(!open)} style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        height: 44, padding: '0 14px 0 5px', borderRadius: 'var(--r-sm)',
-      }}>
-        <UserAvatar profile={profile} name={name} size={34} color="var(--g-7)" />
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>{name}</span>
-          <span style={{ fontSize: 10, color: 'var(--ink-mute)' }}>{roleTxt}</span>
+      <button onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', background: 'none', border: 'none' }}>
+        <window.UserAvatar profile={profile} name={name} size={32} />
+        <div style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
+          <div style={{ font: '600 12.5px var(--f-sans)', color: 'var(--ink)' }}>{name}</div>
+          <div style={{ font: '400 10.5px var(--f-sans)', color: 'var(--ink-3)' }}>{roleTxt}</div>
         </div>
       </button>
       {open && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 999,
-          width: 200, padding: 8, borderRadius: 'var(--r-md)',
-          background: 'var(--surface-solid)', border: '1px solid var(--line)', boxShadow: 'var(--shadow-lg)',
-          animation: 'popIn 0.25s cubic-bezier(.22,1,.36,1) both',
-        }}>
-          <button onClick={() => { setOpen(false); logout(); }} style={{
-            width: '100%', padding: '10px 12px', borderRadius: 'var(--r-xs)', textAlign: 'left',
-            fontSize: 13, fontWeight: 500, color: 'var(--ink)',
-            display: 'flex', alignItems: 'center', gap: 10,
-          }}
-          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-alt)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-            <Icon name="logout" size={15} stroke={2} /> Sair
+        <div style={{ position: 'absolute', top: 'calc(100% + 10px)', right: 0, zIndex: 999, width: 190, padding: 6,
+          borderRadius: 'var(--r-xl)', background: 'var(--surface)', border: '1px solid var(--line)', boxShadow: 'var(--sh-2)' }}>
+          <button onClick={() => { setOpen(false); logout(); }} style={{ width: '100%', padding: '9px 10px', borderRadius: 'var(--r-md)', textAlign: 'left',
+            font: '500 12.5px var(--f-sans)', color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+            <window.Icon name="logout" size={15} stroke={2} /> Sair
           </button>
         </div>
       )}
@@ -429,8 +272,51 @@ const UserChip = () => {
   );
 };
 
-// ─── Dashboard (with drag to reorder widgets) ───
-const DEFAULT_ORDER = ['flow', 'agenda', 'kpis'];
+// ─── Hub inicial (escolha de módulo) ───
+const Hub = ({ onPick }) => {
+  const { profile, demo } = useAuth();
+  const nome = demo ? 'Demo' : (profile?.name || profile?.email?.split('@')[0] || 'você');
+  const [hover, setHover] = useState(null);
+  const card = (mod, titulo, desc, icone, emBreve) => (
+    <button onClick={() => !emBreve && onPick(mod)}
+      onMouseEnter={() => setHover(mod)} onMouseLeave={() => setHover(null)}
+      style={{ textAlign: 'left', cursor: emBreve ? 'default' : 'pointer', background: 'var(--surface)',
+        border: '1px solid var(--line)', borderRadius: 'var(--r-2xl)', padding: 26,
+        display: 'flex', flexDirection: 'column', gap: 14, position: 'relative', minWidth: 220, flex: 1,
+        boxShadow: hover === mod && !emBreve ? 'var(--sh-2)' : 'var(--sh-1)',
+        transform: hover === mod && !emBreve ? 'translateY(-2px)' : 'none',
+        transition: 'transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease)', opacity: emBreve ? 0.7 : 1 }}>
+      <div style={{ width: 48, height: 48, borderRadius: 'var(--r-xl)', background: 'var(--accent-soft)', color: 'var(--accent)', display: 'grid', placeItems: 'center' }}>
+        <window.Icon name={icone} size={24} />
+      </div>
+      <div>
+        <div style={{ font: '700 17px var(--f-display)', color: 'var(--ink)' }}>{titulo}</div>
+        <div style={{ font: '400 12.5px var(--f-sans)', color: 'var(--ink-3)', marginTop: 5, lineHeight: 1.5 }}>{desc}</div>
+      </div>
+      {emBreve && <span style={{ position: 'absolute', top: 18, right: 18, font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--ink-3)', background: 'var(--surface-3)', borderRadius: 'var(--r-sm)', padding: '3px 7px' }}>em breve</span>}
+    </button>
+  );
+  return (
+    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, background: 'var(--bg)' }}>
+      <div style={{ width: '100%', maxWidth: 600 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'center', marginBottom: 6 }}>
+          <window.Logo size={40} />
+          <div style={{ font: '700 22px var(--f-display)', letterSpacing: '-.02em', color: 'var(--ink)' }}>Eq Finance</div>
+        </div>
+        <div style={{ textAlign: 'center', marginBottom: 26 }}>
+          <div style={{ font: '600 18px var(--f-display)', color: 'var(--ink)' }}>Olá, {nome}</div>
+          <div style={{ font: '400 13px var(--f-sans)', color: 'var(--ink-3)', marginTop: 4 }}>O que você vai gerenciar hoje?</div>
+        </div>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          {card('financeiro', 'Financeiro', 'Dashboard, contas, projeção, bancos, repasse médico', 'wallet', false)}
+          {card('rh', 'Recursos Humanos', 'Ponto, folha, colaboradores, holerite, férias', 'users', true)}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Telas ainda não redesenhadas (usam a ponte de compat.) ───
 
 const Dashboard = ({ filter, setFilter }) => {
   const data = window.useWidgetData(filter);
@@ -753,210 +639,34 @@ const RelatoriosPage = () => {
   );
 };
 
-// ─── Tweaks panel ───
-const TweaksPanel = ({ tweaks, setTweaks, visible, onClose }) => {
-  if (!visible) return null;
-  const update = (key, val) => {
-    const next = { ...tweaks, [key]: val };
-    setTweaks(next);
-    window.parent?.postMessage({ type: '__edit_mode_set_keys', edits: { [key]: val } }, '*');
-  };
-  return (
-    <div style={{
-      position: 'fixed', bottom: 20, right: 20, zIndex: 1000,
-      width: 300, padding: 20, borderRadius: 'var(--r-lg)',
-      background: 'var(--surface-solid)', border: '1px solid var(--line-strong)',
-      boxShadow: 'var(--shadow-lg)',
-      animation: 'slideUp 0.4s cubic-bezier(.22,1,.36,1) both',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-        <Icon name="sparkles" size={18} />
-        <strong style={{ fontSize: 14, fontWeight: 700 }}>Aparência</strong>
-        <button onClick={onClose}
-          style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-mute)', fontSize: 20, lineHeight: 1 }}>×</button>
-      </div>
-
-      <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Tema</label>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginTop: 8, marginBottom: 16 }}>
-        {Object.entries(TEMAS).map(([k, v]) => (
-          <button key={k} onClick={() => update('tema', k)}
-            style={{
-              padding: '10px 6px', borderRadius: 10, fontSize: 11, fontWeight: 600,
-              background: (tweaks.tema || 'azul') === k ? 'var(--accent)' : 'var(--bg-alt)',
-              color: (tweaks.tema || 'azul') === k ? 'var(--accent-ink)' : 'var(--ink-soft)',
-              border: (tweaks.tema || 'azul') === k ? '2px solid var(--accent)' : '2px solid var(--line)',
-              cursor: 'pointer', transition: 'all 0.2s', lineHeight: 1.2,
-            }}>{v.label}</button>
-        ))}
-      </div>
-
-      <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Tom do grafite</label>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginTop: 8, marginBottom: 16 }}>
-        {Object.entries(ACCENTS).map(([k, v]) => (
-          <button key={k} onClick={() => update('accent', k)}
-            title={v.label}
-            style={{
-              width: '100%', aspectRatio: '1',
-              borderRadius: 10, background: v.color,
-              border: tweaks.accent === k ? '3px solid var(--ink)' : '2px solid var(--line)',
-              transition: 'all 0.2s',
-              cursor: 'pointer',
-            }}/>
-        ))}
-      </div>
-
-      <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Densidade</label>
-      <div style={{ display: 'flex', gap: 6, marginTop: 8, marginBottom: 16, background: 'var(--bg-alt)', borderRadius: 999, padding: 4 }}>
-        {['compact', 'comfortable', 'spacious'].map(d => (
-          <button key={d} onClick={() => update('density', d)}
-            style={{
-              flex: 1, padding: '7px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600,
-              background: tweaks.density === d ? 'var(--surface-solid)' : 'transparent',
-              color: tweaks.density === d ? 'var(--ink)' : 'var(--ink-mute)',
-              boxShadow: tweaks.density === d ? 'var(--shadow-sm)' : 'none',
-              textTransform: 'capitalize',
-            }}>{d === 'compact' ? 'Comp.' : d === 'comfortable' ? 'Conf.' : 'Espa.'}</button>
-        ))}
-      </div>
-
-      {[
-        { k: 'showBlobs', label: 'Luz de fundo' },
-        { k: 'showGrid', label: 'Grade sutil' },
-        { k: 'liveClock', label: 'Relógio ao vivo' },
-      ].map(t => (
-        <div key={t.k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0' }}>
-          <span style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{t.label}</span>
-          <button onClick={() => update(t.k, !tweaks[t.k])}
-            style={{
-              width: 40, height: 22, borderRadius: 11,
-              background: tweaks[t.k] ? 'var(--accent)' : 'var(--line-strong)',
-              position: 'relative', transition: 'background 0.25s',
-              cursor: 'pointer',
-            }}>
-            <span style={{
-              position: 'absolute', top: 2, left: tweaks[t.k] ? 20 : 2,
-              width: 18, height: 18, borderRadius: 9, background: 'var(--surface-solid)',
-              transition: 'left 0.25s',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-            }}/>
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-// ─── App ───
+// ─── App bootstrap ───
 const AppInner = () => {
   const { ready, user, demo, enterDemo } = useAuth();
-  if (!ready) return <div style={{ display: 'grid', placeItems: 'center', height: '100vh', color: 'var(--ink-mute)' }}>Carregando…</div>;
+  if (!ready) return <div style={{ display: 'grid', placeItems: 'center', height: '100vh', color: 'var(--ink-3)', font: '500 13px var(--f-sans)' }}>Carregando…</div>;
   if (!user && !demo) return <LoginScreen onSuccess={(res) => { if (res?.demo) enterDemo(); }} />;
   return <AppShell />;
 };
 
-const Hub = ({ onPick }) => {
-  const { profile, demo } = useAuth();
-  const nome = demo ? 'Demo' : (profile?.name || profile?.email?.split('@')[0] || 'você');
-  const card = (mod, titulo, desc, icone, cor, emBreve) => (
-    <button onClick={() => onPick(mod)} style={{
-      textAlign: 'left', cursor: 'pointer', background: 'var(--surface-solid)',
-      border: '1px solid var(--line)', borderRadius: 18, padding: 28,
-      display: 'flex', flexDirection: 'column', gap: 14, transition: 'transform .2s, box-shadow .2s',
-      position: 'relative', minWidth: 220, flex: 1,
-    }}
-    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.10)'; }}
-    onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}>
-      <div style={{ width: 52, height: 52, borderRadius: 14, background: cor, display: 'grid', placeItems: 'center' }}>
-        <Icon name={icone} size={26} />
-      </div>
-      <div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{titulo}</div>
-        <div style={{ fontSize: 13, color: 'var(--ink-mute)', marginTop: 6, lineHeight: 1.5 }}>{desc}</div>
-      </div>
-      {emBreve && (
-        <span style={{ position: 'absolute', top: 20, right: 20, fontSize: 10, fontWeight: 700,
-          color: 'var(--ink-mute)', background: 'var(--bg-alt)', border: '1px solid var(--line)',
-          borderRadius: 6, padding: '3px 8px', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          em construção
-        </span>
-      )}
-    </button>
-  );
-  return (
-    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
-      <div style={{ width: '100%', maxWidth: 620 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, justifyContent: 'center', marginBottom: 8 }}>
-          <div style={{ width: 44, height: 44, borderRadius: 13, background: 'var(--accent)', display: 'grid', placeItems: 'center', color: 'var(--accent-ink)' }}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-              <path d="M18.178 8c5.096 0 5.096 8 0 8-5.095 0-7.133-8-12.739-8-4.585 0-4.585 8 0 8 5.606 0 7.644-8 12.74-8z"/>
-            </svg>
-          </div>
-          <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: -0.5, color: 'var(--ink)' }}>Infinity</div>
-        </div>
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--ink)' }}>Olá, {nome}</div>
-          <div style={{ fontSize: 14, color: 'var(--ink-mute)', marginTop: 4 }}>O que você vai gerenciar hoje?</div>
-        </div>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          {card('financeiro', 'Financeiro', 'Dashboard, contas, projeção, bancos, repasse médico', 'wallet', 'var(--bg-alt)', false)}
-          {card('rh', 'Recursos Humanos', 'Ponto, folha, colaboradores, holerite, férias', 'users', 'var(--bg-alt)', true)}
-        </div>
-      </div>
-    </div>
-  );
+// Faixa padrão para telas ainda não migradas (título simples)
+const TITULOS = {
+  dashboard: 'Dashboard', caixa: 'Caixa', contas: 'Contas', projecao: 'Projeção',
+  impostos: 'Impostos', repasse: 'Repasse', compras: 'Compras', agenda: 'Agenda',
+  relatorios: 'Relatórios', rh: 'Folha / RH', provisoes: 'Provisões', equipe: 'Equipe',
+  perfil: 'Meu perfil', config: 'Configurações', ajuda: 'Ajuda',
 };
+// Telas já migradas para a cara nova fornecem a própria faixa; as demais usam a padrão.
+const MIGRADAS = new Set([]); // será preenchida nos próximos blocos
 
 const AppShell = () => {
   const [theme, setTheme] = useState(() => localStorage.getItem('infinity-theme') || 'light');
   const [page, setPage] = useState(() => localStorage.getItem('infinity-page') || 'dashboard');
   const [modulo, setModulo] = useState(() => localStorage.getItem('infinity-modulo') || null);
-  const [collapsed, setCollapsed] = useState(false);
-  const [tweaks, setTweaks] = useState(TWEAK_DEFAULTS);
-  const [tweaksVisible, setTweaksVisible] = useState(false);
 
-  useEffect(() => {
-    if (modulo) localStorage.setItem('infinity-modulo', modulo);
-    else localStorage.removeItem('infinity-modulo');
-  }, [modulo]);
-
-  const escolherModulo = (m) => {
-    setModulo(m);
-    setPage(m === 'financeiro' ? 'dashboard' : 'rh');
-  };
-
+  useEffect(() => { if (modulo) localStorage.setItem('infinity-modulo', modulo); else localStorage.removeItem('infinity-modulo'); }, [modulo]);
   useEffect(() => { document.body.dataset.theme = theme; localStorage.setItem('infinity-theme', theme); }, [theme]);
   useEffect(() => { localStorage.setItem('infinity-page', page); }, [page]);
 
-  // Tema de marca (monocromático / azul / colorido)
-  useEffect(() => {
-    if (theme === 'light') {
-      aplicarTema(tweaks.tema || 'azul');
-    } else {
-      // no escuro, deixa o CSS do dark-theme cuidar das cores
-      ['0','1','2','3','4','5','6','7','8','9'].forEach(i =>
-        document.documentElement.style.removeProperty(`--g-${i}`));
-      document.documentElement.style.removeProperty('--accent');
-    }
-  }, [tweaks.tema, theme]);
-
-  // Tweaks bridge
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.data?.type === '__activate_edit_mode') setTweaksVisible(true);
-      if (e.data?.type === '__deactivate_edit_mode') setTweaksVisible(false);
-    };
-    window.addEventListener('message', handler);
-    window.parent?.postMessage({ type: '__edit_mode_available' }, '*');
-    return () => window.removeEventListener('message', handler);
-  }, []);
-
-  // Background scene visibility
-  useEffect(() => {
-    const scene = document.querySelector('.bg-scene');
-    const grid = document.querySelector('.bg-grid');
-    if (scene) scene.style.display = tweaks.showBlobs ? 'block' : 'none';
-    if (grid) grid.style.display = tweaks.showGrid ? 'block' : 'none';
-  }, [tweaks.showBlobs, tweaks.showGrid]);
+  const escolherModulo = (m) => { setModulo(m); setPage(m === 'financeiro' ? 'dashboard' : 'rh'); };
 
   const [filter, setFilter] = useState(() => window.DEFAULT_FILTER());
   useEffect(() => { localStorage.setItem('infinity-filter-v2', JSON.stringify(filter)); }, [filter]);
@@ -979,22 +689,28 @@ const AppShell = () => {
     ajuda: <window.AjudaPage />,
   };
 
-  const density = tweaks.density === 'compact' ? 14 : tweaks.density === 'spacious' ? 26 : 20;
-
   if (!modulo) return <Hub onPick={escolherModulo} />;
 
+  const migrada = MIGRADAS.has(page);
+
   return (
-    <div style={{ display: 'flex', height: '100vh', padding: density, gap: density }}>
-      <Sidebar page={page} setPage={setPage} collapsed={collapsed} setCollapsed={setCollapsed} modulo={modulo} setModulo={setModulo} />
-      <main style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', paddingRight: 6 }}>
-        <Topbar theme={theme} setTheme={setTheme} liveClock={tweaks.liveClock} onOpenTweaks={() => setTweaksVisible(v => !v)} />
-        <div key={page} style={{ paddingBottom: 24 }}>
-          {page !== 'ajuda' && <window.AjudaBanner page={page} />}
-          {pages[page]}
-        </div>
-      </main>
-      <TweaksPanel tweaks={tweaks} setTweaks={setTweaks} visible={tweaksVisible} onClose={() => setTweaksVisible(false)} />
-      <window.TutorialHost />
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+      <Sidebar page={page} setPage={setPage} modulo={modulo} setModulo={setModulo} />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <Header theme={theme} setTheme={setTheme} />
+        <main style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+          {/* Faixa padrão só para telas ainda não migradas.
+              Telas migradas renderizam a própria faixa internamente. */}
+          {!migrada && (
+            <window.Band title={TITULOS[page] || ''} />
+          )}
+          <div key={page} style={{ padding: migrada ? 0 : '20px 30px 26px' }}>
+            {page !== 'ajuda' && window.AjudaBanner && <window.AjudaBanner page={page} />}
+            {pages[page]}
+          </div>
+        </main>
+      </div>
+      {window.TutorialHost && <window.TutorialHost />}
     </div>
   );
 };
