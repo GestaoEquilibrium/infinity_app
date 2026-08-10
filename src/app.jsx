@@ -322,126 +322,162 @@ const DEFAULT_ORDER = ['flow', 'agenda', 'kpis'];
 
 const Dashboard = ({ filter, setFilter }) => {
   const data = window.useWidgetData(filter);
-  const { profile, demo } = useAuth();
-  const nomeUsuario = demo ? 'Demo' : (profile?.name || profile?.email?.split('@')[0] || 'você');
-  const [order, setOrder] = useState(() => {
-    const saved = localStorage.getItem('infinity-widget-order-v4');
-    if (saved) try {
-      const o = JSON.parse(saved).filter(k => window.WIDGETS[k]);
-      DEFAULT_ORDER.forEach(k => { if (!o.includes(k)) o.push(k); });
-      if (o.length) return o;
-    } catch {}
-    return DEFAULT_ORDER;
-  });
-  const [dragging, setDragging] = useState(null);
-  const [dragOver, setDragOver] = useState(null);
+  const { profile } = useAuth();
+  const [seg, setSeg] = useState('mes'); // 'dia' | 'mes'
+  const [hoverBar, setHoverBar] = useState(null);
+  const [bancos, setBancos] = useState(null);
 
   useEffect(() => {
-    localStorage.setItem('infinity-widget-order-v4', JSON.stringify(order));
-  }, [order]);
+    if (!profile?.company_id || !window.fetchContasBancarias) return;
+    window.fetchContasBancarias(profile.company_id)
+      .then(r => setBancos(window.saldosPorConta(r)))
+      .catch(() => setBancos([]));
+  }, [profile?.company_id, (window.CONTAS || []).length]);
 
-  const handleDragStart = (k) => setDragging(k);
-  const handleDragOver = (e, k) => { e.preventDefault(); setDragOver(k); };
-  const handleDrop = (e, target) => {
-    e.preventDefault();
-    if (!dragging || dragging === target) return;
-    const newOrder = [...order];
-    const from = newOrder.indexOf(dragging);
-    const to = newOrder.indexOf(target);
-    newOrder.splice(from, 1);
-    newOrder.splice(to, 0, dragging);
-    setOrder(newOrder);
-    setDragging(null);
-    setDragOver(null);
+  const meses = window.availableMonths?.() || [];
+  const mesIdx = meses.indexOf(filter.month);
+  const irMes = (delta) => {
+    const i = mesIdx + delta;
+    if (i >= 0 && i < meses.length) setFilter({ mode: 'month', month: meses[i] });
   };
-  const handleDragEnd = () => { setDragging(null); setDragOver(null); };
 
-  const hoje = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const saldoBanco = (bancos || []).reduce((a, b) => a + b.saldo, 0);
+  const nContas = (bancos || []).length;
+  const resultado = data.totalIn - data.totalOut;
+
+  // série do gráfico conforme o segmento
+  const serie = seg === 'dia' ? (data.flowDaily || []) : (data.flow || []);
+  const maxVal = Math.max(1, ...serie.map(s => Math.max(s.in, s.out)));
+
+  const hovered = hoverBar != null ? serie[hoverBar] : null;
 
   return (
-    <div className="anim-fade" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      {/* Cabeçalho */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 14 }}>
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--ink-mute)', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>
-            Visão geral · {hoje}
+    <div className="anim-fade">
+      {/* ── Faixa azul ── */}
+      <window.Band
+        title="Dashboard"
+        subtitle={filter.mode === 'month' ? window.monthLabel(filter.month) : 'Período'}
+        right={<window.MonthNav label={window.monthLabel?.(filter.month) || ''} onPrev={() => irMes(-1)} onNext={() => irMes(1)} />}
+        metricLabel={`Saldo disponível hoje${nContas ? ` · ${nContas} contas` : ''}`}
+        metric={bancos ? saldoBanco : '—'}
+        stats={[
+          { label: 'Entrou', value: data.totalIn, color: 'var(--on-accent-pos)' },
+          { label: 'Saiu', value: data.totalOut, color: 'var(--on-accent-neg)' },
+          { label: 'Resultado', value: resultado, color: resultado >= 0 ? 'var(--on-accent-pos)' : 'var(--on-accent-neg)' },
+        ]}
+      />
+
+      {/* ── Conteúdo ── */}
+      <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Saldos bancários (faixa fina) */}
+        {bancos && bancos.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${bancos.length}, 1fr)`, gap: 1, background: 'var(--line)', border: '1px solid var(--line)', borderRadius: 'var(--r-xl)', overflow: 'hidden' }}>
+            {bancos.map(b => (
+              <div key={b.id} style={{ background: 'var(--surface)', padding: '13px 16px' }}>
+                <div style={{ font: '600 10px var(--f-sans)', color: 'var(--ink-4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.nome}</div>
+                <window.Money value={b.saldo} size="kpi" colorBySign style={{ marginTop: 3, display: 'block' }} />
+              </div>
+            ))}
           </div>
-          <h1 style={{ fontSize: 30, fontWeight: 700, letterSpacing: -1, color: 'var(--ink)', lineHeight: 1.1 }}>
-            Olá, {nomeUsuario}
-          </h1>
-          <p style={{ fontSize: 13, color: 'var(--ink-mute)', marginTop: 5 }}>
-            {filter.mode === 'month'
-              ? <>Exibindo <strong style={{ color: 'var(--ink)' }}>{window.monthLabel(filter.month)}</strong> · saldo anterior <span className="mono" style={{ color: 'var(--ink)', fontWeight: 600 }}>{window.fmt(data.saldoAnt)}</span></>
-              : <>Exibindo período · saldo anterior <span className="mono" style={{ color: 'var(--ink)', fontWeight: 600 }}>{window.fmt(data.saldoAnt)}</span></>}
-          </p>
-        </div>
-      </div>
+        )}
 
-      <window.FilterBar filter={filter} setFilter={setFilter} />
-
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(12, 1fr)',
-        gap: 16,
-        alignItems: 'stretch',
-      }}>
-        {order.map((k, i) => {
-          const W = window.WIDGETS[k];
-          if (!W) return null;
-          const Comp = W.render;
-          const isDragging = dragging === k;
-          const isOver = dragOver === k && dragging && dragging !== k;
-          return (
-            <div key={k}
-              draggable
-              onDragStart={() => handleDragStart(k)}
-              onDragOver={(e) => handleDragOver(e, k)}
-              onDrop={(e) => handleDrop(e, k)}
-              onDragEnd={handleDragEnd}
-              style={{
-                gridColumn: `span ${W.span}`,
-                position: 'relative',
-                opacity: isDragging ? 0.4 : 1,
-                transform: isOver ? 'scale(1.012)' : 'scale(1)',
-                transition: 'all 0.3s cubic-bezier(.22,1,.36,1)',
-                animation: `slideUp 0.5s cubic-bezier(.22,1,.36,1) ${i*0.06}s both`,
-              }}>
-              {/* Alça de arrastar (some na linha de KPIs) */}
-              {k !== 'kpis' && (
-                <div style={{
-                  position: 'absolute', top: 16, right: 16, zIndex: 3,
-                  width: 26, height: 26, borderRadius: 8,
-                  background: 'var(--bg-alt)',
-                  display: 'grid', placeItems: 'center',
-                  color: 'var(--ink-mute)',
-                  cursor: 'grab', opacity: 0.5,
-                  transition: 'opacity 0.2s',
-                }}
-                onMouseEnter={e => e.currentTarget.style.opacity = 1}
-                onMouseLeave={e => e.currentTarget.style.opacity = 0.5}
-                title="Arraste para reordenar">
-                  <Icon name="grip" size={13} stroke={1.6} />
+        {/* Grid principal: gráfico + a vencer */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.55fr 1fr', gap: 16, alignItems: 'stretch' }}>
+          {/* Card: Entradas e saídas */}
+          <window.Card padding={20} style={{ display: 'flex', flexDirection: 'column', minHeight: 340 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 18 }}>
+              <div>
+                <h2 style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>Entradas e saídas</h2>
+                <div style={{ font: 'var(--t-body-2)', color: 'var(--ink-3)', marginTop: 3 }}>
+                  {hovered
+                    ? <>{hovered.label} · entrou <b style={{ color: 'var(--c-pos)' }}>{window.fmt(hovered.in)}</b> · saiu <b style={{ color: 'var(--c-neg)' }}>{window.fmt(hovered.out)}</b></>
+                    : (seg === 'dia' ? 'Movimento por dia no período' : 'Movimento dos últimos meses')}
                 </div>
-              )}
-              {isOver && (
-                <div style={{
-                  position: 'absolute', inset: -5, zIndex: 5,
-                  borderRadius: 'calc(var(--r-lg) + 5px)',
-                  border: '2px dashed var(--ink-mute)',
-                  pointerEvents: 'none',
-                  animation: 'fadeIn 0.2s ease',
-                }} />
-              )}
-              <Comp data={data} />
+              </div>
+              <window.Segmented options={[{ value: 'dia', label: 'Dia' }, { value: 'mes', label: 'Mês' }]} value={seg} onChange={setSeg} />
             </div>
-          );
-        })}
+
+            {serie.length === 0 ? (
+              <div style={{ flex: 1, display: 'grid', placeItems: 'center' }}>
+                <window.EmptyState icon="chart" title="Sem movimento neste período" hint="Lance uma entrada ou saída para ver o gráfico." />
+              </div>
+            ) : (
+              <>
+                <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: `${Math.max(2, 40 / serie.length)}%`, minHeight: 200, paddingTop: 10 }}
+                  onMouseLeave={() => setHoverBar(null)}>
+                  {serie.map((s, i) => (
+                    <div key={i} onMouseEnter={() => setHoverBar(i)}
+                      style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, cursor: 'default', minWidth: 0 }}>
+                      <div style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 3 }}>
+                        <div title={`Entrou ${window.fmt(s.in)}`} style={{ width: '42%', maxWidth: 16, height: `${(s.in / maxVal) * 100}%`, minHeight: s.in > 0 ? 3 : 0, background: 'var(--chart-in)', borderRadius: '4px 4px 0 0', transition: 'height .3s ease', opacity: hoverBar == null || hoverBar === i ? 1 : .4 }} />
+                        <div title={`Saiu ${window.fmt(s.out)}`} style={{ width: '42%', maxWidth: 16, height: `${(s.out / maxVal) * 100}%`, minHeight: s.out > 0 ? 3 : 0, background: 'var(--chart-out)', borderRadius: '4px 4px 0 0', transition: 'height .3s ease', opacity: hoverBar == null || hoverBar === i ? 1 : .4 }} />
+                      </div>
+                      <div style={{ font: '500 9.5px var(--f-sans)', color: 'var(--ink-4)', whiteSpace: 'nowrap' }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 18, marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line-2)' }}>
+                  <Legend color="var(--chart-in)" label="Entradas" />
+                  <Legend color="var(--chart-out)" label="Saídas" />
+                </div>
+              </>
+            )}
+          </window.Card>
+
+          {/* Card: A vencer */}
+          <window.Card padding={20} style={{ display: 'flex', flexDirection: 'column', minHeight: 340 }}>
+            <h2 style={{ font: 'var(--t-h2)', color: 'var(--ink)', marginBottom: 16 }}>A vencer</h2>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {(data.pendentes || []).length === 0 ? (
+                <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: 'var(--ink-3)', font: '500 12.5px var(--f-sans)' }}>Tudo em dia ✨</div>
+              ) : (data.pendentes || []).map((c) => {
+                const dia = (c.vencimento || '').slice(8, 10);
+                const receber = c.tipo === 'receber';
+                return (
+                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '8px 0' }}>
+                    <div style={{ width: 30, height: 30, borderRadius: 'var(--r-lg)', flexShrink: 0, display: 'grid', placeItems: 'center', background: receber ? 'var(--c-pos-bg)' : 'var(--c-neg-bg)', color: receber ? 'var(--c-pos)' : 'var(--c-neg)', font: '600 12px var(--f-mono)' }}>{dia}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ font: '500 12.5px var(--f-sans)', color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.description}</div>
+                      <div style={{ font: '400 10.5px var(--f-sans)', color: 'var(--ink-3)' }}>{c.category}</div>
+                    </div>
+                    <window.Money value={c.previsto} size="table" style={{ color: 'var(--ink)' }} />
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line-2)', display: 'flex', justifyContent: 'space-between', font: '500 11.5px var(--f-sans)', color: 'var(--ink-3)' }}>
+              <span>A pagar/receber próximos</span>
+              <window.Money value={(data.pendentes || []).reduce((a, c) => a + (c.previsto || 0), 0)} size="table" style={{ color: 'var(--ink)' }} />
+            </div>
+          </window.Card>
+        </div>
+
+        {/* Faixa de KPIs */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, background: 'var(--line)', border: '1px solid var(--line)', borderRadius: 'var(--r-xl)', overflow: 'hidden' }}>
+          {[
+            { label: 'Saldo acumulado', value: data.saldoAcumulado },
+            { label: 'Entradas do período', value: data.totalIn },
+            { label: 'Saídas do período', value: data.totalOut },
+            { label: 'Resultado do mês', value: resultado, colorBySign: true },
+          ].map((k, i) => (
+            <div key={i} style={{ background: 'var(--surface)', padding: '13px 16px' }}>
+              <div style={{ font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--ink-3)', marginBottom: 6 }}>{k.label}</div>
+              <window.Money value={k.value} size="kpi" colorBySign={k.colorBySign} style={{ color: k.colorBySign ? undefined : 'var(--ink)' }} />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 };
 
-// Relatórios — exportação real em Excel
+const Legend = ({ color, label }) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+    <span style={{ width: 10, height: 10, borderRadius: 3, background: color }} />
+    <span style={{ font: '500 11px var(--f-sans)', color: 'var(--ink-2)' }}>{label}</span>
+  </div>
+);
+
 const RelatoriosPage = () => {
   const [mes, setMes] = React.useState(() => window.availableMonths?.().slice(-1)[0] || '');
   const [gerado, setGerado] = React.useState(null);
@@ -657,7 +693,7 @@ const TITULOS = {
   perfil: 'Meu perfil', config: 'Configurações', ajuda: 'Ajuda',
 };
 // Telas já migradas para a cara nova fornecem a própria faixa; as demais usam a padrão.
-const MIGRADAS = new Set([]); // será preenchida nos próximos blocos
+const MIGRADAS = new Set(['dashboard']); // será preenchida nos próximos blocos
 
 const AppShell = () => {
   const [theme, setTheme] = useState(() => localStorage.getItem('infinity-theme') || 'light');
