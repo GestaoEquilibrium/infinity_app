@@ -346,7 +346,20 @@ const Dashboard = ({ filter, setFilter }) => {
   const resultado = data.totalIn - data.totalOut;
 
   // série do gráfico conforme o segmento
-  const serie = seg === 'dia' ? (data.flowDaily || []) : (data.flow || []);
+  const hojeMes = new Date().toISOString().slice(0, 7); // YYYY-MM
+  // MÊS: monta do agregado completo (não do data.flow, que já vem cortado nos
+  // últimos 8 = meses futuros vazios). Pega meses ATÉ o mês atual, com movimento,
+  // e mantém os 8 mais recentes.
+  const serieMes = React.useMemo(() => {
+    const agg = window.monthlyAggregates?.() || [];
+    return agg
+      .filter(m => m.key <= hojeMes && ((m.contas?.real_in || 0) > 0 || (m.contas?.real_out || 0) > 0))
+      .slice(-8)
+      .map(m => ({ label: m.label, in: m.contas?.real_in || 0, out: m.contas?.real_out || 0 }));
+  }, [(window.CONTAS || []).length, hojeMes]);
+  // DIA: remove dias sem movimento
+  const serieDia = (data.flowDaily || []).filter(s => (s.in > 0 || s.out > 0));
+  const serie = seg === 'dia' ? serieDia : serieMes;
   const maxVal = Math.max(1, ...serie.map(s => Math.max(s.in, s.out)));
 
   const hovered = hoverBar != null ? serie[hoverBar] : null;
