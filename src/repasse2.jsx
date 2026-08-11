@@ -863,7 +863,7 @@ const RepassePage = () => {
 
         {sub === 'pagamentos' && <PagamentosTab companyId={companyId} userId={userId} colabs={colabs} D={D} />}
         {sub === 'regras' && <RegrasTab companyId={companyId} colabs={colabs} regras={regras} setRegras={setRegras} D={D} />}
-        {sub === 'tarifas' && <TarifasTab tarifas={tarifas} D={D} />}
+        {sub === 'tarifas' && <TarifasTab tarifas={tarifas} setTarifas={setTarifas} companyId={companyId} D={D} />}
       </div>
     </div>
   );
@@ -1060,29 +1060,110 @@ const ModalRegra = ({ regra, companyId, colabs, regras, onClose, onSaved }) => {
   );
 };
 
-const TarifasTab = ({ tarifas }) => {
+const TarifasTab = ({ tarifas, setTarifas, companyId }) => {
   const D = window.__repasseData;
+  const [editId, setEditId] = useStateRP(null);   // id da tarifa em edição de valor
+  const [novo, setNovo] = useStateRP(null);        // {convenio, tipo_servico, valor} ao adicionar
+  const [busy, setBusy] = useStateRP(false);
+
+  const recarregar = async () => { try { setTarifas(await D.fetchTarifas(companyId)); } catch (e) { console.warn(e); } };
+
+  const salvarValor = async (t, novoValor) => {
+    const v = Number(String(novoValor).replace(',', '.'));
+    if (isNaN(v) || v === Number(t.valor)) { setEditId(null); return; }
+    setBusy(true);
+    try { await D.updateTarifa(t.id, { valor: v }); await recarregar(); }
+    catch (e) { alert('Erro ao salvar: ' + e.message); }
+    finally { setBusy(false); setEditId(null); }
+  };
+
+  const salvarNovo = async () => {
+    if (!novo.convenio.trim() || !novo.valor) { alert('Preencha convênio e valor.'); return; }
+    setBusy(true);
+    try {
+      await D.createTarifa({
+        convenio: novo.convenio.trim(),
+        tipo_servico: novo.tipo_servico.trim() || 'CONSULTA',
+        valor: Number(String(novo.valor).replace(',', '.')),
+      }, companyId);
+      await recarregar(); setNovo(null);
+    } catch (e) { alert('Erro ao adicionar: ' + e.message); }
+    finally { setBusy(false); }
+  };
+
+  const excluir = async (t) => {
+    if (!confirm(`Excluir a tarifa "${t.convenio} · ${t.tipo_servico}"?`)) return;
+    setBusy(true);
+    try { await D.deleteTarifa(t.id); await recarregar(); }
+    catch (e) { alert('Erro ao excluir: ' + e.message); }
+    finally { setBusy(false); }
+  };
+
   return (
-    <window.TiltCard interactive={false} padding={0}>
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-        <h3 style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>Tarifas de convênio</h3>
-        <p style={{ fontSize: 12.5, color: 'var(--ink-mute)', marginTop: 4 }}>O que a clínica recebe por atendimento. {tarifas.length} cadastrada(s).</p>
+    <window.Card padding={0}>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h3 style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>Tarifas de convênio</h3>
+          <p style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', marginTop: 4 }}>O que a clínica recebe por atendimento. Clique no valor para editar. {tarifas.length} cadastrada(s).</p>
+        </div>
+        <window.Btn variant="primary" icon="plus" size="sm" onClick={() => setNovo({ convenio: '', tipo_servico: 'CONSULTA', valor: '' })}>Nova tarifa</window.Btn>
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-        <thead><tr style={{ color: 'var(--ink-mute)', textAlign: 'left' }}>
-          {['Convênio', 'Serviço', 'Valor'].map((h, i) => <th key={i} style={{ padding: '10px 20px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: i === 2 ? 'right' : 'left' }}>{h}</th>)}
-        </tr></thead>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid var(--line)' }}>
+            {['Convênio', 'Serviço', 'Valor', ''].map((h, i) => (
+              <th key={i} style={{ padding: '10px 20px', font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--ink-3)', textAlign: (i === 2 || i === 3) ? 'right' : 'left' }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
         <tbody>
+          {novo && (
+            <tr style={{ borderBottom: '1px solid var(--line-2)', background: 'var(--accent-soft)' }}>
+              <td style={{ padding: '8px 20px' }}>
+                <input autoFocus value={novo.convenio} onChange={e => setNovo({ ...novo, convenio: e.target.value })} placeholder="Ex: Unimed" style={{ ...window.inputStyle, height: 30, width: '100%' }} />
+              </td>
+              <td style={{ padding: '8px 20px' }}>
+                <input value={novo.tipo_servico} onChange={e => setNovo({ ...novo, tipo_servico: e.target.value })} placeholder="CONSULTA" style={{ ...window.inputStyle, height: 30, width: '100%' }} />
+              </td>
+              <td style={{ padding: '8px 20px', textAlign: 'right' }}>
+                <input value={novo.valor} onChange={e => setNovo({ ...novo, valor: e.target.value })} placeholder="0,00" style={{ ...window.inputStyle, height: 30, width: 90, textAlign: 'right' }} className="mono" />
+              </td>
+              <td style={{ padding: '8px 20px', textAlign: 'right' }}>
+                <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
+                  <window.Btn variant="primary" size="sm" onClick={salvarNovo} disabled={busy}>Salvar</window.Btn>
+                  <window.IconBtn name="x" size={28} onClick={() => setNovo(null)} />
+                </div>
+              </td>
+            </tr>
+          )}
           {tarifas.map(t => (
-            <tr key={t.id} style={{ borderTop: '1px solid var(--line)' }}>
-              <td style={{ padding: '10px 20px', fontWeight: 600 }}>{t.convenio}</td>
-              <td style={{ padding: '10px 20px', color: 'var(--ink-soft)' }}>{t.tipo_servico}</td>
-              <td style={{ padding: '10px 20px', textAlign: 'right' }} className="mono">{D.brlR(t.valor)}</td>
+            <tr key={t.id} style={{ borderBottom: '1px solid var(--line-2)' }}>
+              <td style={{ padding: '10px 20px', font: '600 12.5px var(--f-sans)', color: 'var(--ink)' }}>{t.convenio}</td>
+              <td style={{ padding: '10px 20px', font: '400 12px var(--f-sans)', color: 'var(--ink-2)' }}>{t.tipo_servico}</td>
+              <td style={{ padding: '10px 20px', textAlign: 'right' }}>
+                {editId === t.id ? (
+                  <input autoFocus defaultValue={t.valor}
+                    onBlur={e => salvarValor(t, e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') salvarValor(t, e.target.value); if (e.key === 'Escape') setEditId(null); }}
+                    style={{ ...window.inputStyle, height: 30, width: 90, textAlign: 'right' }} className="mono" />
+                ) : (
+                  <span onClick={() => setEditId(t.id)} className="mono" title="Clique para editar"
+                    style={{ font: '500 12.5px var(--f-mono)', color: 'var(--ink)', cursor: 'pointer', borderBottom: '1px dashed var(--ink-4)', paddingBottom: 1 }}>
+                    {D.brlR(t.valor)}
+                  </span>
+                )}
+              </td>
+              <td style={{ padding: '10px 20px', textAlign: 'right' }}>
+                <window.IconBtn name="trash" size={28} danger onClick={() => excluir(t)} title="Excluir" />
+              </td>
             </tr>
           ))}
+          {tarifas.length === 0 && !novo && (
+            <tr><td colSpan={4} style={{ padding: 30, textAlign: 'center', color: 'var(--ink-3)', font: '400 12.5px var(--f-sans)' }}>Nenhuma tarifa. Clique em "Nova tarifa" para começar.</td></tr>
+          )}
         </tbody>
       </table>
-    </window.TiltCard>
+    </window.Card>
   );
 };
 
