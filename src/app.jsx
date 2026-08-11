@@ -709,7 +709,7 @@ const TITULOS = {
   perfil: 'Meu perfil', config: 'Configurações', ajuda: 'Ajuda',
 };
 // Telas já migradas para a cara nova fornecem a própria faixa; as demais usam a padrão.
-const MIGRADAS = new Set(['dashboard', 'contas']); // será preenchida nos próximos blocos
+const MIGRADAS = new Set(['dashboard', 'contas', 'projecao']); // será preenchida nos próximos blocos
 
 const AppShell = () => {
   const [theme, setTheme] = useState(() => localStorage.getItem('infinity-theme') || 'light');
