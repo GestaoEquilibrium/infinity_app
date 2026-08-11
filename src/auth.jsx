@@ -40,12 +40,12 @@ const LoginScreen = ({ onSuccess }) => {
             display: 'grid', placeItems: 'center', color: 'var(--accent-ink)',
             boxShadow: '0 6px 20px oklch(0 0 0 / 0.28)',
           }}>
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <path d="M18.178 8c5.096 0 5.096 8 0 8-5.095 0-7.133-8-12.739-8-4.585 0-4.585 8 0 8 5.606 0 7.644-8 12.74-8z"/>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+              <path d="m24 23a1 1 0 0 1 -1 1h-22a1 1 0 0 1 0-2h22a1 1 0 0 1 1 1zm-23.709-14.448a2.443 2.443 0 0 1 .153-2.566 4.716 4.716 0 0 1 1.668-1.5l7.501-3.904a5.174 5.174 0 0 1 4.774 0l7.5 3.907a4.716 4.716 0 0 1 1.668 1.5 2.443 2.443 0 0 1 .153 2.566 2.713 2.713 0 0 1 -2.416 1.445h-.292v8h1a1 1 0 0 1 0 2h-20a1 1 0 0 1 0-2h1v-8h-.292a2.713 2.713 0 0 1 -2.417-1.448zm4.709 9.448h3v-8h-3zm5-8v8h4v-8zm9 0h-3v8h3zm-16.937-2.375a.717.717 0 0 0 .645.375h18.584a.717.717 0 0 0 .645-.375.452.452 0 0 0 -.024-.5 2.7 2.7 0 0 0 -.949-.864l-7.5-3.907a3.176 3.176 0 0 0 -2.926 0l-7.5 3.907a2.712 2.712 0 0 0 -.949.865.452.452 0 0 0 -.026.499z"/>
             </svg>
           </div>
           <div>
-            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.8, color: 'var(--ink)' }}>Infinity</div>
+            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.8, color: 'var(--ink)' }}>EqFinances</div>
             <div style={{ fontSize: 12, color: 'var(--ink-mute)', fontWeight: 500 }}>Gestão financeira clínica</div>
           </div>
         </div>
