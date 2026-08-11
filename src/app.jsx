@@ -593,101 +593,97 @@ const RelatoriosPage = () => {
   ];
 
   return (
-    <div className="anim-fade" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <PageHeader title="Relatórios" subtitle="Exporte em Excel com um clique" />
+    <div className="anim-fade">
+      {/* ── Faixa azul ── */}
+      <window.Band title="Relatórios" subtitle="Exporte em Excel com um clique" />
 
-      {/* Seletor de mês */}
-      <TiltCard interactive={false} padding={16}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <Icon name="calendar" size={17} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-soft)' }}>Mês de referência:</span>
-          <select value={mes} onChange={e => setMes(e.target.value)} style={{
-            background: 'var(--bg-alt)', border: '1px solid var(--line-strong)', borderRadius: 'var(--r-xs)',
-            padding: '7px 12px', fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: 'inherit', cursor: 'pointer',
-          }}>
-            {meses.map(m => <option key={m} value={m}>{window.monthLabel(m)}</option>)}
-          </select>
-          {gerado && <Pill color="var(--ink)" size="sm">✓ {gerado}.xlsx baixado</Pill>}
-        </div>
-      </TiltCard>
+      <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Seletor de mês */}
+        <window.Card padding={14}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <window.Icon name="calendar" size={16} style={{ color: 'var(--ink-3)' }} />
+            <span style={{ font: '600 12.5px var(--f-sans)', color: 'var(--ink-2)' }}>Mês de referência:</span>
+            <select value={mes} onChange={e => setMes(e.target.value)} style={{ ...window.inputStyle, width: 'auto', height: 34, cursor: 'pointer' }}>
+              {meses.map(m => <option key={m} value={m}>{window.monthLabel(m)}</option>)}
+            </select>
+            {gerado && <window.Pill status="pago">{gerado}.xlsx baixado</window.Pill>}
+          </div>
+        </window.Card>
 
-      {/* DRE VISUAL — as duas colunas lado a lado */}
-      {dreView && (() => {
-        const C = dreView.competencia, X = dreView.caixa;
-        const brl = v => window.fmt(v);
-        const Linha = ({ label, kc, ind = 0, forte = false, sub = false, pct }) => (
-          <tr style={{ borderTop: sub ? 'none' : '1px solid var(--line)', background: forte ? 'var(--bg-alt)' : 'transparent' }}>
-            <td style={{ padding: forte ? '9px 14px' : '6px 14px', paddingLeft: 14 + ind * 16, fontWeight: forte ? 700 : 400, fontSize: forte ? 13 : 12.5, color: sub ? 'var(--ink-mute)' : 'var(--ink)' }}>
-              {label}{pct != null && <span style={{ fontSize: 11, color: 'var(--ink-mute)', marginLeft: 6 }}>{pct >= 0 ? '' : ''}{pct.toFixed(1)}%</span>}
-            </td>
-            <td className="mono" style={{ padding: forte ? '9px 14px' : '6px 14px', textAlign: 'right', fontWeight: forte ? 700 : 400, fontSize: forte ? 13.5 : 12.5, color: C[kc] < 0 ? 'var(--c-neg)' : (forte ? 'var(--ink)' : 'var(--ink-soft)') }}>{brl(C[kc])}</td>
-            <td className="mono" style={{ padding: forte ? '9px 14px' : '6px 14px', textAlign: 'right', fontWeight: forte ? 700 : 400, fontSize: forte ? 13.5 : 12.5, color: X[kc] < 0 ? 'var(--c-neg)' : (forte ? 'var(--ink)' : 'var(--ink-soft)') }}>{brl(X[kc])}</td>
-          </tr>
-        );
-        return (
-          <TiltCard interactive={false} padding={0}>
-            <div style={{ padding: '16px 18px 10px' }}>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>DRE — {window.monthLabel(mes)}</div>
-              <div style={{ fontSize: 12, color: 'var(--ink-mute)', marginTop: 2 }}>
-                Demonstração do resultado, grupo consolidado. <b>Competência</b> = o que a clínica gerou no mês · <b>Caixa</b> = o que de fato entrou e saiu.
-              </div>
-            </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ fontSize: 10.5, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  <th style={{ textAlign: 'left', padding: '4px 14px' }}></th>
-                  <th style={{ textAlign: 'right', padding: '4px 14px' }}>Competência</th>
-                  <th style={{ textAlign: 'right', padding: '4px 14px' }}>Caixa</th>
-                </tr>
-              </thead>
-              <tbody>
-                <Linha label="RECEITA BRUTA" kc="receita_bruta" forte />
-                <Linha label="Convênios" kc="rec_conv" ind={1} sub />
-                <Linha label="Cartão + Particular" kc="rec_avulsa" ind={1} sub />
-                <Linha label="(−) Impostos pagos" kc="impostos" ind={1} sub />
-                <Linha label="= RECEITA LÍQUIDA" kc="receita_liq" forte />
-                <Linha label="(−) Repasses a profissionais" kc="repasses" ind={1} sub />
-                <Linha label="= MARGEM DE CONTRIBUIÇÃO" kc="margem_contrib" forte pct={C.mc_pct} />
-                <Linha label="(−) Folha / RH" kc="folha" ind={1} sub />
-                <Linha label="(−) Aluguel / ocupação" kc="ocupacao" ind={1} sub />
-                <Linha label="(−) Outras despesas" kc="outras" ind={1} sub />
-                <Linha label="= RESULTADO OPERACIONAL" kc="result_operacional" forte pct={C.op_pct} />
-                <Linha label="(−) Dívidas / financiamentos" kc="dividas" ind={1} sub />
-                <Linha label="= RESULTADO DO MÊS" kc="resultado" forte pct={C.margem_pct} />
-              </tbody>
-            </table>
-            <div style={{ padding: '12px 16px', display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 12 }}>
-              <div><span style={{ color: 'var(--ink-mute)' }}>Resultado competência: </span><b className="mono" style={{ color: C.resultado < 0 ? 'var(--c-neg)' : 'var(--c-pos)' }}>{brl(C.resultado)}</b></div>
-              <div><span style={{ color: 'var(--ink-mute)' }}>Resultado caixa: </span><b className="mono" style={{ color: X.resultado < 0 ? 'var(--c-neg)' : 'var(--c-pos)' }}>{brl(X.resultado)}</b></div>
-              {Math.abs(C.resultado - X.resultado) > 1000 && (
-                <div style={{ color: 'var(--ink-mute)' }}>
-                  A diferença de <b className="mono">{brl(Math.abs(C.resultado - X.resultado))}</b> é o descasamento: o convênio recebe com defasagem.
+        {/* DRE visual */}
+        {dreView && (() => {
+          const C = dreView.competencia, X = dreView.caixa;
+          const brl = v => window.fmt(v);
+          const Linha = ({ label, kc, ind = 0, forte = false, sub = false, pct }) => (
+            <tr style={{ borderTop: sub ? 'none' : '1px solid var(--line-2)', background: forte ? 'var(--surface-2)' : 'transparent' }}>
+              <td style={{ padding: forte ? '9px 16px' : '6px 16px', paddingLeft: 16 + ind * 16, font: `${forte ? 700 : 400} ${forte ? 12.5 : 12}px var(--f-sans)`, color: sub ? 'var(--ink-3)' : 'var(--ink)' }}>
+                {label}{pct != null && <span style={{ font: '400 10.5px var(--f-sans)', color: 'var(--ink-3)', marginLeft: 6 }}>{pct.toFixed(1)}%</span>}
+              </td>
+              <td className="mono" style={{ padding: forte ? '9px 16px' : '6px 16px', textAlign: 'right', font: `${forte ? 600 : 400} ${forte ? 12.5 : 12}px var(--f-mono)`, color: C[kc] < 0 ? 'var(--c-neg)' : (forte ? 'var(--ink)' : 'var(--ink-2)') }}>{brl(C[kc])}</td>
+              <td className="mono" style={{ padding: forte ? '9px 16px' : '6px 16px', textAlign: 'right', font: `${forte ? 600 : 400} ${forte ? 12.5 : 12}px var(--f-mono)`, color: X[kc] < 0 ? 'var(--c-neg)' : (forte ? 'var(--ink)' : 'var(--ink-2)') }}>{brl(X[kc])}</td>
+            </tr>
+          );
+          return (
+            <window.Card padding={0} style={{ overflow: 'hidden' }}>
+              <div style={{ padding: '16px 18px 12px' }}>
+                <h2 style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>DRE — {window.monthLabel(mes)}</h2>
+                <div style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)', marginTop: 3 }}>
+                  Demonstração do resultado, grupo consolidado. <b>Competência</b> = o que a clínica gerou no mês · <b>Caixa</b> = o que de fato entrou e saiu.
                 </div>
-              )}
-            </div>
-          </TiltCard>
-        );
-      })()}
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ font: 'var(--t-label)', color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)' }}>
+                    <th style={{ textAlign: 'left', padding: '6px 16px' }}></th>
+                    <th style={{ textAlign: 'right', padding: '6px 16px' }}>Competência</th>
+                    <th style={{ textAlign: 'right', padding: '6px 16px' }}>Caixa</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <Linha label="RECEITA BRUTA" kc="receita_bruta" forte />
+                  <Linha label="Convênios" kc="rec_conv" ind={1} sub />
+                  <Linha label="Cartão + Particular" kc="rec_avulsa" ind={1} sub />
+                  <Linha label="(−) Impostos pagos" kc="impostos" ind={1} sub />
+                  <Linha label="= RECEITA LÍQUIDA" kc="receita_liq" forte />
+                  <Linha label="(−) Repasses a profissionais" kc="repasses" ind={1} sub />
+                  <Linha label="= MARGEM DE CONTRIBUIÇÃO" kc="margem_contrib" forte pct={C.mc_pct} />
+                  <Linha label="(−) Folha / RH" kc="folha" ind={1} sub />
+                  <Linha label="(−) Aluguel / ocupação" kc="ocupacao" ind={1} sub />
+                  <Linha label="(−) Outras despesas" kc="outras" ind={1} sub />
+                  <Linha label="= RESULTADO OPERACIONAL" kc="result_operacional" forte pct={C.op_pct} />
+                  <Linha label="(−) Dívidas / financiamentos" kc="dividas" ind={1} sub />
+                  <Linha label="= RESULTADO DO MÊS" kc="resultado" forte pct={C.margem_pct} />
+                </tbody>
+              </table>
+              <div style={{ padding: '12px 16px', display: 'flex', gap: 20, flexWrap: 'wrap', font: '400 11.5px var(--f-sans)' }}>
+                <div><span style={{ color: 'var(--ink-3)' }}>Resultado competência: </span><b className="mono" style={{ color: C.resultado < 0 ? 'var(--c-neg)' : 'var(--c-pos)' }}>{brl(C.resultado)}</b></div>
+                <div><span style={{ color: 'var(--ink-3)' }}>Resultado caixa: </span><b className="mono" style={{ color: X.resultado < 0 ? 'var(--c-neg)' : 'var(--c-pos)' }}>{brl(X.resultado)}</b></div>
+                {Math.abs(C.resultado - X.resultado) > 1000 && (
+                  <div style={{ color: 'var(--ink-3)' }}>
+                    A diferença de <b className="mono">{brl(Math.abs(C.resultado - X.resultado))}</b> é o descasamento: o convênio recebe com defasagem.
+                  </div>
+                )}
+              </div>
+            </window.Card>
+          );
+        })()}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 16 }}>
-        {tiles.map((t, i) => (
-          <TiltCard key={i} padding={24} onClick={t.fn} style={{ cursor: 'pointer', animation: `slideUp 0.5s ease ${i*0.06}s both` }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: 'var(--r-sm)',
-              background: 'var(--accent)', color: 'var(--accent-ink)',
-              display: 'grid', placeItems: 'center', marginBottom: 16,
-              boxShadow: '0 6px 16px oklch(0 0 0 / 0.2)',
-            }}>
-              <Icon name={t.icon} size={20} stroke={2} />
-            </div>
-            <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink)', letterSpacing: -0.2 }}>{t.title}</h3>
-            <p style={{ fontSize: 12.5, color: 'var(--ink-mute)', marginTop: 6, lineHeight: 1.5 }}>{t.desc}</p>
-            {t.precisaMes && <p style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 4 }}>Mês: {window.monthLabel?.(mes)}</p>}
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 14, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
-              Baixar Excel <Icon name="arrow_right" size={14} stroke={2.4} />
-            </div>
-          </TiltCard>
-        ))}
+        {/* Tiles de exportação */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}>
+          {tiles.map((t, i) => (
+            <window.Card key={i} padding={20} onClick={t.fn} style={{ cursor: 'pointer', animation: `slideUp 0.5s ease ${i*0.06}s both` }}>
+              <div style={{ width: 42, height: 42, borderRadius: 'var(--r-lg)', background: 'var(--accent-soft)', color: 'var(--accent)', display: 'grid', placeItems: 'center', marginBottom: 14 }}>
+                <window.Icon name={t.icon} size={19} stroke={2} />
+              </div>
+              <h3 style={{ font: '600 14px var(--f-sans)', color: 'var(--ink)' }}>{t.title}</h3>
+              <p style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)', marginTop: 5, lineHeight: 1.5 }}>{t.desc}</p>
+              {t.precisaMes && <p style={{ font: '400 10.5px var(--f-sans)', color: 'var(--ink-4)', marginTop: 4 }}>Mês: {window.monthLabel?.(mes)}</p>}
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12, font: '600 12px var(--f-sans)', color: 'var(--accent)' }}>
+                Baixar Excel <window.Icon name="arrow_right" size={13} stroke={2.4} />
+              </div>
+            </window.Card>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -709,7 +705,7 @@ const TITULOS = {
   perfil: 'Meu perfil', config: 'Configurações', ajuda: 'Ajuda',
 };
 // Telas já migradas para a cara nova fornecem a própria faixa; as demais usam a padrão.
-const MIGRADAS = new Set(['dashboard', 'contas', 'projecao', 'impostos', 'repasse', 'compras']); // será preenchida nos próximos blocos
+const MIGRADAS = new Set(['dashboard', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'relatorios']); // será preenchida nos próximos blocos
 
 const AppShell = () => {
   const [theme, setTheme] = useState(() => localStorage.getItem('infinity-theme') || 'light');
