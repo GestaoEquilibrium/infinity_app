@@ -76,6 +76,7 @@ const SIDE_GROUPS = [
   ]},
   { titulo: 'Gestão', mod: 'financeiro', itens: [
     { k: 'relatorios', label: 'Relatórios', icon: 'chart' },
+    { k: 'conciliacao', label: 'Conciliação', icon: 'check' },
     { k: 'agenda', label: 'Agenda', icon: 'calendar' },
   ]},
   { titulo: 'Recursos Humanos', mod: 'rh', itens: [
@@ -830,11 +831,11 @@ const AppInner = () => {
 const TITULOS = {
   dashboard: 'Dashboard', caixa: 'Caixa', contas: 'Contas', projecao: 'Projeção',
   impostos: 'Impostos', repasse: 'Repasse', compras: 'Compras', agenda: 'Agenda',
-  relatorios: 'Relatórios', rh: 'Folha / RH', provisoes: 'Provisões', equipe: 'Equipe',
+  relatorios: 'Relatórios', rh: 'Folha / RH', provisoes: 'Provisões', equipe: 'Equipe', conciliacao: 'Conciliação',
   perfil: 'Meu perfil', config: 'Configurações', ajuda: 'Ajuda',
 };
 // Telas já migradas para a cara nova fornecem a própria faixa; as demais usam a padrão.
-const MIGRADAS = new Set(['dashboard', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'relatorios']); // será preenchida nos próximos blocos
+const MIGRADAS = new Set(['dashboard', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'relatorios', 'conciliacao']); // será preenchida nos próximos blocos
 
 const AppShell = () => {
   const [theme, setTheme] = useState(() => localStorage.getItem('infinity-theme') || 'light');
@@ -860,6 +861,7 @@ const AppShell = () => {
     compras: <ComprasPage filter={filter} setFilter={setFilter} />,
     agenda: <AgendaPage filter={filter} setFilter={setFilter} />,
     relatorios: <RelatoriosPage />,
+    conciliacao: <window.ConciliacaoPage />,
     rh: <window.RHPage />,
     provisoes: <window.FolhaProvisoes />,
     equipe: <EquipePage />,
