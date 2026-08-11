@@ -110,7 +110,7 @@ const Sidebar = ({ page, setPage, modulo, setModulo }) => {
       <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '0 8px 8px', marginBottom: 14 }}>
         <window.Logo size={36} />
         <div>
-          <div style={{ font: '700 16px var(--f-display)', letterSpacing: '-.02em', color: 'var(--ink)' }}>Eq Finance</div>
+          <div style={{ font: '700 16px var(--f-display)', letterSpacing: '-.02em', color: 'var(--ink)' }}>EqFinances</div>
           <div style={{ font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--ink-3)' }}>Grupo Equilibrium</div>
         </div>
       </div>
@@ -301,7 +301,7 @@ const Hub = ({ onPick }) => {
       <div style={{ width: '100%', maxWidth: 600 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'center', marginBottom: 6 }}>
           <window.Logo size={40} />
-          <div style={{ font: '700 22px var(--f-display)', letterSpacing: '-.02em', color: 'var(--ink)' }}>Eq Finance</div>
+          <div style={{ font: '700 22px var(--f-display)', letterSpacing: '-.02em', color: 'var(--ink)' }}>EqFinances</div>
         </div>
         <div style={{ textAlign: 'center', marginBottom: 26 }}>
           <div style={{ font: '600 18px var(--f-display)', color: 'var(--ink)' }}>Olá, {nome}</div>
