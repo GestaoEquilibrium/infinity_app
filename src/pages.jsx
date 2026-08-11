@@ -1933,7 +1933,7 @@ const ComprasPage = ({ filter, setFilter }) => {
   const [editing, setEditing] = React.useState(null);
   const [filterType, setFilterType] = React.useState('all');
   const [q, setQ] = React.useState('');
-  const [, tick] = React.useReducer(x => x + 1, 0); // re-render após import/edit
+  const [, tick] = React.useReducer(x => x + 1, 0);
   React.useEffect(() => {
     const h = () => tick();
     window.addEventListener('sb-data-hydrated', h);
@@ -1953,95 +1953,99 @@ const ComprasPage = ({ filter, setFilter }) => {
   const saldo = total_in - total_out;
 
   return (
-    <div className="anim-fade" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <PageHeader title="Compras"
+    <div className="anim-fade">
+      {/* ── Faixa azul ── */}
+      <window.Band
+        title="Compras"
         subtitle="Lançamentos efetivos do caixa — o que entrou e saiu de verdade"
-        action={
-          <div style={{ display: 'flex', gap: 10 }}>
+        right={
+          <>
             <ExcelImporter onImport={() => tick()} />
-            <Btn variant="primary" icon="plus" onClick={() => setEditing({type:'saida', amount:0})}>Nova compra</Btn>
+            <window.Btn variant="primary" icon="plus" onBand onClick={() => setEditing({ type: 'saida', amount: 0 })}>Nova compra</window.Btn>
+          </>
+        }
+        metricLabel="Saídas"
+        metric={total_out}
+        stats={[
+          { label: 'Entradas', value: total_in, color: 'var(--on-accent-pos)' },
+          { label: 'Saldo do período', value: saldo, color: saldo >= 0 ? 'var(--on-accent-pos)' : 'var(--on-accent-neg)' },
+          { label: 'Saldo anterior', value: saldo_ant, color: 'var(--on-accent)' },
+        ]}
+      />
+
+      <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <window.FilterBar filter={filter} setFilter={setFilter} />
+
+        {/* Busca + filtro tipo */}
+        <window.Card padding={12}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 220, height: 34, background: 'var(--field)', border: '1px solid var(--line-strong)', borderRadius: 'var(--r-lg)', padding: '0 12px' }}>
+              <window.Icon name="search" size={15} style={{ color: 'var(--ink-3)' }} />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por descrição ou categoria…"
+                style={{ background: 'none', border: 'none', outline: 'none', flex: 1, font: '400 12.5px var(--f-sans)', color: 'var(--ink)' }} />
+            </div>
+            <window.Segmented
+              options={[{ value: 'all', label: 'Todas' }, { value: 'entrada', label: 'Entradas' }, { value: 'saida', label: 'Saídas' }]}
+              value={filterType} onChange={setFilterType} />
           </div>
-        } />
+        </window.Card>
 
-      <FilterBar filter={filter} setFilter={setFilter} />
-
-      {/* KPI row — saldo anterior + entradas + saídas + saldo */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 16 }}>
-        <KPI label="Saldo anterior" value={saldo_ant} color="var(--ink-soft)" icon="arrow_right" subtle />
-        <KPI label="Entradas" value={total_in} color="var(--c-pos)" icon="arrow_down" />
-        <KPI label="Saídas" value={total_out} color="var(--c-neg)" icon="arrow_up" />
-        <KPI label="Saldo do período" value={saldo} color={saldo >= 0 ? 'var(--c-pos)' : 'var(--c-neg)'} icon="wallet" emphasis />
-      </div>
-
-      <TiltCard interactive={false} padding={20}>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 240,
-            background: 'var(--bg-alt)', border: '1.5px solid var(--line)', borderRadius: 999, padding: '10px 18px',
-          }}>
-            <Icon name="search" size={16} />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por descrição ou categoria..."
-              style={{ background: 'none', border: 'none', outline: 'none', flex: 1, fontSize: 14, color: 'var(--ink)', fontFamily: 'inherit' }} />
-          </div>
-          <div style={{ display: 'flex', gap: 6, background: 'var(--bg-alt)', padding: 4, borderRadius: 999, border: '1px solid var(--line)' }}>
-            {[{k:'all', l:'Todas'}, {k:'entrada', l:'Entradas'}, {k:'saida', l:'Saídas'}].map(t => (
-              <button key={t.k} onClick={() => setFilterType(t.k)} style={tabBtnStyle(filterType === t.k)}>{t.l}</button>
-            ))}
-          </div>
-        </div>
-      </TiltCard>
-
-      <TiltCard interactive={false} padding={0} style={{ overflow: 'hidden' }}>
-        <div style={{ maxHeight: '54vh', overflowY: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead style={{ position: 'sticky', top: 0, background: 'var(--surface-solid)', zIndex: 5 }}>
-              <tr style={{ borderBottom: '1px solid var(--line)' }}>
-                {['Data', 'Descrição', 'Categoria', 'Método', 'Valor', ''].map((h, i) => (
-                  <th key={i + h} style={{
-                    textAlign: i === 4 ? 'right' : (i === 5 ? 'right' : 'left'),
-                    padding: '14px 22px', fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
-                    color: 'var(--ink-mute)', textTransform: 'uppercase',
-                  }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((t, i) => (
-                <tr key={t.id} style={{
-                  borderBottom: '1px solid var(--line)',
-                  animation: `fadeIn 0.3s ease ${Math.min(i * 0.02, 0.6)}s both`,
-                }}>
-                  <td style={{ padding: '14px 22px', fontSize: 13, color: 'var(--ink-soft)' }} className="mono">{window.fmtDate(t.date)}</td>
-                  <td style={{ padding: '14px 22px', fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 32, height: 32, borderRadius: 10, background: `color-mix(in oklch, ${t.color} 18%, transparent)`, color: t.color, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                        <Icon name={t.type === 'entrada' ? 'arrow_down' : 'arrow_up'} size={14} stroke={2.4} />
-                      </div>
-                      {t.description}
-                    </div>
-                  </td>
-                  <td style={{ padding: '14px 22px' }}><Pill color={t.color}>{t.category}</Pill></td>
-                  <td style={{ padding: '14px 22px', fontSize: 12, color: 'var(--ink-mute)' }}>{t.paymentMethod}</td>
-                  <td style={{ padding: '14px 22px', textAlign: 'right' }} className="mono">
-                    <span style={{ fontSize: 14, fontWeight: 700, color: t.type === 'entrada' ? 'var(--c-pos)' : 'var(--c-neg)' }}>
-                      {t.type === 'entrada' ? '+' : '−'} {window.fmt(t.amount)}
-                    </span>
-                  </td>
-                  <td style={{ padding: '14px 14px' }}>
-                    <RowActions
-                      onEdit={() => setEditing(t)}
-                      onDelete={() => { if (confirm(`Excluir "${t.description}"?`)) window.deleteCompraLocal(t.id); }}
-                    />
-                  </td>
+        {/* Tabela */}
+        <window.Card padding={0} style={{ overflow: 'hidden' }}>
+          <div style={{ maxHeight: '58vh', overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 5 }}>
+                <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                  {['Data', 'Descrição', 'Categoria', 'Método', 'Valor', ''].map((h, i) => (
+                    <th key={i + h} style={{
+                      textAlign: (i === 4 || i === 5) ? 'right' : 'left',
+                      padding: '10px 20px', font: 'var(--t-label)', letterSpacing: 'var(--tracking-label)',
+                      color: 'var(--ink-3)', textTransform: 'uppercase',
+                    }}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          {filtered.length === 0 && (
-            <div style={{ padding: 60, textAlign: 'center', color: 'var(--ink-mute)' }}>Nenhuma compra encontrada para o filtro.</div>
-          )}
-        </div>
-      </TiltCard>
+              </thead>
+              <tbody>
+                {filtered.map((t, i) => {
+                  const receber = t.type === 'entrada';
+                  const catCor = window.catColor ? window.catColor(t.category, receber ? 'entrada' : 'saida') : (t.color || 'var(--cat-8)');
+                  return (
+                    <tr key={t.id} style={{ borderBottom: '1px solid var(--line-2)', animation: `fadeIn 0.3s ease ${Math.min(i * 0.02, 0.6)}s both` }}>
+                      <td style={{ padding: '10px 20px', font: '400 12px var(--f-mono)', color: 'var(--ink-2)' }}>{window.fmtDate(t.date)}</td>
+                      <td style={{ padding: '10px 20px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ width: 30, height: 30, borderRadius: 'var(--r-lg)', background: receber ? 'var(--c-pos-bg)' : 'var(--c-neg-bg)', color: receber ? 'var(--c-pos)' : 'var(--c-neg)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                            <window.Icon name={receber ? 'arrow_down' : 'arrow_up'} size={14} stroke={2.4} />
+                          </div>
+                          <span style={{ font: '500 12.5px var(--f-sans)', color: 'var(--ink)' }}>{t.description}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '10px 20px' }}><window.CatPill cat={catCor}>{t.category}</window.CatPill></td>
+                      <td style={{ padding: '10px 20px', font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)' }}>{t.paymentMethod}</td>
+                      <td style={{ padding: '10px 20px', textAlign: 'right' }}>
+                        <span className="mono" style={{ font: '600 12.5px var(--f-mono)', color: receber ? 'var(--c-pos)' : 'var(--c-neg)' }}>
+                          {receber ? '+' : '−'} {window.fmt(t.amount)}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                        <RowActions
+                          onEdit={() => setEditing(t)}
+                          onDelete={() => { if (confirm(`Excluir "${t.description}"?`)) window.deleteCompraLocal(t.id); }}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {filtered.length === 0 && (
+              <div style={{ padding: 50 }}>
+                <window.EmptyState icon="tag" title="Nenhuma compra encontrada" hint="Ajuste os filtros ou lance uma nova compra." />
+              </div>
+            )}
+          </div>
+        </window.Card>
+      </div>
       {editing && <EditModal kind="compra" record={editing} onClose={() => setEditing(null)} onSaved={() => tick()} />}
     </div>
   );
