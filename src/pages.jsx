@@ -1288,8 +1288,9 @@ const ProjecaoPage = () => {
   const { profile } = window.useAuth();
   const [producao, setProducao] = React.useState(null);
   const [bancos, setBancos] = React.useState(null);
-  const [cenario, setCenario] = React.useState(1);   // 1 = base; 0.9 = queda 10%; 1.1 = alta 10%
-  const [hover, setHover] = React.useState(null);    // ponto do gráfico sob o mouse
+  const [cenario, setCenario] = React.useState(1);
+  const [hover, setHover] = React.useState(null);
+  const [prodOpen, setProdOpen] = React.useState(false);
   const [, tick] = React.useReducer(x => x + 1, 0);
   React.useEffect(() => {
     const h = () => tick(); window.addEventListener('sb-data-hydrated', h);
@@ -1308,10 +1309,14 @@ const ProjecaoPage = () => {
   }, [producao, saldoHoje, cenario]);
 
   if (!producao || !proj) {
-    return (<div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-mute)' }}>Carregando projeção…</div>);
+    return (
+      <>
+        <window.Band title="Projeção de Caixa" />
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-3)', font: '500 13px var(--f-sans)' }}>Carregando projeção…</div>
+      </>
+    );
   }
 
-  // pontos do gráfico (saldo por dia)
   const pts = proj.dias.map((d, i) => ({ i, x: i, y: d.saldo, data: d.data }));
   const ys = pts.map(p => p.y); const ymax = Math.max(...ys, 0); const ymin = Math.min(...ys, 0);
   const W = 900, H = 240, pad = 8;
@@ -1320,199 +1325,169 @@ const ProjecaoPage = () => {
   const zeroY = sy(0);
   const path = pts.map((p, i) => `${i ? 'L' : 'M'}${sx(p.i).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ');
 
-  // eventos grandes para listar
   const eventos = proj.dias.flatMap(d => d.eventos.filter(e => e.valor >= 1000).map(e => ({ ...e, data: d.data })));
   const menorSaldo = proj.dias.reduce((min, d) => d.saldo < min.saldo ? d : min, proj.dias[0]);
-
+  const fecha = proj.dias[proj.dias.length - 1].saldo;
   const fmtD = iso => iso.split('-').reverse().slice(0, 2).join('/');
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <PageHeader title="Projeção de Caixa" subtitle={`Quanto vai entrar e sair até ${proj.ultimoRecebimento ? proj.ultimoRecebimento.split('-').reverse().slice(0,2).join('/') : ''} — com base na produção que já aconteceu`} />
+    <div>
+      {/* ── Faixa azul ── */}
+      <window.Band
+        title="Projeção de Caixa"
+        subtitle={`Até ${proj.ultimoRecebimento ? fmtD(proj.ultimoRecebimento) : ''} — com base na produção que já aconteceu`}
+        metricLabel="Dinheiro hoje"
+        metric={saldoHoje}
+        stats={[
+          { label: 'Menor saldo previsto', value: menorSaldo.saldo, color: menorSaldo.saldo < 0 ? 'var(--on-accent-neg)' : 'var(--on-accent)' },
+          { label: 'Fecha o período em', value: fecha, color: fecha < 0 ? 'var(--on-accent-neg)' : 'var(--on-accent-pos)' },
+          { label: 'Alerta', value: proj.alerta ? `Neg. ${fmtD(proj.alerta.data)}` : 'Tudo certo', color: proj.alerta ? 'var(--on-accent-neg)' : 'var(--on-accent-pos)' },
+        ]}
+      />
 
-      {/* explicação resumida */}
-      <div style={{ display: 'flex', gap: 12, padding: '13px 18px', borderRadius: 'var(--r-md)', background: 'var(--bg-alt)', border: '1px solid var(--line)', alignItems: 'flex-start' }}>
-        <span style={{ fontSize: 18, lineHeight: 1 }}>💡</span>
-        <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', lineHeight: 1.55 }}>
-          Como funciona: no convênio, o atendimento vira dinheiro dois meses depois — então o que a clínica atendeu em <b>junho</b> a gente <b>já sabe</b> que vai receber (Unimed no fim do mês seguinte, NDI no dia 15). A projeção soma esses recebimentos certos, desconta as saídas fixas de sempre (folha, repasse, aluguel, impostos) e mostra o saldo dia a dia. Use os <b>cenários</b> para ver o que acontece se a produção cair — é onde aparece se algum mês não fecha.
-        </div>
-      </div>
-
-      {/* faixa de destaque */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
-        <div style={{ padding: '18px 22px', borderRadius: 'var(--r-lg)', background: 'var(--surface)', border: '1px solid var(--line)' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Dinheiro hoje</div>
-          <div className="mono" style={{ fontSize: 26, fontWeight: 700, color: saldoHoje < 20000 ? '#b8860b' : 'var(--c-pos)', marginTop: 4 }}>{window.fmt(saldoHoje)}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>somando as 5 contas</div>
-        </div>
-        <div style={{ padding: '18px 22px', borderRadius: 'var(--r-lg)', background: 'var(--surface)', border: '1px solid var(--line)' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Menor saldo previsto</div>
-          <div className="mono" style={{ fontSize: 26, fontWeight: 700, color: menorSaldo.saldo < 0 ? 'var(--c-neg)' : menorSaldo.saldo < 20000 ? '#b8860b' : 'var(--c-pos)', marginTop: 4 }}>{window.fmt(menorSaldo.saldo)}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>em {fmtD(menorSaldo.data)}</div>
-        </div>
-        <div style={{ padding: '18px 22px', borderRadius: 'var(--r-lg)', background: proj.alerta ? 'color-mix(in oklch, var(--c-neg) 10%, transparent)' : 'var(--surface)', border: `1.5px solid ${proj.alerta ? 'var(--c-neg)' : 'var(--line)'}` }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Alerta</div>
-          {proj.alerta
-            ? <><div className="mono" style={{ fontSize: 20, fontWeight: 700, color: 'var(--c-neg)', marginTop: 4 }}>{fmtD(proj.alerta.data)}</div><div style={{ fontSize: 11.5, color: 'var(--c-neg)' }}>saldo fica negativo</div></>
-            : <><div style={{ fontSize: 20, fontWeight: 700, color: 'var(--c-pos)', marginTop: 4 }}>Tudo certo</div><div style={{ fontSize: 11.5, color: 'var(--ink-mute)' }}>caixa não fica negativo</div></>}
-        </div>
-      </div>
-
-      {/* cenários — os cards SÃO os botões (clicáveis) */}
-      <div>
-        <div style={{ fontSize: 12.5, color: 'var(--ink-mute)', fontWeight: 600, marginBottom: 8 }}>
-          Cenário — e quanto sobra ao fim do período em cada um:
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
-          {[{ v: 1.1, l: 'Otimista', s: '+10%' }, { v: 1, l: 'Base', s: 'real' }, { v: 0.9, l: 'Cauteloso', s: '−10%' }, { v: 0.8, l: 'Pessimista', s: '−20%' }].map(c => {
-            const pc = window.projetarCaixa({ producao, saldoInicial: saldoHoje, horizonteDias: 75, fatorProducao: c.v });
-            const fecha = pc.dias[pc.dias.length - 1].saldo;
-            const on = cenario === c.v;
-            return (
-              <div key={c.v} onClick={() => setCenario(c.v)} style={{
-                padding: '12px 15px', borderRadius: 'var(--r-md)', cursor: 'pointer', transition: 'all .12s',
-                background: on ? 'var(--c-primary)' : 'var(--bg-alt)',
-                border: `1.5px solid ${on ? 'var(--c-primary)' : 'var(--line)'}`,
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: on ? 'rgba(255,255,255,.9)' : 'var(--ink)' }}>
-                  {c.l} <span style={{ fontWeight: 400, opacity: .7 }}>{c.s}</span>
-                </div>
-                <div className="mono" style={{ fontSize: 17, fontWeight: 700, marginTop: 3,
-                  color: on ? '#fff' : (fecha < 0 ? 'var(--c-neg)' : 'var(--c-pos)') }}>{window.fmt(fecha)}</div>
-                {pc.alerta
-                  ? <div style={{ fontSize: 10.5, marginTop: 1, color: on ? 'rgba(255,255,255,.85)' : 'var(--c-neg)' }}>⚠ negativo em {pc.alerta.data.split('-').reverse().slice(0, 2).join('/')}</div>
-                  : <div style={{ fontSize: 10.5, marginTop: 1, color: on ? 'rgba(255,255,255,.7)' : 'var(--ink-mute)' }}>caixa não fica negativo</div>}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* gráfico */}
-      <TiltCard interactive={false} padding={18}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>Saldo projetado — próximos {proj.horizonteReal} dias</div>
-          <div style={{ fontSize: 12.5 }}>
-            <span style={{ color: 'var(--ink-mute)' }}>fecha em </span>
-            <b className="mono" style={{ color: proj.dias[proj.dias.length - 1].saldo < 0 ? 'var(--c-neg)' : 'var(--c-pos)' }}>{window.fmt(proj.dias[proj.dias.length - 1].saldo)}</b>
+      <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Explicação */}
+        <div style={{ display: 'flex', gap: 11, padding: '13px 16px', borderRadius: 'var(--r-lg)', background: 'var(--accent-soft)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', alignItems: 'flex-start' }}>
+          <window.Icon name="sparkles" size={17} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 1 }} />
+          <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-2)', lineHeight: 1.55 }}>
+            No convênio, o atendimento vira dinheiro dois meses depois — então o que a clínica atendeu em <b>junho</b> a gente <b>já sabe</b> que vai receber. A projeção soma esses recebimentos certos, desconta as saídas fixas (folha, repasse, aluguel, impostos) e mostra o saldo dia a dia. Use os <b>cenários</b> para ver o que acontece se a produção cair.
           </div>
         </div>
-        <div style={{ position: 'relative' }}>
-        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}
-          onMouseLeave={() => setHover(null)}>
-          <line x1={pad} y1={zeroY} x2={W - pad} y2={zeroY} stroke="var(--c-neg)" strokeWidth="1" strokeDasharray="4 4" opacity="0.5" />
-          <path d={`${path} L${sx(pts.length - 1)},${zeroY} L${sx(0)},${zeroY} Z`} fill="var(--c-primary)" opacity="0.08" />
-          <path d={path} fill="none" stroke="var(--c-primary)" strokeWidth="2" />
-          {/* pontos de evento: bolinha discreta, sem número poluindo */}
-          {proj.dias.map((d, i) => {
-            const grande = d.eventos.filter(e => e.valor >= 5000);
-            if (!grande.length) return null;
-            const cor = grande.some(e => e.tipo === 'entrada') ? 'var(--c-pos)' : 'var(--c-neg)';
-            return <circle key={'ev' + i} cx={sx(i)} cy={sy(d.saldo)} r="3.5" fill={cor} />;
-          })}
-          {/* linha-guia + ponto do hover */}
-          {hover != null && (
-            <g>
-              <line x1={sx(hover)} y1={pad} x2={sx(hover)} y2={H - pad} stroke="var(--ink-mute)" strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
-              <circle cx={sx(hover)} cy={sy(proj.dias[hover].saldo)} r="5" fill="var(--c-primary)" stroke="#fff" strokeWidth="2" />
-            </g>
-          )}
-          {/* faixas invisíveis para capturar o mouse por dia */}
-          {proj.dias.map((d, i) => (
-            <rect key={'hit' + i} x={sx(i) - (W / proj.dias.length) / 2} y={0}
-              width={W / proj.dias.length} height={H} fill="transparent"
-              onMouseEnter={() => setHover(i)} style={{ cursor: 'crosshair' }} />
-          ))}
-        </svg>
-        {/* tooltip */}
-        {hover != null && (() => {
-          const d = proj.dias[hover];
-          const leftPct = (sx(hover) / W) * 100;
-          const alinhaDir = leftPct > 65;
-          return (
-            <div style={{
-              position: 'absolute', top: 6, left: `${Math.min(Math.max(leftPct, 12), 88)}%`,
-              transform: alinhaDir ? 'translateX(-100%)' : 'translateX(-50%)',
-              background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-md)',
-              padding: '8px 12px', pointerEvents: 'none', boxShadow: '0 4px 14px rgba(0,0,0,.12)', whiteSpace: 'nowrap', zIndex: 5,
-            }}>
-              <div style={{ fontSize: 11, color: 'var(--ink-mute)', fontWeight: 600 }}>{d.data.split('-').reverse().join('/')}</div>
-              <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: d.saldo < 0 ? 'var(--c-neg)' : 'var(--ink)' }}>{window.fmt(d.saldo)}</div>
-              {d.eventos.filter(e => e.valor >= 1000).map((e, j) => (
-                <div key={j} style={{ fontSize: 11, marginTop: 2, color: e.tipo === 'entrada' ? 'var(--c-pos)' : 'var(--c-neg)' }}>
-                  {e.tipo === 'entrada' ? '+' : '−'}{window.fmt(e.valor)} · {e.descricao.replace(' (estimado)', '').replace(' — produção', ' de').slice(0, 28)}
-                </div>
+
+        {/* Cenários */}
+        <div>
+          <div style={{ font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--ink-3)', marginBottom: 8 }}>
+            Cenário — quanto sobra ao fim do período
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+            {[{ v: 1.1, l: 'Otimista', s: '+10%' }, { v: 1, l: 'Base', s: 'real' }, { v: 0.9, l: 'Cauteloso', s: '−10%' }, { v: 0.8, l: 'Pessimista', s: '−20%' }].map(c => {
+              const pc = window.projetarCaixa({ producao, saldoInicial: saldoHoje, horizonteDias: 75, fatorProducao: c.v });
+              const f = pc.dias[pc.dias.length - 1].saldo;
+              const on = cenario === c.v;
+              return (
+                <window.Card key={c.v} padding={14} onClick={() => setCenario(c.v)} style={{
+                  cursor: 'pointer',
+                  background: on ? 'var(--accent)' : 'var(--surface)',
+                  border: on ? '1px solid var(--accent)' : '1px solid var(--line)',
+                  boxShadow: on ? 'var(--sh-accent)' : 'var(--sh-1)',
+                }}>
+                  <div style={{ font: '600 12px var(--f-sans)', color: on ? 'rgba(255,255,255,.9)' : 'var(--ink)' }}>
+                    {c.l} <span style={{ fontWeight: 400, opacity: .7 }}>{c.s}</span>
+                  </div>
+                  <div className="mono" style={{ font: '600 17px var(--f-mono)', marginTop: 3, color: on ? '#fff' : (f < 0 ? 'var(--c-neg)' : 'var(--c-pos)') }}>{window.fmt(f)}</div>
+                  <div style={{ font: '400 10px var(--f-sans)', marginTop: 2, color: on ? 'rgba(255,255,255,.8)' : (pc.alerta ? 'var(--c-neg)' : 'var(--ink-3)') }}>
+                    {pc.alerta ? `negativo em ${fmtD(pc.alerta.data)}` : 'não fica negativo'}
+                  </div>
+                </window.Card>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Gráfico */}
+        <window.Card padding={18}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+            <h2 style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>Saldo projetado — próximos {proj.horizonteReal} dias</h2>
+            <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)' }}>fecha em <b className="mono" style={{ color: fecha < 0 ? 'var(--c-neg)' : 'var(--c-pos)' }}>{window.fmt(fecha)}</b></div>
+          </div>
+          <div style={{ position: 'relative' }}>
+            <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }} onMouseLeave={() => setHover(null)}>
+              <line x1={pad} y1={zeroY} x2={W - pad} y2={zeroY} stroke="var(--c-neg)" strokeWidth="1" strokeDasharray="4 4" opacity="0.5" />
+              <path d={`${path} L${sx(pts.length - 1)},${zeroY} L${sx(0)},${zeroY} Z`} fill="var(--accent)" opacity="0.08" />
+              <path d={path} fill="none" stroke="var(--accent)" strokeWidth="2" />
+              {proj.dias.map((d, i) => {
+                const grande = d.eventos.filter(e => e.valor >= 5000);
+                if (!grande.length) return null;
+                const cor = grande.some(e => e.tipo === 'entrada') ? 'var(--c-pos)' : 'var(--c-neg)';
+                return <circle key={'ev' + i} cx={sx(i)} cy={sy(d.saldo)} r="3.5" fill={cor} />;
+              })}
+              {hover != null && (
+                <g>
+                  <line x1={sx(hover)} y1={pad} x2={sx(hover)} y2={H - pad} stroke="var(--ink-3)" strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
+                  <circle cx={sx(hover)} cy={sy(proj.dias[hover].saldo)} r="5" fill="var(--accent)" stroke="#fff" strokeWidth="2" />
+                </g>
+              )}
+              {proj.dias.map((d, i) => (
+                <rect key={'hit' + i} x={sx(i) - (W / proj.dias.length) / 2} y={0} width={W / proj.dias.length} height={H} fill="transparent"
+                  onMouseEnter={() => setHover(i)} style={{ cursor: 'crosshair' }} />
               ))}
-            </div>
-          );
-        })()}
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--ink-mute)', marginTop: 4 }}>
-          <span>hoje</span><span>+{Math.round(proj.horizonteReal/3)}d</span><span>+{Math.round(proj.horizonteReal*2/3)}d</span><span>+{proj.horizonteReal}d</span>
-        </div>
-      </TiltCard>
+            </svg>
+            {hover != null && (() => {
+              const d = proj.dias[hover];
+              const leftPct = (sx(hover) / W) * 100;
+              const alinhaDir = leftPct > 65;
+              return (
+                <div style={{ position: 'absolute', top: 6, left: `${Math.min(Math.max(leftPct, 12), 88)}%`, transform: alinhaDir ? 'translateX(-100%)' : 'translateX(-50%)', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-md)', padding: '8px 12px', pointerEvents: 'none', boxShadow: 'var(--sh-2)', whiteSpace: 'nowrap', zIndex: 5 }}>
+                  <div style={{ font: '600 11px var(--f-sans)', color: 'var(--ink-3)' }}>{d.data.split('-').reverse().join('/')}</div>
+                  <div className="mono" style={{ font: '600 15px var(--f-mono)', color: d.saldo < 0 ? 'var(--c-neg)' : 'var(--ink)' }}>{window.fmt(d.saldo)}</div>
+                  {d.eventos.filter(e => e.valor >= 1000).map((e, j) => (
+                    <div key={j} style={{ font: '400 11px var(--f-sans)', marginTop: 2, color: e.tipo === 'entrada' ? 'var(--c-pos)' : 'var(--c-neg)' }}>
+                      {e.tipo === 'entrada' ? '+' : '−'}{window.fmt(e.valor)} · {e.descricao.replace(' (estimado)', '').replace(' — produção', ' de').slice(0, 28)}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', font: '400 10px var(--f-sans)', color: 'var(--ink-4)', marginTop: 4 }}>
+            <span>hoje</span><span>+{Math.round(proj.horizonteReal / 3)}d</span><span>+{Math.round(proj.horizonteReal * 2 / 3)}d</span><span>+{proj.horizonteReal}d</span>
+          </div>
+        </window.Card>
 
-      {/* linha do tempo de eventos */}
-      <TiltCard interactive={false} padding={0}>
-        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', fontWeight: 700, fontSize: 13 }}>
-          Próximos eventos de caixa
-        </div>
-        <div style={{ maxHeight: '40vh', overflowY: 'auto' }}>
-          {eventos.length === 0 && <div style={{ padding: 20, color: 'var(--ink-mute)', fontSize: 13 }}>Nada relevante nos próximos 75 dias.</div>}
-          {eventos.map((e, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 18px', borderTop: i ? '1px solid var(--line)' : 'none' }}>
-              <div style={{ width: 52, fontSize: 12, fontWeight: 700, color: 'var(--ink-mute)' }}>{fmtD(e.data)}</div>
-              <div style={{ width: 8, height: 8, borderRadius: 999, background: e.tipo === 'entrada' ? 'var(--c-pos)' : 'var(--c-neg)' }} />
-              <div style={{ flex: 1, fontSize: 13 }}>{e.descricao}<span style={{ fontSize: 11, color: 'var(--ink-mute)', marginLeft: 6 }}>{e.origem === 'projecao' ? '· projetado' : ''}</span></div>
-              <div className="mono" style={{ fontWeight: 700, color: e.tipo === 'entrada' ? 'var(--c-pos)' : 'var(--c-neg)' }}>
-                {e.tipo === 'entrada' ? '+' : '−'}{window.fmt(e.valor)}
+        {/* Timeline de eventos */}
+        <window.Card padding={0}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', font: 'var(--t-h2)', color: 'var(--ink)' }}>Próximos eventos de caixa</div>
+          <div style={{ maxHeight: '40vh', overflowY: 'auto' }}>
+            {eventos.length === 0 && <div style={{ padding: 20, color: 'var(--ink-3)', font: '400 12.5px var(--f-sans)' }}>Nada relevante nos próximos 75 dias.</div>}
+            {eventos.map((e, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 18px', borderTop: i ? '1px solid var(--line-2)' : 'none' }}>
+                <div style={{ width: 48, font: '600 11.5px var(--f-mono)', color: 'var(--ink-3)' }}>{fmtD(e.data)}</div>
+                <div style={{ width: 8, height: 8, borderRadius: 999, background: e.tipo === 'entrada' ? 'var(--c-pos)' : 'var(--c-neg)', flexShrink: 0 }} />
+                <div style={{ flex: 1, font: '500 12.5px var(--f-sans)', color: 'var(--ink)' }}>{e.descricao}{e.origem === 'projecao' && <span style={{ font: '400 10.5px var(--f-sans)', color: 'var(--ink-3)', marginLeft: 6 }}>· projetado</span>}</div>
+                <window.Money value={e.valor} size="table" signed={false} style={{ color: e.tipo === 'entrada' ? 'var(--c-pos)' : 'var(--c-neg)', fontWeight: 600 }} />
+              </div>
+            ))}
+          </div>
+        </window.Card>
+
+        {/* Produção (colapsável) */}
+        <window.Card padding={0}>
+          <button onClick={() => setProdOpen(o => !o)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '14px 18px', cursor: 'pointer', background: 'none', border: 'none' }}>
+            <window.Icon name="file" size={16} style={{ color: 'var(--ink-3)' }} />
+            <span style={{ font: '600 13px var(--f-sans)', color: 'var(--ink)' }}>Produção guardada — ver e ajustar</span>
+            <span style={{ font: '400 11px var(--f-sans)', color: 'var(--ink-3)' }}>(base dos recebimentos projetados)</span>
+            <window.Icon name="chevron_down" size={16} style={{ marginLeft: 'auto', color: 'var(--ink-3)', transform: prodOpen ? 'rotate(180deg)' : 'none', transition: 'transform var(--dur) var(--ease)' }} />
+          </button>
+          {prodOpen && (
+            <div style={{ padding: '0 18px 16px', borderTop: '1px solid var(--line)' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 4 }}>
+                <thead>
+                  <tr style={{ font: 'var(--t-label)', color: 'var(--ink-3)', textAlign: 'left', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)' }}>
+                    <th style={{ padding: '8px 8px' }}>Mês</th>
+                    <th style={{ padding: '8px 8px' }}>Convênio</th>
+                    <th style={{ padding: '8px 8px', textAlign: 'right' }}>Atendimentos</th>
+                    <th style={{ padding: '8px 8px', textAlign: 'right' }}>R$/atend</th>
+                    <th style={{ padding: '8px 8px', textAlign: 'right' }}>Recebimento</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...producao].sort((a, b) => (a.competencia + a.convenio).localeCompare(b.competencia + b.convenio)).map(p => (
+                    <ProducaoRow key={p.id || p.competencia + p.convenio} p={p} companyId={profile?.company_id} />
+                  ))}
+                  {producao.length === 0 && <tr><td colSpan={6} style={{ padding: 14, color: 'var(--ink-3)', font: '400 12px var(--f-sans)' }}>Nenhuma produção guardada. Importe um relatório no módulo Repasse.</td></tr>}
+                </tbody>
+              </table>
+              <div style={{ font: '400 10.5px var(--f-sans)', color: 'var(--ink-3)', marginTop: 8 }}>
+                A produção é guardada sozinha quando você importa o relatório no Repasse. Edite um número aqui só se um mês veio incompleto.
               </div>
             </div>
-          ))}
+          )}
+        </window.Card>
+
+        <div style={{ font: '400 10.5px var(--f-sans)', color: 'var(--ink-3)', lineHeight: 1.5 }}>
+          <b>A projeção vai até {proj.ultimoRecebimento ? fmtD(proj.ultimoRecebimento) : ''}</b> porque é até onde há produção importada dos dois lados. Importe o relatório do mês seguinte para estender o horizonte. Ela usa a produção de convênio que já aconteceu, as contas já lançadas com vencimento futuro, e uma média diária de cartão/particular.
         </div>
-      </TiltCard>
-
-      {/* painel de produção — ver e ajustar */}
-      <TiltCard interactive={false} padding={0}>
-        <details>
-          <summary style={{ padding: '14px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', listStyle: 'none' }}>
-            📋 Produção guardada — ver e ajustar
-            <span style={{ fontSize: 11.5, fontWeight: 400, color: 'var(--ink-mute)', marginLeft: 8 }}>
-              (é a base dos recebimentos projetados; corrija aqui se algum mês veio errado)
-            </span>
-          </summary>
-          <div style={{ padding: '0 18px 16px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-              <thead>
-                <tr style={{ color: 'var(--ink-mute)', textAlign: 'left', fontSize: 11 }}>
-                  <th style={{ padding: '6px 8px' }}>MÊS</th>
-                  <th style={{ padding: '6px 8px' }}>CONVÊNIO</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>ATENDIMENTOS</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>R$/ATEND</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>RECEBIMENTO</th>
-                  <th style={{ padding: '6px 8px' }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...producao].sort((a, b) => (a.competencia + a.convenio).localeCompare(b.competencia + b.convenio)).map(p => (
-                  <ProducaoRow key={p.id || p.competencia + p.convenio} p={p} companyId={profile?.company_id} />
-                ))}
-                {producao.length === 0 && <tr><td colSpan={6} style={{ padding: 14, color: 'var(--ink-mute)' }}>Nenhuma produção guardada ainda. Importe um relatório no módulo Repasse.</td></tr>}
-              </tbody>
-            </table>
-            <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 8 }}>
-              A produção é guardada sozinha quando você importa o relatório no Repasse. Edite um número aqui só se um mês veio incompleto (ex: maio, por causa da migração de sistema).
-            </div>
-          </div>
-        </details>
-      </TiltCard>
-
-      <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', lineHeight: 1.5 }}>
-        <b>A projeção vai até {proj.ultimoRecebimento ? proj.ultimoRecebimento.split('-').reverse().slice(0,2).join('/') : ''}</b> porque é até onde há produção importada dos dois lados.
-        Importe o relatório do mês seguinte para estender o horizonte.<br/><br/>
-        Ela usa a <b>produção de convênio que já aconteceu</b> (Unimed recebe no fim do mês seguinte, NDI no dia 15 do mês seguinte a esse),
-        as <b>contas já lançadas</b> com vencimento futuro, e uma média diária de cartão/particular. Conforme os relatórios de produção forem
-        importados, o horizonte se estende sozinho.
       </div>
     </div>
   );
