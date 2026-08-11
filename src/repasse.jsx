@@ -250,107 +250,120 @@ const CaixaPage = () => {
 
   const totalDia = lancamentos.reduce((s, l) => s + Number(l.valor || 0), 0);
   const nomeColab = (l) => l.profissional_nome || colabs.find(c => c.id === l.colaborador_id)?.nome || '—';
-
-  const inp = { width: '100%', padding: '11px 13px', border: '1px solid var(--line)', borderRadius: 'var(--r-md)', fontSize: 14, fontFamily: 'inherit', boxSizing: 'border-box', background: 'var(--bg-alt)', color: 'var(--ink)' };
-  const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, display: 'block' };
+  const dataFmt = data.split('-').reverse().join('/');
 
   return (
-    <div className="anim-fade" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <window.PageHeader title="Caixa — Particular" subtitle="Lançamento dos atendimentos particulares do dia"
-        action={<input type="date" value={data} onChange={e => setData(e.target.value)} style={{ ...inp, width: 'auto' }} />} />
+    <div className="anim-fade">
+      {/* ── Faixa azul ── */}
+      <window.Band
+        title="Caixa — Particular"
+        subtitle="Lançamento dos atendimentos particulares do dia"
+        right={<input type="date" value={data} onChange={e => setData(e.target.value)}
+          style={{ height: 38, padding: '0 12px', borderRadius: 'var(--r-lg)', border: '1px solid rgba(255,255,255,.3)', background: 'rgba(255,255,255,.12)', color: '#fff', font: '500 13px var(--f-sans)', cursor: 'pointer' }} />}
+        metricLabel="Total recebido no dia"
+        metric={totalDia}
+        stats={[
+          { label: 'Atendimentos', value: String(lancamentos.length), color: 'var(--on-accent)' },
+          { label: 'Data', value: dataFmt, color: 'var(--on-accent)' },
+        ]}
+      />
 
-      {/* Formulário */}
-      <window.TiltCard interactive={false} padding={24}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1.4fr 1fr', gap: 16, marginBottom: 16 }}>
-          <div>
-            <label style={lbl}>Profissional *</label>
-            <select value={form.colaborador_id} onChange={e => set('colaborador_id', e.target.value)} style={inp}>
-              <option value="">— SELECIONE —</option>
-              {colabs.map(c => <option key={c.id} value={c.id}>{(c.nome || '').toUpperCase()}{c.cargo ? ' · ' + c.cargo.toUpperCase() : ''}</option>)}
-            </select>
+      <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Formulário */}
+        <window.Card padding={20}>
+          <h3 style={{ font: 'var(--t-h2)', color: 'var(--ink)', marginBottom: 16 }}>Novo lançamento</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1.4fr 1fr', gap: 14, marginBottom: 14 }}>
+            <window.Field label="Profissional *">
+              <select value={form.colaborador_id} onChange={e => set('colaborador_id', e.target.value)} style={window.inputStyle}>
+                <option value="">— Selecione —</option>
+                {colabs.map(c => <option key={c.id} value={c.id}>{(c.nome || '').toUpperCase()}{c.cargo ? ' · ' + c.cargo.toUpperCase() : ''}</option>)}
+              </select>
+            </window.Field>
+            <window.Field label="Paciente *">
+              <input value={form.paciente} onChange={e => set('paciente', e.target.value.toUpperCase())} placeholder="Nome do paciente" style={{ ...window.inputStyle, textTransform: 'uppercase' }} />
+            </window.Field>
+            <window.Field label="Tipo de serviço">
+              <select value={form.tipo_servico} onChange={e => set('tipo_servico', e.target.value)} style={window.inputStyle}>
+                {TIPOS_SERVICO_R.map(t => <option key={t}>{t}</option>)}
+              </select>
+            </window.Field>
           </div>
-          <div>
-            <label style={lbl}>Paciente *</label>
-            <input value={form.paciente} onChange={e => set('paciente', e.target.value.toUpperCase())} placeholder="NOME DO PACIENTE" style={{ ...inp, textTransform: 'uppercase' }} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr 1.4fr', gap: 14 }}>
+            <window.Field label="Valor recebido *">
+              <input value={form.valor} onChange={e => set('valor', e.target.value)} placeholder="0,00" inputMode="decimal" style={window.inputStyle} />
+            </window.Field>
+            <window.Field label="Forma de pagamento">
+              <select value={form.forma_pagamento} onChange={e => set('forma_pagamento', e.target.value)} style={window.inputStyle}>
+                {FORMAS_R.map(f => <option key={f}>{f}</option>)}
+              </select>
+            </window.Field>
+            <window.Field label="CPF para NF (opcional)">
+              <input value={form.cpf_nf} onChange={e => set('cpf_nf', e.target.value)} placeholder="000.000.000-00" style={window.inputStyle} />
+            </window.Field>
           </div>
-          <div>
-            <label style={lbl}>Tipo de serviço</label>
-            <select value={form.tipo_servico} onChange={e => set('tipo_servico', e.target.value)} style={inp}>
-              {TIPOS_SERVICO_R.map(t => <option key={t}>{t}</option>)}
-            </select>
+          <div style={{ marginTop: 14 }}>
+            <window.Field label="Observação (opcional)">
+              <input value={form.observacao} onChange={e => set('observacao', e.target.value)} placeholder="Ex.: pacote fechado, valor combinado..." style={window.inputStyle} />
+            </window.Field>
           </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr 1.4fr', gap: 16, alignItems: 'end' }}>
-          <div>
-            <label style={lbl}>Valor recebido *</label>
-            <input value={form.valor} onChange={e => set('valor', e.target.value)} placeholder="0,00" inputMode="decimal" style={inp} />
+          <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', gap: 16 }}>
+            <window.Btn variant="primary" icon="plus" onClick={adicionar} disabled={salvando}>
+              {salvando ? 'Salvando...' : 'Adicionar lançamento'}
+            </window.Btn>
+            {erro && <span style={{ color: 'var(--c-neg)', font: '600 12.5px var(--f-sans)' }}>{erro}</span>}
           </div>
-          <div>
-            <label style={lbl}>Forma de pagamento</label>
-            <select value={form.forma_pagamento} onChange={e => set('forma_pagamento', e.target.value)} style={inp}>
-              {FORMAS_R.map(f => <option key={f}>{f}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={lbl}>CPF para NF (opcional)</label>
-            <input value={form.cpf_nf} onChange={e => set('cpf_nf', e.target.value)} placeholder="000.000.000-00" style={inp} />
-          </div>
-        </div>
-        <div style={{ marginTop: 16 }}>
-          <label style={lbl}>Observação (opcional)</label>
-          <input value={form.observacao} onChange={e => set('observacao', e.target.value)} placeholder="Ex.: pacote fechado, valor combinado..." style={inp} />
-        </div>
-        <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <window.Btn variant="primary" icon="plus" onClick={adicionar} disabled={salvando}>
-            {salvando ? 'Salvando...' : 'Adicionar lançamento'}
-          </window.Btn>
-          {erro && <span style={{ color: 'var(--c-danger)', fontSize: 13.5, fontWeight: 600 }}>{erro}</span>}
-        </div>
-      </window.TiltCard>
+        </window.Card>
 
-      {/* Lançamentos do dia */}
-      <window.TiltCard interactive={false} padding={0}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 22px', borderBottom: '1px solid var(--line)' }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600 }}>Lançamentos de {data.split('-').reverse().join('/')}</h3>
-          <div style={{ fontSize: 14, color: 'var(--ink-mute)' }}>
-            {lancamentos.length} lançamento{lancamentos.length !== 1 ? 's' : ''} · total <b className="mono" style={{ color: 'var(--ink)' }}>{brlR(totalDia)}</b>
+        {/* Lançamentos do dia */}
+        <window.Card padding={0} style={{ overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+            <h3 style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>Lançamentos de {dataFmt}</h3>
+            <div style={{ font: '400 12.5px var(--f-sans)', color: 'var(--ink-3)' }}>
+              {lancamentos.length} lançamento{lancamentos.length !== 1 ? 's' : ''} · total <b className="mono" style={{ color: 'var(--ink)' }}>{brlR(totalDia)}</b>
+            </div>
           </div>
-        </div>
-        {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-mute)' }}>Carregando...</div>
-        ) : lancamentos.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-mute)', fontSize: 14 }}>Nenhum particular lançado neste dia ainda.</div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
-            <thead>
-              <tr style={{ color: 'var(--ink-mute)', textAlign: 'left' }}>
-                {['Paciente', 'Profissional', 'Serviço', 'Forma', 'Valor', ''].map((h, i) => (
-                  <th key={i} style={{ padding: '10px 22px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: i === 4 ? 'right' : 'left', fontWeight: 700 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {lancamentos.map(l => (
-                <tr key={l.id} style={{ borderTop: '1px solid var(--line)' }}>
-                  <td style={{ padding: '11px 22px', fontWeight: 600 }}>{l.paciente}</td>
-                  <td style={{ padding: '11px 22px' }}>{nomeColab(l)}</td>
-                  <td style={{ padding: '11px 22px', color: 'var(--ink-soft)' }}>{l.tipo_servico}</td>
-                  <td style={{ padding: '11px 22px', color: 'var(--ink-soft)' }}>{l.forma_pagamento}</td>
-                  <td style={{ padding: '11px 22px', textAlign: 'right', fontWeight: 700 }} className="mono">{brlR(l.valor)}</td>
-                  <td style={{ padding: '11px 22px', textAlign: 'center' }}>
-                    <button onClick={() => remover(l.id)} title="Remover" style={{ background: 'none', border: 'none', color: 'var(--c-danger)', cursor: 'pointer', fontSize: 18 }}>×</button>
-                  </td>
-                </tr>
-              ))}
-              <tr style={{ borderTop: '2px solid var(--line)', fontWeight: 700 }}>
-                <td colSpan={4} style={{ padding: '12px 22px' }}>TOTAL DO DIA</td>
-                <td style={{ padding: '12px 22px', textAlign: 'right' }} className="mono">{brlR(totalDia)}</td>
-                <td></td>
-              </tr>
-            </tbody>
-          </table>
-        )}
-      </window.TiltCard>
+          {loading ? (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-3)', font: '500 13px var(--f-sans)' }}>Carregando...</div>
+          ) : lancamentos.length === 0 ? (
+            <div style={{ padding: 40 }}>
+              <window.EmptyState icon="wallet" title="Nenhum particular lançado" hint="Adicione o primeiro atendimento particular do dia acima." />
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                    {['Paciente', 'Profissional', 'Serviço', 'Forma', 'Valor', ''].map((h, i) => (
+                      <th key={i} style={{ padding: '10px 20px', font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--ink-3)', textAlign: i === 4 ? 'right' : 'left' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {lancamentos.map(l => (
+                    <tr key={l.id} style={{ borderBottom: '1px solid var(--line-2)' }}>
+                      <td style={{ padding: '11px 20px', font: '600 12.5px var(--f-sans)', color: 'var(--ink)' }}>{l.paciente}</td>
+                      <td style={{ padding: '11px 20px', font: '400 12.5px var(--f-sans)', color: 'var(--ink-2)' }}>{nomeColab(l)}</td>
+                      <td style={{ padding: '11px 20px', font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)' }}>{l.tipo_servico}</td>
+                      <td style={{ padding: '11px 20px' }}><window.Pill status="pago">{l.forma_pagamento}</window.Pill></td>
+                      <td style={{ padding: '11px 20px', textAlign: 'right', font: '600 12.5px var(--f-mono)', color: 'var(--c-pos)' }} className="mono">{brlR(l.valor)}</td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right' }}>
+                        <window.IconBtn name="trash" size={28} danger onClick={() => remover(l.id)} title="Remover" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: '2px solid var(--line-strong)' }}>
+                    <td colSpan={4} style={{ padding: '12px 20px', font: '700 12.5px var(--f-sans)', color: 'var(--ink)' }}>Total do dia</td>
+                    <td style={{ padding: '12px 20px', textAlign: 'right', font: '700 13px var(--f-mono)', color: 'var(--c-pos)' }} className="mono">{brlR(totalDia)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </window.Card>
+      </div>
     </div>
   );
 };
