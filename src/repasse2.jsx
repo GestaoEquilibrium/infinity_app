@@ -128,16 +128,13 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
       repasse += rep;
     }
 
-    // particular vindo do caixa (somado por profissional)
+    // Particular NÃO entra neste demonstrativo — é pago ao profissional por outra via.
+    // Mantido cx apenas para exibir a contagem (particular_n), sem somar em receita/repasse.
     const cx = colab ? (caixaByColab[colab.id] || { n: 0, total: 0 }) : { n: 0, total: 0 };
-    let repassePart = 0;
-    if (cx.total > 0) {
-      if (regra.tipo === 'fixo') repassePart = cx.n * Number(regra.valor_particular || regra.valor_fixo || 0);
-      else repassePart = cx.total * (1 - IMPOSTO_RP) * Number(regra.pct_particular || 0);
-    }
+    const repassePart = 0;
 
     const isFixoMensal = !!regra.fixo_mensal;
-    const receitaTotal0 = receita + cx.total;
+    const receitaTotal0 = receita; // só convênio (particular fora)
     // dia só é descontado se ela faltou o dia INTEIRO (ausente e sem nenhum atendimento realizado)
     const diasAusentesReais = Object.values(diaInfo).filter(d => d.ausente && !d.realizado).length;
     let receitaTotal = receitaTotal0;
