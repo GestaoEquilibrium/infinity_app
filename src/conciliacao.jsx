@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════════
 const { useState: useStateCC, useEffect: useEffectCC, useMemo: useMemoCC } = React;
 
-const ConciliacaoPage = () => {
+const ConciliacaoPage = ({ embedded = false, onExport } = {}) => {
   const { profile } = window.useAuth();
   const companyId = window.ACTIVE_COMPANY_ID || profile?.company_id;
   const [rows, setRows] = useStateCC(null);
@@ -64,6 +64,39 @@ const ConciliacaoPage = () => {
   const brl = (v) => window.fmt(Number(v) || 0);
   const fmtD = (d) => d ? d.split('-').reverse().slice(0, 2).join('/') : '—';
 
+  // ── Exportar para Excel (para a contabilidade) ──
+  const exportarExcel = React.useCallback(() => {
+    if (!window.XLSX) { alert('Biblioteca XLSX não carregada.'); return; }
+    const wb = window.XLSX.utils.book_new();
+    const money = (v) => +(Number(v) || 0).toFixed(2);
+
+    const abaNaoBanco = soBanco.map(r => ({
+      Data: r.date, Descrição: r.description || '', Origem: r.category || '',
+      Tipo: r.type === 'entrada' ? 'Entrada' : 'Saída', Valor: money(r.actual_value ?? r.value),
+      Situação: 'Não classificada / sem correspondência no sistema',
+    }));
+    const abaConciliadas = conciliados.map(c => ({
+      Data: c.banco.date, 'Descrição (banco)': c.banco.description || '',
+      'Descrição (sistema)': c.sistema.description || '', Categoria: c.sistema.category || '',
+      Tipo: c.banco.type === 'entrada' ? 'Entrada' : 'Saída', Valor: money(c.banco.actual_value ?? c.banco.value),
+      Situação: 'Conciliada',
+    }));
+    const abaSoSistema = soSistema.map(r => ({
+      Data: r.date, Descrição: r.description || '', Categoria: r.category || '', Conta: r.conta || '',
+      Tipo: r.type === 'entrada' ? 'Entrada' : 'Saída', Valor: money(r.actual_value ?? r.value),
+      Situação: 'Lançada no sistema, sem correspondência no banco',
+    }));
+
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(abaNaoBanco.length ? abaNaoBanco : [{ Aviso: 'Nada a classificar' }]), 'Nao classificadas');
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(abaConciliadas.length ? abaConciliadas : [{ Aviso: 'Nada conciliado' }]), 'Conciliadas');
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(abaSoSistema.length ? abaSoSistema : [{ Aviso: 'Sem divergencias' }]), 'So no sistema');
+    const sufixo = mes ? '_' + mes : '';
+    window.XLSX.writeFile(wb, 'Conciliacao_Bancaria' + sufixo + '.xlsx');
+  }, [soBanco, conciliados, soSistema, mes]);
+
+  // expõe o export pro pai (RelatoriosPage) quando embutido
+  React.useEffect(() => { if (onExport) onExport(() => exportarExcel); }, [exportarExcel, onExport]);
+
   const totalBanco = soBanco.reduce((s, r) => s + Number(r.actual_value ?? r.value ?? 0) * (r.type === 'saida' ? -1 : 1), 0);
   const totalConc = conciliados.length;
 
@@ -94,19 +127,21 @@ const ConciliacaoPage = () => {
 
   return (
     <div className="anim-fade">
-      <window.Band
-        title="Conciliação bancária"
-        subtitle="Cruza o que os bancos (MP/Inter) trouxeram com o que foi lançado no sistema"
-        metricLabel="Transações a classificar"
-        metric={String(soBanco.length)}
-        stats={[
-          { label: 'Conciliadas', value: String(conciliados.length), color: 'var(--on-accent-pos)' },
-          { label: 'Só no sistema', value: String(soSistema.length), color: soSistema.length ? 'var(--on-accent-neg)' : 'var(--on-accent)' },
-          { label: 'Movimento a classificar', value: brl(Math.abs(totalBanco)), color: 'var(--on-accent)' },
-        ]}
-      />
+      {!embedded && (
+        <window.Band
+          title="Conciliação bancária"
+          subtitle="Cruza o que os bancos (MP/Inter) trouxeram com o que foi lançado no sistema"
+          metricLabel="Transações a classificar"
+          metric={String(soBanco.length)}
+          stats={[
+            { label: 'Conciliadas', value: String(conciliados.length), color: 'var(--on-accent-pos)' },
+            { label: 'Só no sistema', value: String(soSistema.length), color: soSistema.length ? 'var(--on-accent-neg)' : 'var(--on-accent)' },
+            { label: 'Movimento a classificar', value: brl(Math.abs(totalBanco)), color: 'var(--on-accent)' },
+          ]}
+        />
+      )}
 
-      <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ padding: embedded ? 0 : '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         {/* filtros */}
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <window.Segmented
@@ -118,6 +153,7 @@ const ConciliacaoPage = () => {
               <option value="">Todos os meses</option>
               {meses.map(m => <option key={m} value={m}>{window.monthLabel ? window.monthLabel(m) : m}</option>)}
             </select>
+            <window.Btn variant="secondary" size="sm" icon="file" onClick={exportarExcel}>Baixar Excel</window.Btn>
           </div>
         </div>
 
