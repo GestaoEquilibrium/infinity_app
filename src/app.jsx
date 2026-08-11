@@ -131,7 +131,7 @@ const Sidebar = ({ page, setPage, modulo, setModulo }) => {
       {/* Rodapé */}
       <div style={{ paddingTop: 10, borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 2 }}>
         {modulo && (
-          <NavItem item={{ label: 'Início', icon: 'infinity' }} active={false} onClick={() => setModulo(null)} />
+          <NavItem item={{ label: 'Início', icon: 'home' }} active={false} onClick={() => setModulo(null)} />
         )}
         {bottom.map(it => <NavItem key={it.k} item={it} active={page === it.k} onClick={() => setPage(it.k)} />)}
       </div>
