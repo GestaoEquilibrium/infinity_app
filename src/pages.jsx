@@ -2111,69 +2111,102 @@ const AgendaPage = ({ filter, setFilter }) => {
     days.push(d);
   }
   const contas = window.CONTAS.filter(c => !c.pago).slice(0, 20);
+
+  // total a vencer nos próximos 7 dias
+  const fim7 = new Date(today); fim7.setDate(today.getDate() + 6);
+  const dentro7 = window.CONTAS.filter(c => {
+    if (c.pago) return false;
+    const v = new Date(c.vencimento + 'T12:00:00');
+    return v >= new Date(today.toDateString()) && v <= fim7;
+  });
+  const totalVencer = dentro7.reduce((s, c) => s + (c.previsto || 0), 0);
+  const aReceber = dentro7.filter(c => c.tipo === 'receber').reduce((s, c) => s + (c.previsto || 0), 0);
+  const aPagar = dentro7.filter(c => c.tipo === 'pagar').reduce((s, c) => s + (c.previsto || 0), 0);
+
   return (
-    <div className="anim-fade" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <PageHeader title="Agenda" subtitle="Vencimentos dos próximos 7 dias" />
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
-        <TiltCard interactive={false} padding={24}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 18 }}>Semana</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 10 }}>
+    <div className="anim-fade">
+      {/* ── Faixa azul ── */}
+      <window.Band
+        title="Agenda"
+        subtitle="Vencimentos dos próximos 7 dias"
+        metricLabel="Total a vencer (7 dias)"
+        metric={totalVencer}
+        stats={[
+          { label: 'A receber', value: aReceber, color: 'var(--on-accent-pos)' },
+          { label: 'A pagar', value: aPagar, color: 'var(--on-accent-neg)' },
+          { label: 'Vencimentos', value: String(dentro7.length), color: 'var(--on-accent)' },
+        ]}
+      />
+
+      <div style={{ padding: '20px 30px 26px', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
+        {/* Semana */}
+        <window.Card padding={20}>
+          <h3 style={{ font: 'var(--t-h2)', color: 'var(--ink)', marginBottom: 16 }}>Semana</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
             {days.map((d, i) => {
               const dayContas = contas.filter(c => new Date(c.vencimento + 'T12:00:00').toDateString() === d.toDateString());
               const isToday = d.toDateString() === today.toDateString();
               return (
                 <div key={i} style={{
-                  borderRadius: 'var(--r-md)', padding: 14,
-                  background: isToday ? 'color-mix(in oklch, var(--c-primary) 10%, transparent)' : 'var(--bg-alt)',
-                  border: isToday ? '2px solid var(--c-primary)' : '1px solid var(--line)',
-                  minHeight: 140, animation: `popIn 0.4s ease ${i*0.05}s both`,
+                  borderRadius: 'var(--r-lg)', padding: 12,
+                  background: isToday ? 'var(--accent-soft)' : 'var(--surface-2)',
+                  border: isToday ? '1.5px solid var(--accent)' : '1px solid var(--line)',
+                  minHeight: 140, animation: `popIn 0.4s ease ${i * 0.05}s both`,
                 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                    {['dom','seg','ter','qua','qui','sex','sáb'][d.getDay()]}
+                  <div style={{ font: 'var(--t-label)', color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)' }}>
+                    {['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][d.getDay()]}
                   </div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: isToday ? 'var(--c-primary)' : 'var(--ink)' }} className="mono">{d.getDate()}</div>
+                  <div className="mono" style={{ font: '700 20px var(--f-mono)', color: isToday ? 'var(--accent)' : 'var(--ink)' }}>{d.getDate()}</div>
                   {dayContas.slice(0, 3).map(c => (
                     <div key={c.id} style={{
-                      marginTop: 6, padding: '4px 8px', borderRadius: 8, fontSize: 10, fontWeight: 600,
-                      background: c.tipo === 'receber' ? 'var(--c-pos-soft)' : 'var(--c-neg-soft)',
+                      marginTop: 5, padding: '3px 7px', borderRadius: 'var(--r-sm)', font: '600 9.5px var(--f-sans)',
+                      background: c.tipo === 'receber' ? 'var(--c-pos-bg)' : 'var(--c-neg-bg)',
                       color: c.tipo === 'receber' ? 'var(--c-pos)' : 'var(--c-neg)',
                       whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                     }} title={c.description}>{c.description.slice(0, 14)}</div>
                   ))}
+                  {dayContas.length > 3 && <div style={{ marginTop: 4, font: '500 9px var(--f-sans)', color: 'var(--ink-4)' }}>+{dayContas.length - 3} mais</div>}
                 </div>
               );
             })}
           </div>
-        </TiltCard>
+        </window.Card>
 
-        <TiltCard interactive={false} padding={24}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 18 }}>Próximos vencimentos</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 380, overflowY: 'auto' }}>
-            {contas.slice(0, 8).map((c, i) => (
-              <div key={c.id} style={{
-                display: 'flex', alignItems: 'center', gap: 12, padding: 12,
-                borderRadius: 'var(--r-md)', background: 'var(--bg-alt)', border: '1px solid var(--line)',
-                animation: `slideUp 0.4s ease ${i*0.07}s both`,
-              }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: 12,
-                  background: c.tipo === 'receber' ? 'var(--c-pos-soft)' : 'var(--c-neg-soft)',
-                  color: c.tipo === 'receber' ? 'var(--c-pos)' : 'var(--c-neg)',
-                  display: 'grid', placeItems: 'center', flexShrink: 0,
+        {/* Próximos vencimentos */}
+        <window.Card padding={20}>
+          <h3 style={{ font: 'var(--t-h2)', color: 'var(--ink)', marginBottom: 16 }}>Próximos vencimentos</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 400, overflowY: 'auto' }}>
+            {contas.length === 0 && (
+              <window.EmptyState icon="calendar" title="Nada a vencer" hint="Nenhuma conta pendente nos próximos dias." />
+            )}
+            {contas.slice(0, 10).map((c, i) => {
+              const receber = c.tipo === 'receber';
+              return (
+                <div key={c.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 11, padding: 11,
+                  borderRadius: 'var(--r-lg)', background: 'var(--surface-2)', border: '1px solid var(--line)',
+                  animation: `slideUp 0.4s ease ${i * 0.06}s both`,
                 }}>
-                  <Icon name={c.tipo === 'receber' ? 'arrow_down' : 'arrow_up'} size={16} stroke={2.4} />
+                  <div style={{
+                    width: 36, height: 36, borderRadius: 'var(--r-lg)',
+                    background: receber ? 'var(--c-pos-bg)' : 'var(--c-neg-bg)',
+                    color: receber ? 'var(--c-pos)' : 'var(--c-neg)',
+                    display: 'grid', placeItems: 'center', flexShrink: 0,
+                  }}>
+                    <window.Icon name={receber ? 'arrow_down' : 'arrow_up'} size={15} stroke={2.4} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ font: '600 12.5px var(--f-sans)', color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.description}</div>
+                    <div className="mono" style={{ font: '400 10.5px var(--f-mono)', color: 'var(--ink-3)' }}>{window.fmtDate(c.vencimento)}</div>
+                  </div>
+                  <span className="mono" style={{ font: '700 12.5px var(--f-mono)', color: receber ? 'var(--c-pos)' : 'var(--c-neg)' }}>
+                    {window.fmtShort(c.previsto)}
+                  </span>
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.description}</div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-mute)' }} className="mono">{window.fmtDate(c.vencimento)}</div>
-                </div>
-                <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: c.tipo === 'receber' ? 'var(--c-pos)' : 'var(--c-neg)' }}>
-                  {window.fmtShort(c.previsto)}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
-        </TiltCard>
+        </window.Card>
       </div>
     </div>
   );
