@@ -55,8 +55,36 @@ function parseCSV_RP(text) {
 
 // motor: aplica regras sobre os atendimentos + particular do caixa
 function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
-  const tarifaMap = {};
-  tarifas.forEach(t => { tarifaMap[`${t.convenio}|${t.tipo_servico}`] = Number(t.valor); tarifaMap[t.convenio] = Number(t.valor); });
+  const norm = (s) => String(s || '').trim().toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // remove acentos p/ casar
+
+  // Mapa: procedimento do relatório -> tipo_servico da tarifa (normalizados)
+  const PROC_MAP = {
+    'CONSULTA PSIQUIATRIA': 'CONSULTA PSIQUIATRIA',
+    'RETORNO': 'CONSULTA PSIQUIATRIA',   // retorno de psiquiatria usa a mesma tarifa da consulta
+  };
+
+  const tarifaMap = {};        // "CONVENIO|SERVICO" -> valor  (normalizado)
+  const tarifaConvMap = {};    // "CONVENIO" -> valor (fallback: última cadastrada do convênio)
+  tarifas.forEach(t => {
+    const c = norm(t.convenio), s = norm(t.tipo_servico);
+    tarifaMap[`${c}|${s}`] = Number(t.valor);
+    tarifaConvMap[c] = Number(t.valor);
+  });
+
+  // Busca a tarifa certa por convênio + procedimento
+  const buscarTarifa = (convenio, procedimento) => {
+    const c = norm(convenio.replace(/ \/ Não Informado$/, ''));
+    const procServ = PROC_MAP[norm(procedimento)] || norm(procedimento);
+    // 1) match exato convênio + serviço
+    if (tarifaMap[`${c}|${procServ}`] != null) return tarifaMap[`${c}|${procServ}`];
+    // 2) Particular: tenta "PARTICULAR|serviço" e depois "PARTICULAR"
+    if (c.startsWith('PARTICULAR')) {
+      if (tarifaMap[`PARTICULAR|${procServ}`] != null) return tarifaMap[`PARTICULAR|${procServ}`];
+      if (tarifaConvMap['PARTICULAR'] != null) return tarifaConvMap['PARTICULAR'];
+    }
+    return null; // sem match — vira pendência
+  };
 
   const nomeToColab = {};
   colabs.forEach(c => { nomeToColab[normalizarNome(c.nome)] = c; });
@@ -104,12 +132,11 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
       sessoes++;
       convCount[conv] = (convCount[conv] || 0) + 1;
       const convBase = conv.replace(/ \/ Não Informado$/, '');
-      let tarifa = tarifaMap[convBase];
-      if (tarifa == null && convBase.startsWith('Particular')) tarifa = tarifaMap['Particular'];
+      let tarifa = buscarTarifa(conv, proc);
       if (tarifa == null) {
         tarifa = 0;
         if (!pendencias.find(x => x.tipo === 'tarifa' && x.conv === conv))
-          pendencias.push({ tipo: 'tarifa', conv, msg: `Convênio "${conv}" sem tarifa cadastrada.` });
+          pendencias.push({ tipo: 'tarifa', conv, msg: `Convênio "${conv}" (${proc}) sem tarifa cadastrada.` });
       }
       receita += tarifa;
       detalhes.push({
