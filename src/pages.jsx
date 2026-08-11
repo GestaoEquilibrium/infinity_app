@@ -724,13 +724,13 @@ const ImpostosPage = ({ filter, setFilter }) => {
 
   const marcarPago = async (imp) => {
     try {
-      await window.updateConta(imp.id, { status: 'pago', actual_value: imp.previsto, settled_at: today });
+      await window.updateContaLocal(imp.id, { pago: true, realizado: imp.previsto, pagoEm: today });
       await carregar();
     } catch(e) { alert('Erro: ' + e.message); }
   };
   const desmarcarPago = async (imp) => {
     try {
-      await window.updateConta(imp.id, { status: 'pendente', actual_value: null, settled_at: null });
+      await window.updateContaLocal(imp.id, { pago: false, realizado: null, pagoEm: null });
       await carregar();
     } catch(e) { alert('Erro: ' + e.message); }
   };
@@ -760,10 +760,10 @@ const ImpostosPage = ({ filter, setFilter }) => {
           pago: form.pago, realizado: form.pago ? parseFloat(String(form.realizado||form.previsto).replace(',','.')) : null,
         };
         if (isNew) await window.createConta(payload, companyId, user?.id);
-        else await window.updateConta(imp.id, {
-          description: payload.description, category: payload.category, value: payload.previsto,
-          date: payload.vencimento, status: payload.pago ? 'pago' : 'pendente',
-          actual_value: payload.pago ? payload.realizado : null,
+        else await window.updateContaLocal(imp.id, {
+          description: payload.description, category: payload.category, tipo: 'pagar',
+          previsto: payload.previsto, vencimento: payload.vencimento,
+          pago: payload.pago, realizado: payload.pago ? payload.realizado : null,
         });
         await carregar(); onClose();
       } catch(e) { alert('Erro ao salvar: ' + e.message); }
