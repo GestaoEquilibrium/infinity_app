@@ -76,7 +76,6 @@ const SIDE_GROUPS = [
   ]},
   { titulo: 'Gestão', mod: 'financeiro', itens: [
     { k: 'relatorios', label: 'Relatórios', icon: 'chart' },
-    { k: 'conciliacao', label: 'Conciliação', icon: 'check' },
     { k: 'agenda', label: 'Agenda', icon: 'calendar' },
   ]},
   { titulo: 'Recursos Humanos', mod: 'rh', itens: [
@@ -587,10 +586,12 @@ const RelatoriosPage = () => {
     { k: 'fluxo', title: 'Fluxo de Caixa', desc: 'Saldo acumulado mês a mês', icon: 'chart' },
     { k: 'convenios', title: 'Receita por Convênio', desc: 'Ranking de repasses e recebimentos', icon: 'tag' },
     { k: 'contas', title: 'Extrato de Contas', desc: 'Todas as contas do mês selecionado', icon: 'calendar' },
+    { k: 'conciliacao', title: 'Conciliação Bancária', desc: 'Cruza o banco (MP/Inter) com o sistema', icon: 'check' },
   ];
   const abaAtual = abas.find(a => a.k === aba);
   const exportAtual = { dre: exportDRE, fluxo: exportFluxo, convenios: exportConvenios, contas: exportContas }[aba];
   const precisaMes = aba === 'dre' || aba === 'contas';
+  const ehConciliacao = aba === 'conciliacao';
 
   return (
     <div className="anim-fade">
@@ -620,28 +621,31 @@ const RelatoriosPage = () => {
           })}
         </div>
 
-        {/* Barra: mês (quando aplicável) + exportar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          {precisaMes && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <window.Icon name="calendar" size={15} style={{ color: 'var(--ink-3)' }} />
-              <span style={{ font: '600 12px var(--f-sans)', color: 'var(--ink-2)' }}>Mês:</span>
-              <select value={mes} onChange={e => setMes(e.target.value)} style={{ ...window.inputStyle, width: 'auto', height: 32, cursor: 'pointer' }}>
-                {meses.map(m => <option key={m} value={m}>{window.monthLabel(m)}</option>)}
-              </select>
+        {/* Barra: mês (quando aplicável) + exportar — a conciliação tem a própria barra */}
+        {!ehConciliacao && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {precisaMes && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <window.Icon name="calendar" size={15} style={{ color: 'var(--ink-3)' }} />
+                <span style={{ font: '600 12px var(--f-sans)', color: 'var(--ink-2)' }}>Mês:</span>
+                <select value={mes} onChange={e => setMes(e.target.value)} style={{ ...window.inputStyle, width: 'auto', height: 32, cursor: 'pointer' }}>
+                  {meses.map(m => <option key={m} value={m}>{window.monthLabel(m)}</option>)}
+                </select>
+              </div>
+            )}
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+              {gerado && <window.Pill status="pago">{gerado}.xlsx baixado</window.Pill>}
+              <window.Btn variant="secondary" icon="file" onClick={exportAtual}>Baixar Excel</window.Btn>
             </div>
-          )}
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-            {gerado && <window.Pill status="pago">{gerado}.xlsx baixado</window.Pill>}
-            <window.Btn variant="secondary" icon="file" onClick={exportAtual}>Baixar Excel</window.Btn>
           </div>
-        </div>
+        )}
 
         {/* ── Relatório na tela ── */}
         {aba === 'dre' && <RelDRE dreView={dreView} mes={mes} />}
         {aba === 'fluxo' && <RelFluxo dados={dadosFluxo} />}
         {aba === 'convenios' && <RelConvenios dados={dadosConvenios} />}
         {aba === 'contas' && <RelContas dados={dadosContas} mes={mes} />}
+        {aba === 'conciliacao' && <window.ConciliacaoPage embedded />}
       </div>
     </div>
   );
@@ -861,7 +865,6 @@ const AppShell = () => {
     compras: <ComprasPage filter={filter} setFilter={setFilter} />,
     agenda: <AgendaPage filter={filter} setFilter={setFilter} />,
     relatorios: <RelatoriosPage />,
-    conciliacao: <window.ConciliacaoPage />,
     rh: <window.RHPage />,
     provisoes: <window.FolhaProvisoes />,
     equipe: <EquipePage />,
