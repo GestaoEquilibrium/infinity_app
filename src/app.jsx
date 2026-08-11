@@ -496,6 +496,7 @@ const Legend = ({ color, label }) => (
 
 const RelatoriosPage = () => {
   const [mes, setMes] = React.useState(() => window.availableMonths?.().slice(-1)[0] || '');
+  const [aba, setAba] = React.useState('dre'); // dre | fluxo | convenios | contas
   const [gerado, setGerado] = React.useState(null);
   const [producao, setProducao] = React.useState([]);
   const { profile } = window.useAuth();
@@ -505,7 +506,7 @@ const RelatoriosPage = () => {
   }, [profile?.company_id]);
   const dreView = React.useMemo(() => (mes && window.gerarDRE) ? window.gerarDRE(mes, producao) : null, [mes, producao]);
 
-  function exportXLSX(nome, dados, colunas) {
+  function exportXLSX(nome, dados) {
     if (!window.XLSX) { alert('Biblioteca XLSX não carregada.'); return; }
     const ws = window.XLSX.utils.json_to_sheet(dados);
     const wb = window.XLSX.utils.book_new();
@@ -515,177 +516,305 @@ const RelatoriosPage = () => {
     setTimeout(() => setGerado(null), 3000);
   }
 
-  function exportarDRE() {
-    if (!dreView) return;
+  // ── Dados dos relatórios (calculados na tela) ──
+  const dadosDRE = () => {
+    if (!dreView) return [];
     const C = dreView.competencia, X = dreView.caixa;
     const L = (linha, k) => ({ 'Linha': linha, 'Competência': +C[k].toFixed(2), 'Caixa': +X[k].toFixed(2) });
-    const dados = [
-      L('RECEITA BRUTA', 'receita_bruta'),
-      L('  Convênios', 'rec_conv'),
-      L('  Cartão + Particular', 'rec_avulsa'),
-      L('  (−) Impostos pagos', 'impostos'),
-      L('= RECEITA LÍQUIDA', 'receita_liq'),
-      L('  (−) Repasses', 'repasses'),
-      L('= MARGEM DE CONTRIBUIÇÃO', 'margem_contrib'),
-      L('  (−) Folha/RH', 'folha'),
-      L('  (−) Aluguel', 'ocupacao'),
-      L('  (−) Outras despesas', 'outras'),
-      L('= RESULTADO OPERACIONAL', 'result_operacional'),
-      L('  (−) Dívidas/financiamentos', 'dividas'),
-      L('= RESULTADO DO MÊS', 'resultado'),
+    return [
+      L('RECEITA BRUTA', 'receita_bruta'), L('  Convênios', 'rec_conv'), L('  Cartão + Particular', 'rec_avulsa'),
+      L('  (−) Impostos pagos', 'impostos'), L('= RECEITA LÍQUIDA', 'receita_liq'), L('  (−) Repasses', 'repasses'),
+      L('= MARGEM DE CONTRIBUIÇÃO', 'margem_contrib'), L('  (−) Folha/RH', 'folha'), L('  (−) Aluguel', 'ocupacao'),
+      L('  (−) Outras despesas', 'outras'), L('= RESULTADO OPERACIONAL', 'result_operacional'),
+      L('  (−) Dívidas/financiamentos', 'dividas'), L('= RESULTADO DO MÊS', 'resultado'),
     ];
-    exportXLSX('DRE_' + mes, dados);
-  }
-  function gerarFluxo() {
-    const agg = window.monthlyAggregates();
+  };
+
+  const dadosFluxo = React.useMemo(() => {
+    const agg = window.monthlyAggregates?.() || [];
     let saldo = 0;
-    const dados = agg.map(m => {
+    return agg.map(m => {
       const net = (m.contas.real_in - m.contas.real_out) + (m.compras.in - m.compras.out);
       const row = {
-        Mês: window.monthLabel(m.key),
-        'Prev. Entradas': +m.contas.prev_in.toFixed(2),
-        'Real. Entradas': +m.contas.real_in.toFixed(2),
-        'Prev. Saídas':   +m.contas.prev_out.toFixed(2),
-        'Real. Saídas':   +m.contas.real_out.toFixed(2),
-        'Saldo Anterior': +saldo.toFixed(2),
-        'Resultado':      +net.toFixed(2),
-        'Saldo Acumulado': +(saldo + net).toFixed(2),
+        mes: window.monthLabel(m.key), key: m.key,
+        prev_in: m.contas.prev_in, real_in: m.contas.real_in,
+        prev_out: m.contas.prev_out, real_out: m.contas.real_out,
+        saldo_ant: saldo, resultado: net, saldo_acum: saldo + net,
       };
       saldo += net;
       return row;
     });
-    exportXLSX('Fluxo_de_Caixa', dados);
-  }
+  }, [(window.CONTAS || []).length]);
 
-  function gerarConvenios() {
-    const contas = (window.CONTAS||[]).filter(c => c.tipo==='receber');
+  const dadosConvenios = React.useMemo(() => {
+    const contas = (window.CONTAS || []).filter(c => c.tipo === 'receber');
     const agrup = {};
     contas.forEach(c => {
-      if (!agrup[c.category]) agrup[c.category] = { Convênio: c.category, Previsto: 0, Realizado: 0, Pendente: 0, Qtd: 0 };
-      agrup[c.category].Previsto  += c.previsto;
-      agrup[c.category].Realizado += c.realizado||0;
-      if (!c.pago) agrup[c.category].Pendente += c.previsto;
-      agrup[c.category].Qtd++;
+      if (!agrup[c.category]) agrup[c.category] = { convenio: c.category, previsto: 0, realizado: 0, pendente: 0, qtd: 0 };
+      agrup[c.category].previsto += c.previsto;
+      agrup[c.category].realizado += c.realizado || 0;
+      if (!c.pago) agrup[c.category].pendente += c.previsto;
+      agrup[c.category].qtd++;
     });
-    const dados = Object.values(agrup).sort((a,b) => b.Realizado - a.Realizado)
-      .map(r => ({ ...r, Previsto: +r.Previsto.toFixed(2), Realizado: +r.Realizado.toFixed(2), Pendente: +r.Pendente.toFixed(2) }));
-    exportXLSX('Receita_por_Convenio', dados);
-  }
+    return Object.values(agrup).sort((a, b) => b.realizado - a.realizado);
+  }, [(window.CONTAS || []).length]);
 
-  function gerarContas() {
-    const contas = (window.CONTAS||[]).filter(c => c.vencimento?.startsWith(mes));
-    const dados = contas.map(c => ({
-      Tipo: c.tipo==='receber'?'A Receber':'A Pagar',
-      Descrição: c.description, Categoria: c.category,
-      Vencimento: c.vencimento, Previsto: +c.previsto.toFixed(2),
-      Realizado: +(c.realizado||0).toFixed(2),
-      Status: c.pago?(c.tipo==='receber'?'Recebido':'Pago'):'Pendente',
-    }));
-    exportXLSX('Contas_' + mes, dados);
-  }
+  const dadosContas = React.useMemo(() => {
+    return (window.CONTAS || []).filter(c => c.vencimento?.startsWith(mes))
+      .sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''));
+  }, [mes, (window.CONTAS || []).length]);
+
+  // ── Exportações (reaproveitam os dados acima) ──
+  const exportDRE = () => exportXLSX('DRE_' + mes, dadosDRE());
+  const exportFluxo = () => exportXLSX('Fluxo_de_Caixa', dadosFluxo.map(r => ({
+    Mês: r.mes, 'Prev. Entradas': +r.prev_in.toFixed(2), 'Real. Entradas': +r.real_in.toFixed(2),
+    'Prev. Saídas': +r.prev_out.toFixed(2), 'Real. Saídas': +r.real_out.toFixed(2),
+    'Saldo Anterior': +r.saldo_ant.toFixed(2), 'Resultado': +r.resultado.toFixed(2), 'Saldo Acumulado': +r.saldo_acum.toFixed(2),
+  })));
+  const exportConvenios = () => exportXLSX('Receita_por_Convenio', dadosConvenios.map(r => ({
+    Convênio: r.convenio, Previsto: +r.previsto.toFixed(2), Realizado: +r.realizado.toFixed(2), Pendente: +r.pendente.toFixed(2), Qtd: r.qtd,
+  })));
+  const exportContas = () => exportXLSX('Contas_' + mes, dadosContas.map(c => ({
+    Tipo: c.tipo === 'receber' ? 'A Receber' : 'A Pagar', Descrição: c.description, Categoria: c.category,
+    Vencimento: c.vencimento, Previsto: +c.previsto.toFixed(2), Realizado: +(c.realizado || 0).toFixed(2),
+    Status: c.pago ? (c.tipo === 'receber' ? 'Recebido' : 'Pago') : 'Pendente',
+  })));
 
   const meses = window.availableMonths?.() || [];
-  const tiles = [
-    { title: 'DRE (Excel)', desc: 'Baixa a DRE acima em planilha', icon: 'file', fn: exportarDRE, precisaMes: true },
-    { title: 'Fluxo de Caixa', desc: 'Saldo acumulado mês a mês com saldo anterior', icon: 'chart', fn: gerarFluxo, precisaMes: false },
-    { title: 'Receita por Convênio', desc: 'Ranking de repasses — previsto vs realizado', icon: 'tag', fn: gerarConvenios, precisaMes: false },
-    { title: 'Extrato de Contas', desc: 'Todas as contas do mês selecionado', icon: 'calendar', fn: gerarContas, precisaMes: true },
+  const abas = [
+    { k: 'dre', title: 'DRE', desc: 'Demonstração de resultado — competência vs caixa', icon: 'file' },
+    { k: 'fluxo', title: 'Fluxo de Caixa', desc: 'Saldo acumulado mês a mês', icon: 'chart' },
+    { k: 'convenios', title: 'Receita por Convênio', desc: 'Ranking de repasses e recebimentos', icon: 'tag' },
+    { k: 'contas', title: 'Extrato de Contas', desc: 'Todas as contas do mês selecionado', icon: 'calendar' },
   ];
+  const abaAtual = abas.find(a => a.k === aba);
+  const exportAtual = { dre: exportDRE, fluxo: exportFluxo, convenios: exportConvenios, contas: exportContas }[aba];
+  const precisaMes = aba === 'dre' || aba === 'contas';
 
   return (
     <div className="anim-fade">
-      {/* ── Faixa azul ── */}
-      <window.Band title="Relatórios" subtitle="Exporte em Excel com um clique" />
+      <window.Band title="Relatórios" subtitle="Clique num relatório para visualizar" />
 
       <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* Seletor de mês */}
-        <window.Card padding={14}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <window.Icon name="calendar" size={16} style={{ color: 'var(--ink-3)' }} />
-            <span style={{ font: '600 12.5px var(--f-sans)', color: 'var(--ink-2)' }}>Mês de referência:</span>
-            <select value={mes} onChange={e => setMes(e.target.value)} style={{ ...window.inputStyle, width: 'auto', height: 34, cursor: 'pointer' }}>
-              {meses.map(m => <option key={m} value={m}>{window.monthLabel(m)}</option>)}
-            </select>
-            {gerado && <window.Pill status="pago">{gerado}.xlsx baixado</window.Pill>}
-          </div>
-        </window.Card>
-
-        {/* DRE visual */}
-        {dreView && (() => {
-          const C = dreView.competencia, X = dreView.caixa;
-          const brl = v => window.fmt(v);
-          const Linha = ({ label, kc, ind = 0, forte = false, sub = false, pct }) => (
-            <tr style={{ borderTop: sub ? 'none' : '1px solid var(--line-2)', background: forte ? 'var(--surface-2)' : 'transparent' }}>
-              <td style={{ padding: forte ? '9px 16px' : '6px 16px', paddingLeft: 16 + ind * 16, font: `${forte ? 700 : 400} ${forte ? 12.5 : 12}px var(--f-sans)`, color: sub ? 'var(--ink-3)' : 'var(--ink)' }}>
-                {label}{pct != null && <span style={{ font: '400 10.5px var(--f-sans)', color: 'var(--ink-3)', marginLeft: 6 }}>{pct.toFixed(1)}%</span>}
-              </td>
-              <td className="mono" style={{ padding: forte ? '9px 16px' : '6px 16px', textAlign: 'right', font: `${forte ? 600 : 400} ${forte ? 12.5 : 12}px var(--f-mono)`, color: C[kc] < 0 ? 'var(--c-neg)' : (forte ? 'var(--ink)' : 'var(--ink-2)') }}>{brl(C[kc])}</td>
-              <td className="mono" style={{ padding: forte ? '9px 16px' : '6px 16px', textAlign: 'right', font: `${forte ? 600 : 400} ${forte ? 12.5 : 12}px var(--f-mono)`, color: X[kc] < 0 ? 'var(--c-neg)' : (forte ? 'var(--ink)' : 'var(--ink-2)') }}>{brl(X[kc])}</td>
-            </tr>
-          );
-          return (
-            <window.Card padding={0} style={{ overflow: 'hidden' }}>
-              <div style={{ padding: '16px 18px 12px' }}>
-                <h2 style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>DRE — {window.monthLabel(mes)}</h2>
-                <div style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)', marginTop: 3 }}>
-                  Demonstração do resultado, grupo consolidado. <b>Competência</b> = o que a clínica gerou no mês · <b>Caixa</b> = o que de fato entrou e saiu.
-                </div>
-              </div>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ font: 'var(--t-label)', color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)' }}>
-                    <th style={{ textAlign: 'left', padding: '6px 16px' }}></th>
-                    <th style={{ textAlign: 'right', padding: '6px 16px' }}>Competência</th>
-                    <th style={{ textAlign: 'right', padding: '6px 16px' }}>Caixa</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <Linha label="RECEITA BRUTA" kc="receita_bruta" forte />
-                  <Linha label="Convênios" kc="rec_conv" ind={1} sub />
-                  <Linha label="Cartão + Particular" kc="rec_avulsa" ind={1} sub />
-                  <Linha label="(−) Impostos pagos" kc="impostos" ind={1} sub />
-                  <Linha label="= RECEITA LÍQUIDA" kc="receita_liq" forte />
-                  <Linha label="(−) Repasses a profissionais" kc="repasses" ind={1} sub />
-                  <Linha label="= MARGEM DE CONTRIBUIÇÃO" kc="margem_contrib" forte pct={C.mc_pct} />
-                  <Linha label="(−) Folha / RH" kc="folha" ind={1} sub />
-                  <Linha label="(−) Aluguel / ocupação" kc="ocupacao" ind={1} sub />
-                  <Linha label="(−) Outras despesas" kc="outras" ind={1} sub />
-                  <Linha label="= RESULTADO OPERACIONAL" kc="result_operacional" forte pct={C.op_pct} />
-                  <Linha label="(−) Dívidas / financiamentos" kc="dividas" ind={1} sub />
-                  <Linha label="= RESULTADO DO MÊS" kc="resultado" forte pct={C.margem_pct} />
-                </tbody>
-              </table>
-              <div style={{ padding: '12px 16px', display: 'flex', gap: 20, flexWrap: 'wrap', font: '400 11.5px var(--f-sans)' }}>
-                <div><span style={{ color: 'var(--ink-3)' }}>Resultado competência: </span><b className="mono" style={{ color: C.resultado < 0 ? 'var(--c-neg)' : 'var(--c-pos)' }}>{brl(C.resultado)}</b></div>
-                <div><span style={{ color: 'var(--ink-3)' }}>Resultado caixa: </span><b className="mono" style={{ color: X.resultado < 0 ? 'var(--c-neg)' : 'var(--c-pos)' }}>{brl(X.resultado)}</b></div>
-                {Math.abs(C.resultado - X.resultado) > 1000 && (
-                  <div style={{ color: 'var(--ink-3)' }}>
-                    A diferença de <b className="mono">{brl(Math.abs(C.resultado - X.resultado))}</b> é o descasamento: o convênio recebe com defasagem.
+        {/* Tiles — clica pra abrir na tela */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+          {abas.map(a => {
+            const on = aba === a.k;
+            return (
+              <window.Card key={a.k} padding={16} onClick={() => setAba(a.k)} style={{
+                cursor: 'pointer',
+                background: on ? 'var(--accent)' : 'var(--surface)',
+                border: on ? '1px solid var(--accent)' : '1px solid var(--line)',
+                boxShadow: on ? 'var(--sh-accent)' : 'var(--sh-1)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 'var(--r-lg)', background: on ? 'rgba(255,255,255,.2)' : 'var(--accent-soft)', color: on ? '#fff' : 'var(--accent)', display: 'grid', placeItems: 'center' }}>
+                    <window.Icon name={a.icon} size={17} stroke={2} />
                   </div>
-                )}
-              </div>
-            </window.Card>
-          );
-        })()}
-
-        {/* Tiles de exportação */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}>
-          {tiles.map((t, i) => (
-            <window.Card key={i} padding={20} onClick={t.fn} style={{ cursor: 'pointer', animation: `slideUp 0.5s ease ${i*0.06}s both` }}>
-              <div style={{ width: 42, height: 42, borderRadius: 'var(--r-lg)', background: 'var(--accent-soft)', color: 'var(--accent)', display: 'grid', placeItems: 'center', marginBottom: 14 }}>
-                <window.Icon name={t.icon} size={19} stroke={2} />
-              </div>
-              <h3 style={{ font: '600 14px var(--f-sans)', color: 'var(--ink)' }}>{t.title}</h3>
-              <p style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)', marginTop: 5, lineHeight: 1.5 }}>{t.desc}</p>
-              {t.precisaMes && <p style={{ font: '400 10.5px var(--f-sans)', color: 'var(--ink-4)', marginTop: 4 }}>Mês: {window.monthLabel?.(mes)}</p>}
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12, font: '600 12px var(--f-sans)', color: 'var(--accent)' }}>
-                Baixar Excel <window.Icon name="arrow_right" size={13} stroke={2.4} />
-              </div>
-            </window.Card>
-          ))}
+                  <h3 style={{ font: '600 13.5px var(--f-sans)', color: on ? '#fff' : 'var(--ink)' }}>{a.title}</h3>
+                </div>
+                <p style={{ font: '400 11px var(--f-sans)', color: on ? 'rgba(255,255,255,.85)' : 'var(--ink-3)', lineHeight: 1.45 }}>{a.desc}</p>
+              </window.Card>
+            );
+          })}
         </div>
+
+        {/* Barra: mês (quando aplicável) + exportar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          {precisaMes && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <window.Icon name="calendar" size={15} style={{ color: 'var(--ink-3)' }} />
+              <span style={{ font: '600 12px var(--f-sans)', color: 'var(--ink-2)' }}>Mês:</span>
+              <select value={mes} onChange={e => setMes(e.target.value)} style={{ ...window.inputStyle, width: 'auto', height: 32, cursor: 'pointer' }}>
+                {meses.map(m => <option key={m} value={m}>{window.monthLabel(m)}</option>)}
+              </select>
+            </div>
+          )}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+            {gerado && <window.Pill status="pago">{gerado}.xlsx baixado</window.Pill>}
+            <window.Btn variant="secondary" icon="file" onClick={exportAtual}>Baixar Excel</window.Btn>
+          </div>
+        </div>
+
+        {/* ── Relatório na tela ── */}
+        {aba === 'dre' && <RelDRE dreView={dreView} mes={mes} />}
+        {aba === 'fluxo' && <RelFluxo dados={dadosFluxo} />}
+        {aba === 'convenios' && <RelConvenios dados={dadosConvenios} />}
+        {aba === 'contas' && <RelContas dados={dadosContas} mes={mes} />}
       </div>
     </div>
+  );
+};
+
+// ─── DRE visual ───
+const RelDRE = ({ dreView, mes }) => {
+  if (!dreView) return <window.Card padding={40}><window.EmptyState icon="file" title="Sem dados para a DRE" hint="Selecione um mês com movimento." /></window.Card>;
+  const C = dreView.competencia, X = dreView.caixa;
+  const brl = v => window.fmt(v);
+  const Linha = ({ label, kc, ind = 0, forte = false, sub = false, pct }) => (
+    <tr style={{ borderTop: sub ? 'none' : '1px solid var(--line-2)', background: forte ? 'var(--surface-2)' : 'transparent' }}>
+      <td style={{ padding: forte ? '9px 16px' : '6px 16px', paddingLeft: 16 + ind * 16, font: `${forte ? 700 : 400} ${forte ? 12.5 : 12}px var(--f-sans)`, color: sub ? 'var(--ink-3)' : 'var(--ink)' }}>
+        {label}{pct != null && <span style={{ font: '400 10.5px var(--f-sans)', color: 'var(--ink-3)', marginLeft: 6 }}>{pct.toFixed(1)}%</span>}
+      </td>
+      <td className="mono" style={{ padding: forte ? '9px 16px' : '6px 16px', textAlign: 'right', font: `${forte ? 600 : 400} ${forte ? 12.5 : 12}px var(--f-mono)`, color: C[kc] < 0 ? 'var(--c-neg)' : (forte ? 'var(--ink)' : 'var(--ink-2)') }}>{brl(C[kc])}</td>
+      <td className="mono" style={{ padding: forte ? '9px 16px' : '6px 16px', textAlign: 'right', font: `${forte ? 600 : 400} ${forte ? 12.5 : 12}px var(--f-mono)`, color: X[kc] < 0 ? 'var(--c-neg)' : (forte ? 'var(--ink)' : 'var(--ink-2)') }}>{brl(X[kc])}</td>
+    </tr>
+  );
+  return (
+    <window.Card padding={0} style={{ overflow: 'hidden' }}>
+      <div style={{ padding: '16px 18px 12px' }}>
+        <h2 style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>DRE — {window.monthLabel(mes)}</h2>
+        <div style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)', marginTop: 3 }}>
+          <b>Competência</b> = o que a clínica gerou no mês · <b>Caixa</b> = o que de fato entrou e saiu.
+        </div>
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ font: 'var(--t-label)', color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)' }}>
+            <th style={{ textAlign: 'left', padding: '6px 16px' }}></th>
+            <th style={{ textAlign: 'right', padding: '6px 16px' }}>Competência</th>
+            <th style={{ textAlign: 'right', padding: '6px 16px' }}>Caixa</th>
+          </tr>
+        </thead>
+        <tbody>
+          <Linha label="RECEITA BRUTA" kc="receita_bruta" forte />
+          <Linha label="Convênios" kc="rec_conv" ind={1} sub />
+          <Linha label="Cartão + Particular" kc="rec_avulsa" ind={1} sub />
+          <Linha label="(−) Impostos pagos" kc="impostos" ind={1} sub />
+          <Linha label="= RECEITA LÍQUIDA" kc="receita_liq" forte />
+          <Linha label="(−) Repasses a profissionais" kc="repasses" ind={1} sub />
+          <Linha label="= MARGEM DE CONTRIBUIÇÃO" kc="margem_contrib" forte pct={C.mc_pct} />
+          <Linha label="(−) Folha / RH" kc="folha" ind={1} sub />
+          <Linha label="(−) Aluguel / ocupação" kc="ocupacao" ind={1} sub />
+          <Linha label="(−) Outras despesas" kc="outras" ind={1} sub />
+          <Linha label="= RESULTADO OPERACIONAL" kc="result_operacional" forte pct={C.op_pct} />
+          <Linha label="(−) Dívidas / financiamentos" kc="dividas" ind={1} sub />
+          <Linha label="= RESULTADO DO MÊS" kc="resultado" forte pct={C.margem_pct} />
+        </tbody>
+      </table>
+      <div style={{ padding: '12px 16px', display: 'flex', gap: 20, flexWrap: 'wrap', font: '400 11.5px var(--f-sans)' }}>
+        <div><span style={{ color: 'var(--ink-3)' }}>Resultado competência: </span><b className="mono" style={{ color: C.resultado < 0 ? 'var(--c-neg)' : 'var(--c-pos)' }}>{brl(C.resultado)}</b></div>
+        <div><span style={{ color: 'var(--ink-3)' }}>Resultado caixa: </span><b className="mono" style={{ color: X.resultado < 0 ? 'var(--c-neg)' : 'var(--c-pos)' }}>{brl(X.resultado)}</b></div>
+        {Math.abs(C.resultado - X.resultado) > 1000 && (
+          <div style={{ color: 'var(--ink-3)' }}>Diferença de <b className="mono">{brl(Math.abs(C.resultado - X.resultado))}</b> = descasamento (convênio recebe com defasagem).</div>
+        )}
+      </div>
+    </window.Card>
+  );
+};
+
+// ─── Fluxo de Caixa visual ───
+const RelFluxo = ({ dados }) => {
+  if (!dados.length) return <window.Card padding={40}><window.EmptyState icon="chart" title="Sem dados de fluxo" hint="Ainda não há movimento registrado." /></window.Card>;
+  return (
+    <window.Card padding={0} style={{ overflow: 'hidden' }}>
+      <div style={{ padding: '16px 18px 12px' }}>
+        <h2 style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>Fluxo de Caixa</h2>
+        <div style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)', marginTop: 3 }}>Saldo acumulado mês a mês (realizado).</div>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--line)' }}>
+              {['Mês', 'Entradas', 'Saídas', 'Resultado', 'Saldo acumulado'].map((h, i) => (
+                <th key={h} style={{ padding: '10px 16px', textAlign: i === 0 ? 'left' : 'right', font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--ink-3)' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {dados.map((r, i) => (
+              <tr key={i} style={{ borderBottom: '1px solid var(--line-2)' }}>
+                <td style={{ padding: '9px 16px', font: '500 12px var(--f-sans)', color: 'var(--ink)' }}>{r.mes}</td>
+                <td style={{ padding: '9px 16px', textAlign: 'right' }}><window.Money value={r.real_in} size="table" style={{ color: 'var(--c-pos)' }} /></td>
+                <td style={{ padding: '9px 16px', textAlign: 'right' }}><window.Money value={r.real_out} size="table" style={{ color: 'var(--c-neg)' }} /></td>
+                <td style={{ padding: '9px 16px', textAlign: 'right' }}><window.Money value={r.resultado} size="table" colorBySign /></td>
+                <td style={{ padding: '9px 16px', textAlign: 'right' }}><window.Money value={r.saldo_acum} size="table" colorBySign style={{ fontWeight: 600 }} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </window.Card>
+  );
+};
+
+// ─── Receita por Convênio visual ───
+const RelConvenios = ({ dados }) => {
+  if (!dados.length) return <window.Card padding={40}><window.EmptyState icon="tag" title="Sem receitas de convênio" hint="Não há contas a receber lançadas." /></window.Card>;
+  const maxReal = Math.max(...dados.map(d => d.realizado), 1);
+  return (
+    <window.Card padding={0} style={{ overflow: 'hidden' }}>
+      <div style={{ padding: '16px 18px 12px' }}>
+        <h2 style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>Receita por Convênio</h2>
+        <div style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)', marginTop: 3 }}>Ranking por valor realizado.</div>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--line)' }}>
+              {['Convênio', 'Qtd', 'Previsto', 'Realizado', 'Pendente', ''].map((h, i) => (
+                <th key={h + i} style={{ padding: '10px 16px', textAlign: (i === 0) ? 'left' : (i === 5 ? 'left' : 'right'), font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--ink-3)' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {dados.map((r, i) => (
+              <tr key={i} style={{ borderBottom: '1px solid var(--line-2)' }}>
+                <td style={{ padding: '9px 16px', font: '600 12px var(--f-sans)', color: 'var(--ink)' }}>{r.convenio}</td>
+                <td style={{ padding: '9px 16px', textAlign: 'right', font: '400 12px var(--f-mono)', color: 'var(--ink-2)' }} className="mono">{r.qtd}</td>
+                <td style={{ padding: '9px 16px', textAlign: 'right' }}><window.Money value={r.previsto} size="table" style={{ color: 'var(--ink-2)' }} /></td>
+                <td style={{ padding: '9px 16px', textAlign: 'right' }}><window.Money value={r.realizado} size="table" style={{ color: 'var(--c-pos)' }} /></td>
+                <td style={{ padding: '9px 16px', textAlign: 'right' }}><window.Money value={r.pendente} size="table" style={{ color: r.pendente > 0 ? 'var(--c-warn)' : 'var(--ink-4)' }} /></td>
+                <td style={{ padding: '9px 16px', width: 120 }}>
+                  <div style={{ height: 6, borderRadius: 3, background: 'var(--field)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${(r.realizado / maxReal) * 100}%`, background: 'var(--accent)', borderRadius: 3 }} />
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </window.Card>
+  );
+};
+
+// ─── Extrato de Contas visual ───
+const RelContas = ({ dados, mes }) => {
+  if (!dados.length) return <window.Card padding={40}><window.EmptyState icon="calendar" title="Nenhuma conta no mês" hint="Selecione outro mês ou lance contas." /></window.Card>;
+  return (
+    <window.Card padding={0} style={{ overflow: 'hidden' }}>
+      <div style={{ padding: '16px 18px 12px' }}>
+        <h2 style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>Extrato de Contas — {window.monthLabel(mes)}</h2>
+        <div style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)', marginTop: 3 }}>{dados.length} conta(s) no mês.</div>
+      </div>
+      <div style={{ maxHeight: '56vh', overflowY: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 5 }}>
+            <tr style={{ borderBottom: '1px solid var(--line)' }}>
+              {['Tipo', 'Descrição', 'Categoria', 'Vencimento', 'Previsto', 'Status'].map((h, i) => (
+                <th key={h} style={{ padding: '10px 16px', textAlign: i === 4 ? 'right' : 'left', font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--ink-3)' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {dados.map((c, i) => {
+              const receber = c.tipo === 'receber';
+              return (
+                <tr key={c.id || i} style={{ borderBottom: '1px solid var(--line-2)' }}>
+                  <td style={{ padding: '9px 16px' }}><window.Pill status={receber ? 'pago' : 'pendente'}>{receber ? 'A Receber' : 'A Pagar'}</window.Pill></td>
+                  <td style={{ padding: '9px 16px', font: '500 12px var(--f-sans)', color: 'var(--ink)' }}>{c.description}</td>
+                  <td style={{ padding: '9px 16px', font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)' }}>{c.category}</td>
+                  <td style={{ padding: '9px 16px', font: '400 12px var(--f-mono)', color: 'var(--ink-2)' }} className="mono">{window.fmtDate(c.vencimento)}</td>
+                  <td style={{ padding: '9px 16px', textAlign: 'right' }}><window.Money value={c.previsto} size="table" style={{ color: 'var(--ink)' }} /></td>
+                  <td style={{ padding: '9px 16px' }}><window.Pill status={c.pago ? 'pago' : 'hoje'}>{c.pago ? (receber ? 'Recebido' : 'Pago') : 'Pendente'}</window.Pill></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </window.Card>
   );
 };
 
