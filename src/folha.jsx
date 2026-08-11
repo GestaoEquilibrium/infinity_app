@@ -129,16 +129,19 @@ const folhaSb = async (path, opts = {}) => {
 };
 
 const soDigitos = (v) => String(v || '').replace(/\D/g, '');
+const normNome = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z ]/g, '').replace(/\s+/g, ' ').trim();
 const firstDef = (...xs) => { for (const x of xs) if (x != null && x !== '') return x; return undefined; };
 
-// normaliza uma linha do ponto_mensal (nomes de coluna variam — defensivo)
+// normaliza uma linha do ponto_mensal (colunas reais + fallbacks defensivos)
 function normalizaPonto(p) {
   return {
+    cortex: firstDef(p.cortex_colaborador_id, p.colaborador_id, p.cortex_id),
+    nome: firstDef(p.colaborador_nome, p.nome, p.funcionario),
     cpf: soDigitos(firstDef(p.cpf, p.CPF, p.documento)),
     competencia: firstDef(p.competencia, p.mes, p.mes_ref, p.referencia, p.periodo),
-    dias: firstDef(p.dias_trabalhados, p.dias_uteis_trabalhados, p.dias, p.dias_uteis),
+    dias: firstDef(p.dias_com_presenca, p.dias_trabalhados, p.dias_uteis_trabalhados, p.dias, p.dias_uteis),
     faltas: firstDef(p.faltas, p.faltas_mes, p.total_faltas),
-    atestados: firstDef(p.atestados, p.atestado_dias, p.atestado, p.dias_atestado),
+    atestados: firstDef(p.faltas_justificadas, p.atestados, p.atestado_dias, p.atestado, p.dias_atestado),
     horas: firstDef(p.horas, p.horas_trabalhadas, p.total_horas, p.carga_horaria),
   };
 }
@@ -174,13 +177,14 @@ function FolhaProvisoes() {
           pontoRows = await folhaSb(`/ponto_mensal?select=*&limit=5000`);
         } catch (e) { console.warn('ponto_mensal indisponível — folha em modo manual', e.message); }
 
-        // indexa ponto por CPF (filtra competência quando a coluna existe)
-        const pontoMap = {};
+        // indexa ponto por UUID Cortex, CPF e nome (filtra competência quando existe)
+        const byCortex = {}, byCpf = {}, byNome = {};
         (pontoRows || []).forEach((raw) => {
           const p = normalizaPonto(raw);
-          if (!p.cpf) return;
           if (p.competencia && String(p.competencia).slice(0, 7) !== comp) return;
-          pontoMap[p.cpf] = p;
+          if (p.cortex) byCortex[p.cortex] = p;
+          if (p.cpf) byCpf[p.cpf] = p;
+          if (p.nome) byNome[normNome(p.nome)] = p;
         });
 
         let miss = 0;
@@ -193,7 +197,7 @@ function FolhaProvisoes() {
               : /med\s*center/i.test(c.pagador || '') ? 'medcenter'
               : (FOLHA_CO[c.company_id] || 'medcenter');
             const cpf = soDigitos(c.cpf);
-            const p = pontoMap[cpf];
+            const p = byCortex[c.ponto_digital_id] || byCpf[cpf] || byNome[normNome(c.nome)] || null;
             if (!p) miss++;
             return {
               id: c.id, nome: c.nome, cargo: c.cargo || '', empresa, regime,
