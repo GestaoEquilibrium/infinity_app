@@ -696,116 +696,126 @@ const RepassePage = () => {
   const inp = { padding: '9px 12px', border: '1px solid var(--line)', borderRadius: 'var(--r-md)', fontSize: 14, background: 'var(--bg-alt)', color: 'var(--ink)' };
 
   return (
-    <div className="anim-fade" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <window.PageHeader title="Repasse" subtitle="Motor de cálculo — importa produção, cruza com o caixa e fecha o mês" />
+    <div className="anim-fade">
+      {/* ── Faixa azul ── */}
+      <window.Band
+        title="Repasse"
+        subtitle="Motor de cálculo — importa produção, cruza com o caixa e fecha o mês"
+        metricLabel={resultados.length > 0 ? 'Total a pagar' : null}
+        metric={resultados.length > 0 ? totalLiq : null}
+        stats={resultados.length > 0 ? [
+          { label: 'Profissionais', value: String(resultados.length), color: 'var(--on-accent)' },
+          { label: 'Receita', value: totalRec, color: 'var(--on-accent)' },
+          { label: 'Margem', value: totalMar, color: totalMar >= 0 ? 'var(--on-accent-pos)' : 'var(--on-accent-neg)' },
+        ] : []}
+      />
 
-      {/* Sub-navegação */}
-      <div style={{ display: 'flex', gap: 8 }}>
-        {[['fechamento', 'Fechamento'], ['pagamentos', 'Pagamentos'], ['regras', 'Regras'], ['tarifas', 'Tarifas']].map(([k, l]) => (
-          <window.Btn key={k} variant={sub === k ? 'primary' : 'ghost'} size="sm" onClick={() => setSub(k)}>{l}</window.Btn>
-        ))}
-      </div>
+      <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Sub-navegação */}
+        <window.Segmented
+          options={[{ value: 'fechamento', label: 'Fechamento' }, { value: 'pagamentos', label: 'Pagamentos' }, { value: 'regras', label: 'Regras' }, { value: 'tarifas', label: 'Tarifas' }]}
+          value={sub} onChange={setSub} />
 
-      {sub === 'fechamento' && (
-        <>
-          <window.TiltCard interactive={false} padding={22}>
-            <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Competência (mês do convênio)</label>
-                <input type="month" value={competencia} onChange={e => setCompetencia(e.target.value)} style={inp} />
-                <div style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 5 }}>
-                  Ciclo: convênio <b>{competenciaExtenso(competencia)}</b> + particular <b>{competenciaExtenso(proximaCompetencia(competencia))}</b> (do caixa)
+        {sub === 'fechamento' && (
+          <>
+            <window.Card padding={20}>
+              <div style={{ display: 'flex', gap: 18, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <window.Field label="Competência (mês do convênio)">
+                  <input type="month" value={competencia} onChange={e => setCompetencia(e.target.value)} style={window.inputStyle} />
+                </window.Field>
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <window.Field label="Relatório de agendamento (CSV ou XLSX)">
+                    <input type="file" accept=".csv,.xlsx" onChange={e => e.target.files[0] && handleFile(e.target.files[0])} style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-2)' }} />
+                  </window.Field>
                 </div>
+                {resultados.length > 0 && <window.Btn variant="secondary" icon="file" disabled={gerandoPdf} onClick={async () => {
+                  setGerandoPdf(true); setMsg('Gerando demonstrativos...');
+                  await baixarTodosDemonstrativos(resultados, competencia, (n, t) => setMsg(`Gerando demonstrativos... ${n}/${t}`));
+                  setMsg(`${resultados.length} demonstrativo(s) gerado(s) — 1 PDF por profissional.`); setGerandoPdf(false);
+                }}>{gerandoPdf ? 'Gerando...' : 'Baixar PDF'}</window.Btn>}
+                {resultados.length > 0 && <window.Btn variant="primary" icon="check" onClick={salvarFechamento}>Salvar fechamento</window.Btn>}
               </div>
-              <div style={{ flex: 1, minWidth: 220 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Relatório de agendamento (CSV ou XLSX)</label>
-                <input type="file" accept=".csv,.xlsx" onChange={e => e.target.files[0] && handleFile(e.target.files[0])} style={{ fontSize: 13 }} />
+              <div style={{ font: '400 11px var(--f-sans)', color: 'var(--ink-3)', marginTop: 10 }}>
+                Ciclo: convênio <b>{competenciaExtenso(competencia)}</b> + particular <b>{competenciaExtenso(proximaCompetencia(competencia))}</b> (do caixa)
               </div>
-              {resultados.length > 0 && <window.Btn variant="ghost" icon="file" disabled={gerandoPdf} onClick={async () => {
-                setGerandoPdf(true); setMsg('Gerando demonstrativos...');
-                await baixarTodosDemonstrativos(resultados, competencia, (n, t) => setMsg(`Gerando demonstrativos... ${n}/${t}`));
-                setMsg(`${resultados.length} demonstrativo(s) gerado(s) — 1 PDF por profissional.`); setGerandoPdf(false);
-              }}>{gerandoPdf ? 'Gerando...' : 'Baixar demonstrativos (PDF)'}</window.Btn>}
-              {resultados.length > 0 && <window.Btn variant="primary" icon="check" onClick={salvarFechamento}>Salvar fechamento</window.Btn>}
-            </div>
-            {msg && <div style={{ marginTop: 12, fontSize: 13, color: 'var(--ink-soft)' }}>{msg}</div>}
-          </window.TiltCard>
+              {msg && <div style={{ marginTop: 10, font: '500 12.5px var(--f-sans)', color: 'var(--accent)' }}>{msg}</div>}
+            </window.Card>
 
-          {rows && pendencias.length > 0 && (
-            <window.TiltCard interactive={false} padding={20}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>Pendências antes de pagar</h3>
-              <div style={{ display: 'grid', gap: 8 }}>
-                {pendencias.map((p, i) => (
-                  <div key={i} style={{ padding: '10px 14px', borderRadius: 'var(--r-md)', background: 'var(--c-neg-soft)', color: 'var(--c-neg)', fontSize: 13 }}>{p.msg}</div>
-                ))}
-              </div>
-            </window.TiltCard>
-          )}
+            {rows && pendencias.length > 0 && (
+              <window.Card padding={18}>
+                <h3 style={{ font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--c-neg)', marginBottom: 12 }}>Pendências antes de pagar</h3>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {pendencias.map((p, i) => (
+                    <div key={i} style={{ padding: '10px 14px', borderRadius: 'var(--r-md)', background: 'var(--c-neg-bg)', color: 'var(--c-neg)', font: '500 12.5px var(--f-sans)' }}>{p.msg}</div>
+                  ))}
+                </div>
+              </window.Card>
+            )}
 
-          {resultados.length > 0 && (
-            <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
-                <window.KPI label="Profissionais" value={resultados.length} color="var(--c-primary)" icon="users" format={(n) => String(Math.round(n))} />
-                <window.KPI label="Receita" value={totalRec} color="var(--c-primary)" icon="chart" />
-                <window.KPI label="Total a pagar" value={totalLiq} color="var(--c-pos)" icon="wallet" emphasis />
-                <window.KPI label="Margem" value={totalMar} color={totalMar >= 0 ? 'var(--c-pos)' : 'var(--c-neg)'} icon="file" />
-              </div>
+            {resultados.length > 0 && (
+              <>
+                <div style={{ font: '400 11px var(--f-sans)', color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                  <b>Margem</b> = margem de contribuição (receita − imposto − repasse + holding). <b>Ainda não desconta os custos fixos</b> da clínica (aluguel, folha, energia, estrutura) — mostra quanto o profissional contribui para bancá-los, não o lucro final.
+                </div>
 
-              <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', marginTop: -6, lineHeight: 1.5 }}>
-                <b>Margem</b> = margem de contribuição (receita − imposto − repasse + holding). <b>Ainda não desconta os custos fixos</b> da clínica (aluguel, folha, energia, estrutura) — mostra quanto o profissional contribui para bancá-los, não o lucro final.
-              </div>
+                <window.Card padding={0} style={{ overflow: 'hidden' }}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                          {['Profissional', 'Sessões', 'Part.', 'Receita', 'Imposto', 'Repasse', 'Holding', 'Líquido'].map((h, i) => (
+                            <th key={i} style={{ padding: '11px 18px', font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--ink-3)', textAlign: i === 0 ? 'left' : 'right' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {resultados.map((r, i) => (
+                          <tr key={i} style={{ borderBottom: '1px solid var(--line-2)' }}>
+                            <td style={{ padding: '11px 18px' }}>
+                              <div style={{ font: '600 12.5px var(--f-sans)', color: 'var(--ink)' }}>{r.nome}</div>
+                              <div style={{ font: '400 10.5px var(--f-sans)', color: 'var(--ink-3)' }}>{r.categoria}</div>
+                            </td>
+                            <td style={{ padding: '11px 18px', textAlign: 'right' }} className="mono">{r.sessoes}</td>
+                            <td style={{ padding: '11px 18px', textAlign: 'right', color: 'var(--ink-2)' }} className="mono">{r.particular_n || '—'}</td>
+                            <td style={{ padding: '11px 18px', textAlign: 'right' }} className="mono">{D.brlR(r.receita)}</td>
+                            <td style={{ padding: '11px 18px', textAlign: 'right', color: r.tipo === 'percentual' ? 'var(--c-neg)' : 'var(--ink-4)' }} className="mono" title={r.tipo === 'percentual' ? 'Imposto 13,33% descontado antes do split' : 'Repasse fixo — não desconta imposto do profissional'}>{r.tipo === 'percentual' ? '−' + D.brlR(r.imposto).replace('R$\u00a0', '').replace('R$ ', '') : '—'}</td>
+                            <td style={{ padding: '11px 18px', textAlign: 'right', color: 'var(--ink)' }} className="mono">{D.brlR(r.bruto)}</td>
+                            <td style={{ padding: '11px 18px', textAlign: 'right', color: r.holding ? 'var(--c-neg)' : 'var(--ink-4)' }} className="mono">{r.holding ? '−' + D.brlR(r.holding).replace('R$\u00a0', '').replace('R$ ', '') : '—'}</td>
+                            <td style={{ padding: '11px 18px', textAlign: 'right', font: '600 12.5px var(--f-mono)', color: 'var(--c-pos)' }} className="mono">{D.brlR(r.liquido)}</td>
+                          </tr>
+                        ))}
+                        <tr style={{ borderTop: '2px solid var(--line-strong)', font: '700 12.5px var(--f-sans)' }}>
+                          <td style={{ padding: '12px 18px', color: 'var(--ink)' }}>TOTAL</td>
+                          <td style={{ padding: '12px 18px', textAlign: 'right' }} className="mono">{resultados.reduce((s, r) => s + r.sessoes, 0)}</td>
+                          <td></td>
+                          <td style={{ padding: '12px 18px', textAlign: 'right' }} className="mono">{D.brlR(totalRec)}</td>
+                          <td style={{ padding: '12px 18px', textAlign: 'right', color: totalImp ? 'var(--c-neg)' : 'var(--ink-4)' }} className="mono">{totalImp ? '−' + D.brlR(totalImp).replace('R$\u00a0', '').replace('R$ ', '') : '—'}</td>
+                          <td style={{ padding: '12px 18px', textAlign: 'right' }} className="mono">{D.brlR(resultados.reduce((s, r) => s + r.bruto, 0))}</td>
+                          <td></td>
+                          <td style={{ padding: '12px 18px', textAlign: 'right', color: 'var(--c-pos)' }} className="mono">{D.brlR(totalLiq)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </window.Card>
+              </>
+            )}
 
-              <window.TiltCard interactive={false} padding={0}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
-                  <thead>
-                    <tr style={{ color: 'var(--ink-mute)', textAlign: 'left' }}>
-                      {['Profissional', 'Sessões', 'Part.', 'Receita', 'Imposto', 'Repasse', 'Holding', 'Líquido'].map((h, i) => (
-                        <th key={i} style={{ padding: '12px 18px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: i === 0 ? 'left' : 'right', fontWeight: 700 }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {resultados.map((r, i) => (
-                      <tr key={i} style={{ borderTop: '1px solid var(--line)' }}>
-                        <td style={{ padding: '11px 18px', fontWeight: 600 }}>{r.nome}<div style={{ fontSize: 11, color: 'var(--ink-mute)' }}>{r.categoria}</div></td>
-                        <td style={{ padding: '11px 18px', textAlign: 'right' }} className="mono">{r.sessoes}</td>
-                        <td style={{ padding: '11px 18px', textAlign: 'right' }} className="mono">{r.particular_n || '—'}</td>
-                        <td style={{ padding: '11px 18px', textAlign: 'right' }} className="mono">{D.brlR(r.receita)}</td>
-                        <td style={{ padding: '11px 18px', textAlign: 'right', color: r.tipo === 'percentual' ? 'var(--c-neg)' : 'var(--ink-mute)' }} className="mono" title={r.tipo === 'percentual' ? 'Imposto 13,33% descontado antes do split' : 'Repasse fixo — não desconta imposto do profissional'}>{r.tipo === 'percentual' ? '−' + D.brlR(r.imposto).replace('R$ ', '') : '—'}</td>
-                        <td style={{ padding: '11px 18px', textAlign: 'right' }} className="mono">{D.brlR(r.bruto)}</td>
-                        <td style={{ padding: '11px 18px', textAlign: 'right', color: r.holding ? 'var(--c-neg)' : 'var(--ink-mute)' }} className="mono">{r.holding ? '−' + D.brlR(r.holding).replace('R$ ', '') : '—'}</td>
-                        <td style={{ padding: '11px 18px', textAlign: 'right', fontWeight: 700, color: 'var(--c-pos)' }} className="mono">{D.brlR(r.liquido)}</td>
-                      </tr>
-                    ))}
-                    <tr style={{ borderTop: '2px solid var(--line)', fontWeight: 700 }}>
-                      <td style={{ padding: '12px 18px' }}>TOTAL</td>
-                      <td style={{ padding: '12px 18px', textAlign: 'right' }} className="mono">{resultados.reduce((s, r) => s + r.sessoes, 0)}</td>
-                      <td></td>
-                      <td style={{ padding: '12px 18px', textAlign: 'right' }} className="mono">{D.brlR(totalRec)}</td>
-                      <td style={{ padding: '12px 18px', textAlign: 'right', color: totalImp ? 'var(--c-neg)' : 'var(--ink-mute)' }} className="mono">{totalImp ? '−' + D.brlR(totalImp).replace('R$ ', '') : '—'}</td>
-                      <td style={{ padding: '12px 18px', textAlign: 'right' }} className="mono">{D.brlR(resultados.reduce((s, r) => s + r.bruto, 0))}</td>
-                      <td></td>
-                      <td style={{ padding: '12px 18px', textAlign: 'right', color: 'var(--c-pos)' }} className="mono">{D.brlR(totalLiq)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </window.TiltCard>
-            </>
-          )}
+            {!rows && (
+              <window.Card padding={0}>
+                <div style={{ padding: 40 }}>
+                  <window.EmptyState icon="file" title="Importe o relatório de agendamento"
+                    hint="Escolha a competência e importe o CSV/XLSX. O particular vem automaticamente do Caixa lançado pela recepção no mesmo mês." />
+                </div>
+              </window.Card>
+            )}
+          </>
+        )}
 
-          {!rows && (
-            <window.TiltCard interactive={false} padding={40}>
-              <div style={{ textAlign: 'center', color: 'var(--ink-mute)' }}>
-                Escolha a competência e importe o relatório de agendamento. O particular vem automaticamente do Caixa lançado pela recepção no mesmo mês.
-              </div>
-            </window.TiltCard>
-          )}
-        </>
-      )}
-
-      {sub === 'pagamentos' && <PagamentosTab companyId={companyId} userId={userId} colabs={colabs} D={D} />}
-      {sub === 'regras' && <RegrasTab companyId={companyId} colabs={colabs} regras={regras} setRegras={setRegras} D={D} />}
-      {sub === 'tarifas' && <TarifasTab tarifas={tarifas} D={D} />}
+        {sub === 'pagamentos' && <PagamentosTab companyId={companyId} userId={userId} colabs={colabs} D={D} />}
+        {sub === 'regras' && <RegrasTab companyId={companyId} colabs={colabs} regras={regras} setRegras={setRegras} D={D} />}
+        {sub === 'tarifas' && <TarifasTab tarifas={tarifas} D={D} />}
+      </div>
     </div>
   );
 };
@@ -823,7 +833,7 @@ const RegrasTab = ({ companyId, colabs, regras, setRegras }) => {
     <window.TiltCard interactive={false} padding={0}>
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h3 style={{ fontSize: 15, fontWeight: 600 }}>Regras de repasse por profissional</h3>
+          <h3 style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>Regras de repasse por profissional</h3>
           <p style={{ fontSize: 12.5, color: 'var(--ink-mute)', marginTop: 4 }}>{regras.length} regra(s) cadastrada(s). Clique numa linha para editar.</p>
         </div>
         <window.Btn variant="primary" icon="plus" size="sm" onClick={() => setEditando({})}>Nova regra</window.Btn>
@@ -1006,7 +1016,7 @@ const TarifasTab = ({ tarifas }) => {
   return (
     <window.TiltCard interactive={false} padding={0}>
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-        <h3 style={{ fontSize: 15, fontWeight: 600 }}>Tarifas de convênio</h3>
+        <h3 style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>Tarifas de convênio</h3>
         <p style={{ fontSize: 12.5, color: 'var(--ink-mute)', marginTop: 4 }}>O que a clínica recebe por atendimento. {tarifas.length} cadastrada(s).</p>
       </div>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
