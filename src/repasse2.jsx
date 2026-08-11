@@ -139,12 +139,6 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
           pendencias.push({ tipo: 'tarifa', conv, msg: `Convênio "${conv}" (${proc}) sem tarifa cadastrada.` });
       }
       receita += tarifa;
-      detalhes.push({
-        dia, hora: a['Horário'] || a['Horario'] || '',
-        paciente: a['Paciente'] || a['Cliente'] || '',
-        convenio: conv, valor: tarifa,
-      });
-
       let rep;
       if (regra.tipo === 'fixo') {
         if (/Aba/i.test(proc) && regra.valor_fixo_aba) rep = Number(regra.valor_fixo_aba);
@@ -153,6 +147,17 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
         rep = tarifa * (1 - IMPOSTO_RP) * Number(regra.pct_convenio || 0);
       }
       repasse += rep;
+
+      // Detalhamento: SÓ convênio (exclui particular), com o valor que o
+      // PROFISSIONAL recebe naquele atendimento (já com imposto e split).
+      const ehParticular = /^particular/i.test(convBase);
+      if (!ehParticular) {
+        detalhes.push({
+          dia, hora: a['Horário'] || a['Horario'] || '',
+          paciente: a['Paciente'] || a['Cliente'] || '',
+          convenio: conv, valor: rep,
+        });
+      }
     }
 
     // Particular NÃO entra neste demonstrativo — é pago ao profissional por outra via.
@@ -339,7 +344,7 @@ function gerarDemonstrativoPDF(r, competencia, assinante = 'Guilherme Marques', 
       doc.text('HORA', colX.hora, y);
       doc.text('PACIENTE', colX.pac, y);
       doc.text('CONV\u00caNIO', colX.conv, y);
-      doc.text('VALOR', colX.val, y, { align: 'right' });
+      doc.text('REPASSE', colX.val, y, { align: 'right' });
       y += 2; doc.setDrawColor(line[0], line[1], line[2]); doc.setLineWidth(0.3); doc.line(M, y, W - M, y); y += 4;
     };
     tituloDet(); headerRow();
@@ -356,11 +361,23 @@ function gerarDemonstrativoPDF(r, competencia, assinante = 'Guilherme Marques', 
       setInk(ink); doc.text(brl(a.valor), colX.val, y, { align: 'right' });
       y += 5;
     });
-    // total da tabela
+    // subtotal / holding / total líquido — fecha a conta até o valor do topo
+    const somaDet = det.reduce((s, a) => s + (a.valor || 0), 0);
     y += 1; doc.setDrawColor(line[0], line[1], line[2]); doc.setLineWidth(0.3); doc.line(M, y, W - M, y); y += 5;
-    setInk(navy); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+    setInk(soft); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
     doc.text(`${det.length} atendimento(s) de conv\u00eanio`, M, y);
-    doc.text(brl(det.reduce((s, a) => s + (a.valor || 0), 0)), colX.val, y, { align: 'right' });
+    doc.text(brl(somaDet), colX.val, y, { align: 'right' });
+    y += 5.5;
+    if (r.holding) {
+      setInk(soft); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+      doc.text('Holding', M, y);
+      doc.text('- ' + brl(r.holding).replace('R$\u00a0', '').replace('R$ ', ''), colX.val, y, { align: 'right' });
+      y += 5.5;
+    }
+    doc.setDrawColor(line[0], line[1], line[2]); doc.setLineWidth(0.3); doc.line(M, y - 1.5, W - M, y - 1.5); y += 2;
+    setInk(navy); doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.text('Total l\u00edquido a receber', M, y);
+    doc.text(brl(somaDet - (r.holding || 0)), colX.val, y, { align: 'right' });
     y += 10;
     // garante espaço para aviso+assinatura; se não couber, nova página
     if (y > 297 - 20 - 80) { doc.addPage(); y = 20; }
