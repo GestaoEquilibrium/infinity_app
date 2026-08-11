@@ -81,6 +81,7 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
     const holding = Number(regra.holding_mensal || 0);
     let sessoes = 0, receita = 0, repasse = 0, faltas = 0, ausencias = 0, pendentes = 0;
     const convCount = {};
+    const detalhes = [];      // atendimentos de convênio computados (p/ demonstrativo detalhado)
     const diaInfo = {};       // dia -> { realizado, ausente } para saber se faltou o dia inteiro
     let ausenteProprio = 0;   // só "Profissional Ausente" (não conta desmarcação estando presente)
 
@@ -111,6 +112,11 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
           pendencias.push({ tipo: 'tarifa', conv, msg: `Convênio "${conv}" sem tarifa cadastrada.` });
       }
       receita += tarifa;
+      detalhes.push({
+        dia, hora: a['Horário'] || a['Horario'] || '',
+        paciente: a['Paciente'] || a['Cliente'] || '',
+        convenio: conv, valor: tarifa,
+      });
 
       let rep;
       if (regra.tipo === 'fixo') {
@@ -165,6 +171,7 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
       valor_fixo: Number(regra.valor_fixo || 0),
       sessoes, particular_n: cx.n, receita: receitaTotal, bruto, holding, liquido, imposto, margem,
       faltas, ausencias, pendentes, convCount, competencia: regra.competencia_convenio,
+      detalhes,
     });
   }
   resultados.sort((a, b) => b.liquido - a.liquido);
@@ -289,6 +296,51 @@ function gerarDemonstrativoPDF(r, competencia, assinante = 'Guilherme Marques', 
   doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
   doc.text(brl(r.liquido), cardX + cardW - 10, y + bandH / 2 + 2.5, { align: 'right' });
   y += bandH + 14;
+
+  // ── DETALHAMENTO DOS ATENDIMENTOS (convênio) ──
+  const det = Array.isArray(r.detalhes) ? r.detalhes : [];
+  if (det.length) {
+    const H_PAGE = 297, BOTTOM = 20;
+    // título da seção
+    const tituloDet = () => {
+      setInk(navy); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+      doc.text('Detalhamento dos atendimentos', M, y); y += 2;
+      doc.setDrawColor(line[0], line[1], line[2]); doc.setLineWidth(0.3); doc.line(M, y + 1, W - M, y + 1); y += 6;
+    };
+    // cabeçalho da tabela
+    const colX = { dia: M, hora: M + 24, pac: M + 42, conv: W - M - 48, val: W - M };
+    const headerRow = () => {
+      setInk(mute); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+      doc.text('DATA', colX.dia, y);
+      doc.text('HORA', colX.hora, y);
+      doc.text('PACIENTE', colX.pac, y);
+      doc.text('CONV\u00caNIO', colX.conv, y);
+      doc.text('VALOR', colX.val, y, { align: 'right' });
+      y += 2; doc.setDrawColor(line[0], line[1], line[2]); doc.setLineWidth(0.3); doc.line(M, y, W - M, y); y += 4;
+    };
+    tituloDet(); headerRow();
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    const fmtDia = d => String(d || '').slice(0, 5); // dd/mm
+    det.forEach(a => {
+      if (y > H_PAGE - BOTTOM - 8) { doc.addPage(); y = 20; headerRow(); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); }
+      setInk(soft); doc.text(fmtDia(a.dia), colX.dia, y);
+      doc.text(String(a.hora || ''), colX.hora, y);
+      setInk(ink);
+      const pacTxt = doc.splitTextToSize(String(a.paciente || ''), colX.conv - colX.pac - 3)[0] || '';
+      doc.text(pacTxt, colX.pac, y);
+      setInk(soft); doc.setFontSize(7.5); doc.text(String(a.convenio || ''), colX.conv, y); doc.setFontSize(8);
+      setInk(ink); doc.text(brl(a.valor), colX.val, y, { align: 'right' });
+      y += 5;
+    });
+    // total da tabela
+    y += 1; doc.setDrawColor(line[0], line[1], line[2]); doc.setLineWidth(0.3); doc.line(M, y, W - M, y); y += 5;
+    setInk(navy); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+    doc.text(`${det.length} atendimento(s) de conv\u00eanio`, M, y);
+    doc.text(brl(det.reduce((s, a) => s + (a.valor || 0), 0)), colX.val, y, { align: 'right' });
+    y += 10;
+    // garante espaço para aviso+assinatura; se não couber, nova página
+    if (y > 297 - 20 - 80) { doc.addPage(); y = 20; }
+  }
 
   // ── AVISO ──
   const cicloLabel = temPart
