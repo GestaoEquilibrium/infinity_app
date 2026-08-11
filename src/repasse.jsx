@@ -61,6 +61,21 @@ async function upsertRegra(r, companyId) {
 async function fetchTarifas(companyId) {
   return sbR(`/repasse_tarifas?company_id=eq.${companyId}&select=*&order=convenio.asc&limit=500`);
 }
+async function updateTarifa(id, patch) {
+  return sbR(`/repasse_tarifas?id=eq.${id}`, {
+    method: 'PATCH', prefer: 'return=representation',
+    body: JSON.stringify(patch),
+  });
+}
+async function createTarifa(t, companyId) {
+  return sbR('/repasse_tarifas', {
+    method: 'POST', prefer: 'return=representation',
+    body: JSON.stringify({ ...t, company_id: companyId }),
+  });
+}
+async function deleteTarifa(id) {
+  return sbR(`/repasse_tarifas?id=eq.${id}`, { method: 'DELETE' });
+}
 async function fetchFechamentos(companyId, competencia) {
   let q = `/repasse_fechamentos?company_id=eq.${companyId}&select=*&order=liquido.desc&limit=500`;
   if (competencia) q += `&competencia=eq.${competencia}`;
@@ -343,7 +358,7 @@ const CaixaPage = () => {
 Object.assign(window, {
   CaixaPage,
   // expõe data layer para a RepassePage (arquivo repasse2.jsx) e outros
-  __repasseData: { fetchCaixa, fetchRegras, upsertRegra, fetchTarifas, fetchFechamentos, createFechamento, brlR,
+  __repasseData: { fetchCaixa, fetchRegras, upsertRegra, fetchTarifas, updateTarifa, createTarifa, deleteTarifa, fetchFechamentos, createFechamento, brlR,
     fetchPagamentos, createPagamento, updatePagamento, deletePagamento, deletePagamentosRepasse, deletePagamentosFolha, pagamentoExiste,
     enviarPagamentoParaContas, vencimentoDoGrupo, quintoDiaUtil },
 });
