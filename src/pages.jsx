@@ -670,10 +670,8 @@ const ImpostosPage = ({ filter, setFilter }) => {
   const [editando, setEditando] = React.useState(null);
   const [confirmDelete, setConfirmDelete] = React.useState(null);
 
-  // Categorias fiscais aceitas
   const CATS = ['INSS','ISS','DARF','IRPJ','CSLL','DARF Aluguel','Outros Tributos'];
 
-  // Carregar impostos do banco — apenas categoria fiscal
   const carregar = React.useCallback(async () => {
     if (!companyId) { setLoading(false); setImpostos([]); return; }
     setLoading(true);
@@ -698,17 +696,19 @@ const ImpostosPage = ({ filter, setFilter }) => {
   const isAtrasado = c => !c.pago && c.vencimento < today;
   const isHoje     = c => !c.pago && c.vencimento === today;
 
-  const statusPill = c => {
-    if (c.pago)        return { label: 'Pago',       bg: 'var(--c-pos-soft)',  color: 'var(--c-pos)' };
-    if (isAtrasado(c)) return { label: 'Atrasado',   bg: 'var(--c-neg-soft)',  color: 'var(--c-neg)' };
-    if (isHoje(c))     return { label: 'Vence hoje', bg: 'var(--c-warn-soft)', color: 'var(--c-warn)' };
-    return               { label: 'Pendente',    bg: 'var(--bg-alt)',      color: 'var(--ink-soft)' };
+  const statusOf = c => {
+    if (c.pago)        return 'pago';
+    if (isAtrasado(c)) return 'atrasado';
+    if (isHoje(c))     return 'hoje';
+    return 'pendente';
   };
+  const statusLabel = { pago: 'Pago', atrasado: 'Atrasado', hoje: 'Vence hoje', pendente: 'Pendente' };
 
-  const catColor = cat => ({
-    'INSS': 'var(--g-9)', 'ISS': 'var(--g-7)', 'DARF': 'var(--g-6)',
-    'IRPJ': 'var(--g-8)', 'CSLL': 'var(--g-5)', 'DARF Aluguel': 'var(--g-6)',
-  })[cat] || 'var(--g-6)';
+  // cor de categoria fiscal (paleta cat)
+  const catCor = cat => ({
+    'INSS': 'var(--cat-3)', 'ISS': 'var(--cat-6)', 'DARF': 'var(--cat-5)',
+    'IRPJ': 'var(--cat-1)', 'CSLL': 'var(--cat-4)', 'DARF Aluguel': 'var(--cat-5)',
+  })[cat] || 'var(--cat-7)';
 
   const filtered = impostos.filter(c => {
     if (statusFilter === 'pendente' && c.pago) return false;
@@ -717,293 +717,204 @@ const ImpostosPage = ({ filter, setFilter }) => {
     return true;
   });
 
-  // KPIs
   const totalPendente = impostos.filter(c => !c.pago).reduce((s,c) => s+(c.previsto||0), 0);
   const totalPago     = impostos.filter(c =>  c.pago).reduce((s,c) => s+(c.realizado||c.previsto||0), 0);
   const atrasados     = impostos.filter(c => isAtrasado(c)).length;
   const venceHoje     = impostos.filter(c => isHoje(c)).length;
 
-  // Marcar pago/desmarcar
   const marcarPago = async (imp) => {
     try {
-      await window.updateConta(imp.id, {
-        status: 'pago',
-        actual_value: imp.previsto,
-        settled_at: today,
-      });
+      await window.updateConta(imp.id, { status: 'pago', actual_value: imp.previsto, settled_at: today });
       await carregar();
     } catch(e) { alert('Erro: ' + e.message); }
   };
-
   const desmarcarPago = async (imp) => {
     try {
       await window.updateConta(imp.id, { status: 'pendente', actual_value: null, settled_at: null });
       await carregar();
     } catch(e) { alert('Erro: ' + e.message); }
   };
-
   const excluir = async (id) => {
-    try {
-      await window.deleteConta(id);
-      setConfirmDelete(null);
-      await carregar();
-    } catch(e) { alert('Erro: ' + e.message); }
+    try { await window.deleteConta(id); setConfirmDelete(null); await carregar(); }
+    catch(e) { alert('Erro: ' + e.message); }
   };
 
-  // Modal de criação/edição
+  // Modal criação/edição
   const ModalImposto = ({ imp, onClose }) => {
     const isNew = !imp?.id;
     const [form, setForm] = React.useState({
-      description: imp?.description || '',
-      category: imp?.category || 'DARF',
-      vencimento: imp?.vencimento || '',
-      previsto: imp?.previsto || '',
-      pago: imp?.pago || false,
-      realizado: imp?.realizado || '',
+      description: imp?.description || '', category: imp?.category || 'DARF',
+      vencimento: imp?.vencimento || '', previsto: imp?.previsto || '',
+      pago: imp?.pago || false, realizado: imp?.realizado || '',
     });
     const [saving, setSaving] = React.useState(false);
     const set = (k, v) => setForm(f => ({...f, [k]: v}));
-    const inp = { width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)', fontSize: 14, outline: 'none', boxSizing: 'border-box' };
-    const lbl = { display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--ink-soft)', marginBottom: 5 };
 
     const save = async () => {
-      if (!form.description.trim() || !form.vencimento || !form.previsto) {
-        alert('Preencha descrição, vencimento e valor.'); return;
-      }
+      if (!form.description.trim() || !form.vencimento || !form.previsto) { alert('Preencha descrição, vencimento e valor.'); return; }
       setSaving(true);
       try {
         const payload = {
-          description: form.description.trim(),
-          category: form.category,
-          tipo: 'pagar',
-          vencimento: form.vencimento,
-          previsto: parseFloat(String(form.previsto).replace(',','.')),
-          pago: form.pago,
-          realizado: form.pago ? parseFloat(String(form.realizado||form.previsto).replace(',','.')) : null,
+          description: form.description.trim(), category: form.category, tipo: 'pagar',
+          vencimento: form.vencimento, previsto: parseFloat(String(form.previsto).replace(',','.')),
+          pago: form.pago, realizado: form.pago ? parseFloat(String(form.realizado||form.previsto).replace(',','.')) : null,
         };
-        if (isNew) {
-          await window.createConta(payload, companyId, user?.id);
-        } else {
-          await window.updateConta(imp.id, {
-            description: payload.description,
-            category: payload.category,
-            value: payload.previsto,
-            date: payload.vencimento,
-            status: payload.pago ? 'pago' : 'pendente',
-            actual_value: payload.pago ? payload.realizado : null,
-          });
-        }
-        await carregar();
-        onClose();
+        if (isNew) await window.createConta(payload, companyId, user?.id);
+        else await window.updateConta(imp.id, {
+          description: payload.description, category: payload.category, value: payload.previsto,
+          date: payload.vencimento, status: payload.pago ? 'pago' : 'pendente',
+          actual_value: payload.pago ? payload.realizado : null,
+        });
+        await carregar(); onClose();
       } catch(e) { alert('Erro ao salvar: ' + e.message); }
       finally { setSaving(false); }
     };
 
     return (
-      <div style={{ position:'fixed', inset:0, zIndex:1000, background:'oklch(0 0 0 / 0.45)', backdropFilter:'blur(4px)', display:'grid', placeItems:'center', padding:24 }}>
-        <div style={{ background:'var(--surface-solid)', borderRadius:'var(--r-lg)', padding:28, width:'min(520px,100%)', boxShadow:'0 24px 60px rgba(0,0,0,0.3)', border:'1px solid var(--line)' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:22 }}>
-            <h3 style={{ margin:0, fontSize:18 }}>{isNew ? 'Novo imposto' : 'Editar imposto'}</h3>
-            <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color:'var(--ink-soft)' }}>✕</button>
+      <div style={{ position:'fixed', inset:0, zIndex:1000, background:'rgba(15,23,32,.45)', display:'grid', placeItems:'center', padding:24 }}>
+        <window.Card padding={24} style={{ width:'min(520px,100%)', boxShadow:'var(--sh-2)' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+            <h3 style={{ font:'var(--t-h2)', color:'var(--ink)' }}>{isNew ? 'Novo imposto' : 'Editar imposto'}</h3>
+            <window.IconBtn name="x" size={30} onClick={onClose} />
           </div>
-
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:14 }}>
-            <div style={{ gridColumn:'1/-1' }}>
-              <label style={lbl}>Descrição</label>
-              <input value={form.description} onChange={e=>set('description',e.target.value)} style={inp} placeholder="Ex: DARF COFINS Mai/2026" autoFocus />
-            </div>
-            <div>
-              <label style={lbl}>Categoria</label>
-              <select value={form.category} onChange={e=>set('category',e.target.value)} style={inp}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:16 }}>
+            <window.Field label="Descrição" style={{ gridColumn:'1/-1' }}>
+              <input value={form.description} onChange={e=>set('description',e.target.value)} style={window.inputStyle} placeholder="Ex: DARF COFINS Mai/2026" autoFocus />
+            </window.Field>
+            <window.Field label="Categoria">
+              <select value={form.category} onChange={e=>set('category',e.target.value)} style={window.inputStyle}>
                 {CATS.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
-            </div>
-            <div>
-              <label style={lbl}>Vencimento</label>
-              <input type="date" value={form.vencimento} onChange={e=>set('vencimento',e.target.value)} style={inp} />
-            </div>
-            <div>
-              <label style={lbl}>Valor previsto (R$)</label>
-              <input value={form.previsto} onChange={e=>set('previsto',e.target.value)} style={inp} placeholder="0,00" />
-            </div>
-            <div>
-              <label style={lbl}>Situação</label>
-              <select value={form.pago ? 'pago' : 'pendente'} onChange={e=>set('pago', e.target.value==='pago')} style={inp}>
+            </window.Field>
+            <window.Field label="Vencimento">
+              <input type="date" value={form.vencimento} onChange={e=>set('vencimento',e.target.value)} style={window.inputStyle} />
+            </window.Field>
+            <window.Field label="Valor previsto (R$)">
+              <input value={form.previsto} onChange={e=>set('previsto',e.target.value)} style={window.inputStyle} placeholder="0,00" />
+            </window.Field>
+            <window.Field label="Situação">
+              <select value={form.pago ? 'pago' : 'pendente'} onChange={e=>set('pago', e.target.value==='pago')} style={window.inputStyle}>
                 <option value="pendente">Pendente</option>
                 <option value="pago">Pago</option>
               </select>
-            </div>
+            </window.Field>
             {form.pago && (
-              <div style={{ gridColumn:'1/-1' }}>
-                <label style={lbl}>Valor pago (R$)</label>
-                <input value={form.realizado} onChange={e=>set('realizado',e.target.value)} style={inp} placeholder={String(form.previsto || '0,00')} />
-              </div>
+              <window.Field label="Valor pago (R$)" style={{ gridColumn:'1/-1' }}>
+                <input value={form.realizado} onChange={e=>set('realizado',e.target.value)} style={window.inputStyle} placeholder={String(form.previsto || '0,00')} />
+              </window.Field>
             )}
           </div>
-
-          <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:8 }}>
-            <button onClick={onClose} style={{ padding:'10px 20px', borderRadius:8, border:'1px solid var(--line)', background:'transparent', color:'var(--ink-soft)', cursor:'pointer', fontSize:14 }}>Cancelar</button>
-            <button onClick={save} disabled={saving} style={{ padding:'10px 24px', borderRadius:8, border:'none', background:'var(--accent)', color:'var(--accent-ink)', fontWeight:700, cursor:'pointer', fontSize:14, opacity: saving?0.7:1 }}>
-              {saving ? 'Salvando...' : isNew ? '+ Adicionar' : 'Salvar'}
-            </button>
+          <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+            <window.Btn variant="secondary" onClick={onClose}>Cancelar</window.Btn>
+            <window.Btn variant="primary" icon="check" onClick={save} disabled={saving}>{saving ? 'Salvando…' : isNew ? 'Adicionar' : 'Salvar'}</window.Btn>
           </div>
-        </div>
+        </window.Card>
       </div>
     );
   };
 
   return (
-    <div className="anim-fade" style={{ display:'flex', flexDirection:'column', gap:22 }}>
+    <div className="anim-fade">
+      {(showModal || editando) && <ModalImposto imp={editando} onClose={() => { setShowModal(false); setEditando(null); }} />}
 
-      {/* Modal */}
-      {(showModal || editando) && (
-        <ModalImposto imp={editando} onClose={() => { setShowModal(false); setEditando(null); }} />
-      )}
-
-      {/* Confirm delete */}
       {confirmDelete && (
-        <div style={{ position:'fixed', inset:0, zIndex:1000, background:'oklch(0 0 0 / 0.45)', backdropFilter:'blur(4px)', display:'grid', placeItems:'center', padding:24 }}>
-          <div style={{ background:'var(--surface-solid)', borderRadius:'var(--r-lg)', padding:28, width:'min(420px,100%)', border:'1px solid color-mix(in oklch, var(--c-neg) 40%, transparent)' }}>
-            <h3 style={{ margin:'0 0 10px' }}>Excluir imposto?</h3>
-            <p style={{ margin:'0 0 22px', color:'var(--ink-soft)', fontSize:14 }}>
-              <strong>{confirmDelete.description}</strong> será removido permanentemente.
-            </p>
+        <div style={{ position:'fixed', inset:0, zIndex:1000, background:'rgba(15,23,32,.45)', display:'grid', placeItems:'center', padding:24 }}>
+          <window.Card padding={24} style={{ width:'min(420px,100%)' }}>
+            <h3 style={{ font:'var(--t-h2)', color:'var(--ink)', marginBottom:8 }}>Excluir imposto?</h3>
+            <p style={{ font:'400 12.5px var(--f-sans)', color:'var(--ink-2)', marginBottom:20 }}><b>{confirmDelete.description}</b> será removido permanentemente.</p>
             <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
-              <button onClick={() => setConfirmDelete(null)} style={{ padding:'10px 18px', borderRadius:8, border:'1px solid var(--line)', background:'transparent', color:'var(--ink-soft)', cursor:'pointer' }}>Cancelar</button>
-              <button onClick={() => excluir(confirmDelete.id)} style={{ padding:'10px 20px', borderRadius:8, border:'none', background:'var(--c-neg)', color:'var(--surface-solid)', fontWeight:700, cursor:'pointer' }}>Excluir</button>
+              <window.Btn variant="secondary" onClick={() => setConfirmDelete(null)}>Cancelar</window.Btn>
+              <window.Btn variant="danger" onClick={() => excluir(confirmDelete.id)}>Excluir</window.Btn>
             </div>
-          </div>
+          </window.Card>
         </div>
       )}
 
-      {/* Header */}
-      <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap' }}>
-        <div>
-          <h2 style={{ margin:0, fontSize:26, fontWeight:700 }}>Impostos</h2>
-          <div style={{ fontSize:13, color:'var(--ink-soft)', marginTop:2 }}>INSS · ISS · DARF · IRPJ · CSLL · 100% banco de dados</div>
-        </div>
-        <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
-          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar..."
-            style={{ padding:'9px 14px', borderRadius:8, border:'1px solid var(--line)', background:'var(--surface)', color:'var(--ink)', fontSize:13, outline:'none', width:180 }} />
-          <button onClick={() => { setEditando(null); setShowModal(true); }}
-            style={{ padding:'9px 20px', borderRadius:8, border:'none', background:'var(--accent)', color:'var(--accent-ink)', fontWeight:700, fontSize:13, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:6 }}>
-            + Novo imposto
-          </button>
-        </div>
-      </div>
+      {/* ── Faixa azul ── */}
+      <window.Band
+        title="Impostos"
+        subtitle="INSS · ISS · DARF · IRPJ · CSLL"
+        right={<window.Btn variant="primary" icon="plus" onBand onClick={() => { setEditando(null); setShowModal(true); }}>Novo imposto</window.Btn>}
+        metricLabel="Total pendente"
+        metric={totalPendente}
+        stats={[
+          { label: 'Pago no ano', value: totalPago, color: 'var(--on-accent-pos)' },
+          { label: 'Atrasados', value: String(atrasados), color: atrasados > 0 ? 'var(--on-accent-neg)' : 'var(--on-accent)' },
+          { label: 'Vence hoje', value: String(venceHoje), color: venceHoje > 0 ? 'var(--on-accent-neg)' : 'var(--on-accent)' },
+        ]}
+      />
 
-      {/* KPIs */}
-      {!loading && (
-        <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
-          {[
-            { label:'Total pendente',  value: fmtMoeda(totalPendente), sub: impostos.filter(c=>!c.pago).length + ' obrigações', color:'var(--c-neg)' },
-            { label:'Total pago (ano)', value: fmtMoeda(totalPago),    sub: impostos.filter(c=>c.pago).length + ' quitados',   color:'var(--c-pos)' },
-            atrasados > 0 && { label:'Atrasados', value: atrasados + (atrasados===1?' obrigação':' obrigações'), sub:'Requer atenção!', color:'var(--c-neg)' },
-            venceHoje > 0 && { label:'Vence hoje', value: venceHoje + (venceHoje===1?' imposto':' impostos'), sub:'Pague hoje!', color:'var(--c-warn)' },
-          ].filter(Boolean).map(kpi => (
-            <div key={kpi.label} className="glass" style={{ borderRadius:'var(--r-md)', padding:'18px 22px', flex:1, minWidth:160, borderTop:'3px solid '+kpi.color }}>
-              <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--ink-soft)', marginBottom:6 }}>{kpi.label}</div>
-              <div style={{ fontSize:22, fontWeight:700, color:'var(--ink)' }}>{kpi.value}</div>
-              <div style={{ fontSize:12, color:'var(--ink-soft)', marginTop:4 }}>{kpi.sub}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Filtros */}
-      <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-        {[['pendente','Pendentes'],['pago','Pagos'],['todos','Todos']].map(([k,l]) => (
-          <button key={k} onClick={() => setStatusFilter(k)}
-            style={{ padding:'7px 18px', borderRadius:20, border:'1px solid var(--line)', background: statusFilter===k ? 'var(--accent)' : 'var(--surface)', color: statusFilter===k ? 'var(--accent-ink)' : 'var(--ink-soft)', fontWeight:600, fontSize:13, cursor:'pointer' }}>
-            {l}
-          </button>
-        ))}
-        <span style={{ marginLeft:8, fontSize:13, color:'var(--ink-soft)' }}>{filtered.length} {filtered.length===1?'item':'itens'}</span>
-      </div>
-
-      {/* Tabela */}
-      <div className="glass" style={{ borderRadius:'var(--r-lg)', overflow:'hidden' }}>
-        {loading ? (
-          <div style={{ padding:48, textAlign:'center', color:'var(--ink-soft)' }}>Carregando...</div>
-        ) : filtered.length === 0 ? (
-          <div style={{ padding:56, textAlign:'center' }}>
-            <div style={{ fontSize:36, marginBottom:12 }}>{impostos.length === 0 ? '📋' : '✅'}</div>
-            <div style={{ fontWeight:700, fontSize:16, color:'var(--ink)' }}>
-              {impostos.length === 0 ? 'Nenhum imposto cadastrado' : 'Nenhum imposto pendente'}
-            </div>
-            <div style={{ fontSize:13, color:'var(--ink-soft)', marginTop:6 }}>
-              {impostos.length === 0 ? 'Clique em "+ Novo imposto" para começar.' : 'Todas as obrigações estão em dia!'}
-            </div>
+      <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* Filtros + busca */}
+        <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+          <window.Segmented
+            options={[{ value:'pendente', label:'Pendentes' }, { value:'pago', label:'Pagos' }, { value:'todos', label:'Todos' }]}
+            value={statusFilter} onChange={setStatusFilter} />
+          <span style={{ font:'400 12px var(--f-sans)', color:'var(--ink-3)' }}>{filtered.length} {filtered.length===1?'item':'itens'}</span>
+          <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:8, height:34, background:'var(--field)', border:'1px solid var(--line-strong)', borderRadius:'var(--r-lg)', padding:'0 12px', minWidth:180 }}>
+            <window.Icon name="search" size={15} style={{ color:'var(--ink-3)' }} />
+            <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar…" style={{ background:'none', border:'none', outline:'none', flex:1, font:'400 12.5px var(--f-sans)', color:'var(--ink)' }} />
           </div>
-        ) : (
-          <table style={{ width:'100%', borderCollapse:'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom:'1px solid var(--line)', background:'var(--surface)' }}>
-                {['Descrição','Categoria','Vencimento','Valor previsto','Valor pago','Status','Ações'].map(h => (
-                  <th key={h} style={{ padding:'12px 16px', textAlign:'left', fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color:'var(--ink-soft)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(imp => {
-                const pill = statusPill(imp);
-                return (
-                  <tr key={imp.id} style={{ borderBottom:'1px solid var(--line)', background: isAtrasado(imp)?'color-mix(in oklch, var(--c-neg) 5%, transparent)':'transparent' }}
-                    onMouseEnter={e => e.currentTarget.style.background='var(--hover,rgba(0,0,0,0.02))'}
-                    onMouseLeave={e => e.currentTarget.style.background = isAtrasado(imp)?'color-mix(in oklch, var(--c-neg) 5%, transparent)':'transparent'}>
-                    <td style={{ padding:'13px 16px' }}>
-                      <div style={{ fontWeight:600, fontSize:14 }}>{imp.description}</div>
-                    </td>
-                    <td style={{ padding:'13px 16px' }}>
-                      <span style={{ display:'inline-block', padding:'3px 10px', borderRadius:6, background:`color-mix(in oklch, ${catColor(imp.category)} 10%, transparent)`, border:'1px solid '+`color-mix(in oklch, ${catColor(imp.category)} 22%, transparent)`, color:catColor(imp.category), fontSize:12, fontWeight:600 }}>
-                        {imp.category}
-                      </span>
-                    </td>
-                    <td style={{ padding:'13px 16px', fontFamily:'monospace', fontSize:13, color: isAtrasado(imp)?'var(--c-neg)':'var(--ink)', fontWeight: isAtrasado(imp)?700:400 }}>
-                      {fmtDate(imp.vencimento)}
-                    </td>
-                    <td style={{ padding:'13px 16px', fontFamily:'monospace', fontWeight:600 }}>{fmtMoeda(imp.previsto)}</td>
-                    <td style={{ padding:'13px 16px', fontFamily:'monospace', color: imp.pago?'var(--c-pos)':'var(--ink-soft)' }}>
-                      {imp.pago ? fmtMoeda(imp.realizado||imp.previsto) : '—'}
-                    </td>
-                    <td style={{ padding:'13px 16px' }}>
-                      <span style={{ display:'inline-block', padding:'4px 10px', borderRadius:6, background:pill.bg, color:pill.color, fontSize:12, fontWeight:700 }}>
-                        {pill.label}
-                      </span>
-                    </td>
-                    <td style={{ padding:'13px 16px' }}>
-                      <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-                        {!imp.pago ? (
-                          <button onClick={() => marcarPago(imp)}
-                            style={{ padding:'5px 12px', borderRadius:7, border:'none', background:'var(--c-pos)', color:'var(--surface-solid)', fontWeight:600, fontSize:12, cursor:'pointer', whiteSpace:'nowrap' }}>
-                            ✓ Pagar
-                          </button>
-                        ) : (
-                          <button onClick={() => desmarcarPago(imp)}
-                            style={{ padding:'5px 12px', borderRadius:7, border:'1px solid var(--line)', background:'transparent', color:'var(--ink-soft)', fontSize:12, cursor:'pointer' }}>
-                            Desfazer
-                          </button>
-                        )}
-                        <button onClick={() => setEditando(imp)}
-                          style={{ padding:'5px 10px', borderRadius:7, border:'1px solid var(--line)', background:'transparent', color:'var(--ink-soft)', fontSize:12, cursor:'pointer' }}>✏</button>
-                        <button onClick={() => setConfirmDelete(imp)}
-                          style={{ padding:'5px 10px', borderRadius:7, border:'none', background:'transparent', color:'var(--c-neg)', fontSize:14, cursor:'pointer' }}>✕</button>
-                      </div>
-                    </td>
+        </div>
+
+        {/* Tabela */}
+        <window.Card padding={0} style={{ overflow:'hidden' }}>
+          {loading ? (
+            <div style={{ padding:48, textAlign:'center', color:'var(--ink-3)', font:'500 13px var(--f-sans)' }}>Carregando…</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding:40 }}>
+              <window.EmptyState icon={impostos.length === 0 ? 'file' : 'check'}
+                title={impostos.length === 0 ? 'Nenhum imposto cadastrado' : 'Nenhum imposto pendente'}
+                hint={impostos.length === 0 ? 'Clique em "Novo imposto" para começar.' : 'Todas as obrigações estão em dia!'} />
+            </div>
+          ) : (
+            <div style={{ overflowX:'auto' }}>
+              <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom:'1px solid var(--line)' }}>
+                    {['Descrição','Categoria','Vencimento','Previsto','Pago','Status',''].map((h,i) => (
+                      <th key={h+i} style={{ padding:'10px 16px', textAlign:(i===3||i===4||i===6)?'right':'left', font:'var(--t-label)', textTransform:'uppercase', letterSpacing:'var(--tracking-label)', color:'var(--ink-3)' }}>{h}</th>
+                    ))}
                   </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr style={{ borderTop:'2px solid var(--line)' }}>
-                <td colSpan={3} style={{ padding:'13px 16px', fontWeight:700, fontSize:13 }}>Total ({filtered.length} {filtered.length===1?'item':'itens'})</td>
-                <td style={{ padding:'13px 16px', fontFamily:'monospace', fontWeight:700 }}>{fmtMoeda(filtered.reduce((s,c)=>s+(c.previsto||0),0))}</td>
-                <td style={{ padding:'13px 16px', fontFamily:'monospace', fontWeight:700, color:'var(--c-pos)' }}>{fmtMoeda(filtered.filter(c=>c.pago).reduce((s,c)=>s+(c.realizado||c.previsto||0),0))}</td>
-                <td colSpan={2} />
-              </tr>
-            </tfoot>
-          </table>
-        )}
+                </thead>
+                <tbody>
+                  {filtered.map(imp => {
+                    const st = statusOf(imp);
+                    return (
+                      <tr key={imp.id} style={{ borderBottom:'1px solid var(--line-2)', background: isAtrasado(imp) ? 'var(--c-neg-bg)' : 'transparent' }}>
+                        <td style={{ padding:'11px 16px', font:'500 12.5px var(--f-sans)', color:'var(--ink)' }}>{imp.description}</td>
+                        <td style={{ padding:'11px 16px' }}><window.CatPill cat={catCor(imp.category)}>{imp.category}</window.CatPill></td>
+                        <td style={{ padding:'11px 16px', font:'400 12px var(--f-mono)', color: isAtrasado(imp)?'var(--c-neg)':'var(--ink-2)', fontWeight: isAtrasado(imp)?600:400 }}>{fmtDate(imp.vencimento)}</td>
+                        <td style={{ padding:'11px 16px', textAlign:'right' }}><window.Money value={imp.previsto} size="table" style={{ color:'var(--ink)' }} /></td>
+                        <td style={{ padding:'11px 16px', textAlign:'right' }}>{imp.pago ? <window.Money value={imp.realizado||imp.previsto} size="table" style={{ color:'var(--c-pos)' }} /> : <span style={{ color:'var(--ink-4)' }}>—</span>}</td>
+                        <td style={{ padding:'11px 16px' }}><window.Pill status={st}>{statusLabel[st]}</window.Pill></td>
+                        <td style={{ padding:'11px 16px', textAlign:'right' }}>
+                          <div style={{ display:'flex', gap:5, alignItems:'center', justifyContent:'flex-end' }}>
+                            {!imp.pago ? (
+                              <window.Btn variant="primary" size="sm" icon="check" onClick={() => marcarPago(imp)}>Pagar</window.Btn>
+                            ) : (
+                              <window.Btn variant="secondary" size="sm" onClick={() => desmarcarPago(imp)}>Desfazer</window.Btn>
+                            )}
+                            <window.IconBtn name="edit" size={28} onClick={() => setEditando(imp)} title="Editar" />
+                            <window.IconBtn name="trash" size={28} danger onClick={() => setConfirmDelete(imp)} title="Excluir" />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop:'2px solid var(--line-strong)' }}>
+                    <td colSpan={3} style={{ padding:'12px 16px', font:'600 12.5px var(--f-sans)', color:'var(--ink)' }}>Total ({filtered.length} {filtered.length===1?'item':'itens'})</td>
+                    <td style={{ padding:'12px 16px', textAlign:'right' }}><window.Money value={filtered.reduce((s,c)=>s+(c.previsto||0),0)} size="table" style={{ color:'var(--ink)', fontWeight:700 }} /></td>
+                    <td style={{ padding:'12px 16px', textAlign:'right' }}><window.Money value={filtered.filter(c=>c.pago).reduce((s,c)=>s+(c.realizado||c.previsto||0),0)} size="table" style={{ color:'var(--c-pos)', fontWeight:700 }} /></td>
+                    <td colSpan={2} />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </window.Card>
       </div>
     </div>
   );
