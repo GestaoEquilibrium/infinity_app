@@ -1,239 +1,468 @@
-// folha.jsx — Fechamento de Folha do Mês (Infinity)
-// Junta os dados burocráticos (vindos do Cortex pela ponte) e calcula o mês:
-// salário, faltas, atestado, VT (5,70×2×dias) e benefício (lugar da gratificação).
-// INSS/IRRF do empregado ficam por conta da contabilidade (Marcos).
-// Puro + componente React. Padrão window.* do Infinity.
-// -----------------------------------------------------------------------------
+// folha.jsx — Fechamento de Folha do Mês (Infinity · Eq Finance)
+// ─────────────────────────────────────────────────────────────────────────────
+// • Puxa colaboradores CLT + Estágio (as duas empresas) e o ponto_mensal do Cortex.
+// • Casa por CPF: dias/faltas/atestados (e horas p/ excedente) caem sozinhos.
+//   Sem ponto para a pessoa → campos ficam manuais (a tela nunca trava).
+// • Calcula com as tabelas oficiais 2026 (INSS Portaria MPS/MF · IRRF Lei 15.270/25).
+// • Duas trilhas: CLT (INSS/IRRF/FGTS/patronal/provisões) e Estágio (bolsa + recesso).
+// • Tudo editável, fecha e exporta Excel. Padrão window.* + componentes do ui.jsx.
+// PENDENTE Marcos: (1) anexo Simples Talentos, (2) % patronal Med Center, (3) regra VT.
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ---------- MOTOR (função pura) ----------
-// p:   { nome, cargo, empresa, salario_base, gratificacao,
-//        dias_trabalhados, faltas, atestado_dias, beneficio_va }
-// opts:{ diasUteis, vtDiario, vtMult, inssPatronalPct, vaMode }
-//   vaMode=true  → a gratificação é tratada como Vale-Alimentação (isento de encargo)
-//   vaMode=false → a gratificação é tratada como salário (entra na base, cenário correto)
-function calcFolha(p, opts) {
-  var o = opts || {};
-  var diasUteis = o.diasUteis || 22;
-  var vtDiario = (o.vtDiario != null) ? o.vtDiario : 5.70;
-  var vtMult = (o.vtMult != null) ? o.vtMult : 2;
-  var inssPatPct = (o.inssPatronalPct != null) ? o.inssPatronalPct : 0.28;
-  var vaMode = !!o.vaMode;
+// ═══ IDs das empresas (Supabase company_id) ═══
+const FOLHA_CO = {
+  '7663eaab-3fa3-4067-91f6-71f8c77f8b55': 'medcenter',
+  '17749e39-3e73-41ab-b731-9463d760887b': 'talentos',
+};
+const FOLHA_CO_IDS = Object.keys(FOLHA_CO);
 
-  // Regime por empresa: Talentos = Simples (patronal no DAS) · Med Center = Presumido
-  var empresa = p.empresa || '';
-  var regime = /talentos/i.test(empresa) ? 'simples' : 'presumido';
+// ═══ Regras de excedente do estágio (poucos casos). Chave = CPF só dígitos ═══
+// Maria Eduarda De Leva: bolsa até 125h/mês, excedente a R$8/h.
+const FOLHA_EXC = {
+  '14669877666': { horas_base: 125, valor_hora: 8, nota: '125h + R$8/h excedente' },
+};
 
-  var salBase = Number(p.salario_base) || 0;
-  var grat = Number(p.gratificacao) || 0;
-  var diasTrab = (p.dias_trabalhados != null) ? Number(p.dias_trabalhados) : diasUteis;
-  var faltas = Number(p.faltas) || 0;
-  var atestado = Number(p.atestado_dias) || 0;
+// ═══ TABELAS OFICIAIS 2026 ═══
+const INSS_FAIXAS = [[1621.00, 0.075], [2902.84, 0.09], [4354.27, 0.12], [8475.55, 0.14]];
+const INSS_TETO = 8475.55;
+const IRRF_FAIXAS = [
+  [2428.80, 0.0, 0.0], [2826.65, 0.075, 182.16], [3751.05, 0.15, 394.16],
+  [4664.68, 0.225, 675.49], [Infinity, 0.275, 908.73],
+];
+const IRRF_ISENCAO = 5000.00; // base tributável até aqui → IRRF zero (Lei 15.270/25)
+const FGTS_ALIQ = 0.08;
 
-  // Falta injustificada desconta o dia (mensalista: dia = salário/30)
-  var descFaltas = (salBase / 30) * faltas;
+function inssEmpregado(base) {
+  base = Math.min(base, INSS_TETO);
+  let total = 0, ant = 0;
+  for (const [teto, aliq] of INSS_FAIXAS) {
+    if (base > ant) { total += (Math.min(base, teto) - ant) * aliq; ant = teto; }
+    else break;
+  }
+  return Math.round(total * 100) / 100;
+}
+function irrfMensal(baseTrib) {
+  if (baseTrib <= IRRF_ISENCAO) return 0;
+  for (const [teto, aliq, deduz] of IRRF_FAIXAS) {
+    if (baseTrib <= teto) return Math.max(Math.round((baseTrib * aliq - deduz) * 100) / 100, 0);
+  }
+  return 0;
+}
+const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-  // Gratificação: vira VA isento (vaMode) OU entra como salário
-  var gratComoSalario = vaMode ? 0 : grat;
-  var beneficioVA = vaMode ? grat : (Number(p.beneficio_va) || 0);
+// ═══ MOTOR — TRILHA CLT ═══
+function calcCLT(row, opts) {
+  const base = Number(row.base) || 0;
+  const dia = base / 30;
+  const faltas = Number(row.faltas) || 0;
+  const descFaltas = r2(dia * faltas);            // atestado não desconta
+  const sal = r2(base - descFaltas);
 
-  // Proventos tributáveis do mês (o que a contabilidade usa de base do holerite)
-  var proventos = salBase - descFaltas + gratComoSalario;
+  const inss = inssEmpregado(sal);
+  const irrf = irrfMensal(sal - inss);
 
-  // Base de encargos (VA não entra; atestado até 15d é pago pela empresa e conta)
-  var baseEncargo = proventos;
+  const diasUteis = Number(opts.diasUteis) || 22;
+  const diasTrab = Math.max(diasUteis - faltas, 0);
+  const vtCusto = opts.descontaVT ? r2(5.70 * 2 * diasTrab) : 0;
+  const vtDesc = opts.descontaVT ? r2(Math.min(base * 0.06, vtCusto)) : 0;
 
-  // Vale-transporte: custo da empresa = 5,70 × 2 × dias trabalhados
-  var vtCusto = vtDiario * vtMult * diasTrab;
-  // Desconto de VT permitido: até 6% do salário base
-  var vtDescontoMax = salBase * 0.06;
-  var vtDesconto = Math.min(vtDescontoMax, vtCusto);
+  const liquido = r2(sal - inss - irrf - vtDesc);
 
-  var fgts = baseEncargo * 0.08;
-  var inssPatronal = (regime === 'simples') ? 0 : baseEncargo * inssPatPct;
+  const fgts = r2(sal * FGTS_ALIQ);
+  let patronal = 0;
+  if (row.empresa === 'medcenter') patronal = r2(sal * (Number(opts.patronalMed) || 0));
+  else if (row.empresa === 'talentos') patronal = opts.talentosCPPfora ? r2(sal * 0.20) : 0;
+  const prov13 = r2(base / 12);
+  const provFerias = r2(base / 12 + base / 12 / 3);
+  const fgtsProv = r2((prov13 + provFerias) * FGTS_ALIQ);
+  const vtEmp = r2(vtCusto - vtDesc);
+  const custo = r2(sal + fgts + patronal + prov13 + provFerias + fgtsProv + vtEmp);
 
-  // Custo total da empresa com a pessoa no mês
-  var custoEmpresa = proventos + beneficioVA + vtCusto + fgts + inssPatronal;
+  return { sal, descFaltas, inss, irrf, vtDesc, liquido, fgts, patronal, prov13, provFerias, fgtsProv, vtEmp, custo };
+}
 
+// ═══ MOTOR — TRILHA ESTÁGIO ═══
+function calcEstagio(row, opts) {
+  const bolsa = Number(row.base) || 0;
+  const dia = bolsa / 30;
+  const faltas = Number(row.faltas) || 0;
+  const descFaltas = r2(dia * faltas);
+  const bolsaProp = r2(bolsa - descFaltas);
+
+  let excedente = 0;
+  const rule = FOLHA_EXC[row.cpf];
+  if (rule && row.horas != null && row.horas !== '') {
+    excedente = r2(Math.max((Number(row.horas) || 0) - rule.horas_base, 0) * rule.valor_hora);
+  }
+  const irrf = irrfMensal(bolsaProp + excedente); // bolsa é tributável, mas isenta até R$5.000
+  const liquido = r2(bolsaProp + excedente - irrf);
+
+  const recesso = r2(bolsa / 12);                 // recesso 30d/ano provisionado
+  const diasTrab = Math.max((Number(opts.diasUteis) || 22) - faltas, 0);
+  const vtCusto = row.recebe_vt ? r2(5.70 * 2 * diasTrab) : 0; // estágio: não desconta
+  const custo = r2(bolsaProp + excedente + recesso + vtCusto);
+
+  return { bolsaProp, descFaltas, excedente, irrf, liquido, recesso, vtCusto, custo };
+}
+
+// expõe p/ conferência no console
+window.FolhaMotor = { inssEmpregado, irrfMensal, calcCLT, calcEstagio };
+
+// ═══ Supabase REST (mesmo padrão do rh.jsx) ═══
+const folhaSb = async (path, opts = {}) => {
+  if (window.__sbRest) return window.__sbRest(path, opts);
+  const s = window.getSession?.();
+  const res = await fetch(`${window.SUPABASE_URL}/rest/v1${path}`, {
+    ...opts,
+    headers: {
+      apikey: window.SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${s?.access_token || window.SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      ...(opts.headers || {}),
+    },
+  });
+  if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
+  const ct = res.headers.get('content-type') || '';
+  return ct.includes('json') ? res.json() : res.text();
+};
+
+const soDigitos = (v) => String(v || '').replace(/\D/g, '');
+const firstDef = (...xs) => { for (const x of xs) if (x != null && x !== '') return x; return undefined; };
+
+// normaliza uma linha do ponto_mensal (nomes de coluna variam — defensivo)
+function normalizaPonto(p) {
   return {
-    nome: p.nome, cargo: p.cargo || '', empresa: empresa, regime: regime,
-    salBase: salBase, grat: grat,
-    diasTrab: diasTrab, faltas: faltas, atestado: atestado,
-    descFaltas: descFaltas, proventos: proventos,
-    beneficioVA: beneficioVA, vtCusto: vtCusto, vtDesconto: vtDesconto,
-    fgts: fgts, inssPatronal: inssPatronal, custoEmpresa: custoEmpresa
+    cpf: soDigitos(firstDef(p.cpf, p.CPF, p.documento)),
+    competencia: firstDef(p.competencia, p.mes, p.mes_ref, p.referencia, p.periodo),
+    dias: firstDef(p.dias_trabalhados, p.dias_uteis_trabalhados, p.dias, p.dias_uteis),
+    faltas: firstDef(p.faltas, p.faltas_mes, p.total_faltas),
+    atestados: firstDef(p.atestados, p.atestado_dias, p.atestado, p.dias_atestado),
+    horas: firstDef(p.horas, p.horas_trabalhadas, p.total_horas, p.carga_horaria),
   };
 }
-window.calcFolha = calcFolha;
 
-// ---------- Seed (troca por dados do Cortex quando a ponte trouxer) ----------
-var FOLHA_SEED = [
-  { nome: 'Cristina Beatriz de Lima', cargo: 'Recepcionista', empresa: 'Med Center', salario_base: 1700, gratificacao: 400 },
-  { nome: 'Eva Augusta de Jesus', cargo: 'Aux. Limpeza', empresa: 'Med Center', salario_base: 1700, gratificacao: 500 },
-  { nome: 'Tais de Oliveira Souza', cargo: 'Aux. Serviços', empresa: 'Med Center', salario_base: 2400, gratificacao: 0 },
-  { nome: 'Bianca Vieira da Silva', cargo: 'Recepcionista', empresa: 'Talentos', salario_base: 1700, gratificacao: 400 },
-  { nome: 'Claudia Virginia dos Santos', cargo: 'Aux. Adm.', empresa: 'Talentos', salario_base: 1700, gratificacao: 700 },
-  { nome: 'Kellen Bernades Carvalho', cargo: 'Recepcionista', empresa: 'Talentos', salario_base: 1700, gratificacao: 400 },
-  { nome: 'Cristiane Ap. Portugues', cargo: 'Assist. Faturamento', empresa: 'Talentos', salario_base: 2200, gratificacao: 605 },
-  { nome: 'Thalita Silveira Gomes', cargo: 'Aux. Adm.', empresa: 'Talentos', salario_base: 1700, gratificacao: 325, atestado_dias: 2 }
-];
-window.FOLHA_SEED = FOLHA_SEED;
+// ═══ COMPONENTE ═══
+function FolhaProvisoes() {
+  const { Band, Card, Btn, Money, Segmented, MonthNav, Pill, EmptyState, Field, Icon } = window;
+  const [loading, setLoading] = React.useState(true);
+  const [erro, setErro] = React.useState(null);
+  const [rows, setRows] = React.useState([]);         // {id,nome,cargo,empresa,regime,base,cpf,dias,faltas,atestados,horas,autofill,recebe_vt}
+  const [pontoMiss, setPontoMiss] = React.useState(0);
 
-// ---------- COMPONENTE ----------
-function FolhaProvisoes(props) {
-  var React = window.React;
-  var us = React.useState;
+  const hoje = new Date();
+  const [comp, setComp] = React.useState(`${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`);
+  const [aba, setAba] = React.useState('CLT');        // 'CLT' | 'EST'
+  const [diasUteis, setDiasUteis] = React.useState(22);
+  const [descontaVT, setDescontaVT] = React.useState(true);
+  const [patronalMed, setPatronalMed] = React.useState(28); // %
+  const [talentosCPPfora, setTalentosCPPfora] = React.useState(false);
 
-  // linhas editáveis (dias/faltas/atestado por pessoa)
-  var seed = (props.colaboradores || FOLHA_SEED).map(function (p) {
-    return Object.assign({
-      dias_trabalhados: 22, faltas: 0, atestado_dias: 0, beneficio_va: 0
-    }, p);
-  });
-  var rowsState = us(seed);   var rows = rowsState[0], setRows = rowsState[1];
+  // ── carrega colaboradores + ponto do mês ──
+  React.useEffect(() => {
+    let vivo = true;
+    (async () => {
+      setLoading(true); setErro(null);
+      try {
+        const inList = `(${FOLHA_CO_IDS.join(',')})`;
+        const colabs = await folhaSb(`/colaboradores?select=*&company_id=in.${inList}&status=eq.Ativo&order=nome.asc&limit=1000`);
 
-  var diasState = us(22);     var diasUteis = diasState[0], setDiasUteis = diasState[1];
-  var vtState = us(5.70);     var vtDiario = vtState[0], setVtDiario = vtState[1];
-  var patState = us(28);      var inssPat = patState[0], setInssPat = patState[1];
-  var vaState = us(false);    var vaMode = vaState[0], setVaMode = vaState[1];
+        // ponto_mensal — defensivo: se a tabela/coluna não existir, segue sem auto
+        let pontoRows = [];
+        try {
+          pontoRows = await folhaSb(`/ponto_mensal?select=*&limit=5000`);
+        } catch (e) { console.warn('ponto_mensal indisponível — folha em modo manual', e.message); }
 
-  function brl(v) { return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-  function setCell(i, campo, val) {
-    setRows(function (prev) {
-      var next = prev.slice();
-      next[i] = Object.assign({}, next[i]); next[i][campo] = val === '' ? 0 : Number(val);
-      return next;
-    });
-  }
+        // indexa ponto por CPF (filtra competência quando a coluna existe)
+        const pontoMap = {};
+        (pontoRows || []).forEach((raw) => {
+          const p = normalizaPonto(raw);
+          if (!p.cpf) return;
+          if (p.competencia && String(p.competencia).slice(0, 7) !== comp) return;
+          pontoMap[p.cpf] = p;
+        });
 
-  var opts = { diasUteis: diasUteis, vtDiario: Number(vtDiario) || 0, vtMult: 2,
-               inssPatronalPct: (Number(inssPat) || 0) / 100, vaMode: vaMode };
-  var calc = rows.map(function (r) { return calcFolha(r, opts); });
-
-  var tot = { proventos: 0, va: 0, vt: 0, fgts: 0, pat: 0, custo: 0 };
-  calc.forEach(function (l) {
-    tot.proventos += l.proventos; tot.va += l.beneficioVA; tot.vt += l.vtCusto;
-    tot.fgts += l.fgts; tot.pat += l.inssPatronal; tot.custo += l.custoEmpresa;
-  });
-
-  function exportar() {
-    if (!window.XLSX) { alert('XLSX não carregado.'); return; }
-    var dados = calc.map(function (l) {
-      return {
-        'Colaborador': l.nome, 'Empresa': l.empresa, 'Regime': l.regime,
-        'Dias trab.': l.diasTrab, 'Faltas': l.faltas, 'Atestado (dias)': l.atestado,
-        'Salário base': +l.salBase.toFixed(2),
-        'Desc. faltas': +l.descFaltas.toFixed(2),
-        'Proventos': +l.proventos.toFixed(2),
-        'Benefício (VA)': +l.beneficioVA.toFixed(2),
-        'VT custo': +l.vtCusto.toFixed(2),
-        'FGTS': +l.fgts.toFixed(2),
-        'INSS patronal': +l.inssPatronal.toFixed(2),
-        'Custo empresa': +l.custoEmpresa.toFixed(2)
-      };
-    });
-    var ws = window.XLSX.utils.json_to_sheet(dados);
-    var wb = window.XLSX.utils.book_new();
-    window.XLSX.utils.book_append_sheet(wb, ws, 'Folha');
-    window.XLSX.writeFile(wb, 'Folha_do_Mes.xlsx');
-  }
-
-  var card = { background: 'var(--surface,#fff)', border: '1px solid var(--line,#E7EDF3)', borderRadius: 'var(--r-lg,16px)', padding: 16, boxShadow: 'var(--shadow-sm)' };
-  var th = { textAlign: 'right', padding: '8px 8px', fontSize: 11, color: 'var(--ink-mute,#8C97A4)', fontWeight: 700, whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: 0.3 };
-  var td = { textAlign: 'right', padding: '7px 8px', fontSize: 13, whiteSpace: 'nowrap' };
-  var tdL = { textAlign: 'left', padding: '7px 8px', fontSize: 13 };
-  var inp = { width: 46, padding: '4px 6px', borderRadius: 8, border: '1px solid var(--line,#E7EDF3)', textAlign: 'right', fontFamily: 'inherit', fontSize: 13, background: 'var(--bg-alt,#F0F7FC)' };
-  var lbl = { fontSize: 12, color: 'var(--ink-mute,#8C97A4)', fontWeight: 600 };
-
-  return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 14 } },
-
-    // Cabeçalho
-    React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 } },
-      React.createElement('div', null,
-        React.createElement('h1', { style: { fontSize: 24, fontWeight: 700, color: 'var(--ink,#1C2530)', letterSpacing: -0.5 } }, 'Folha do Mês'),
-        React.createElement('p', { style: { fontSize: 13, color: 'var(--ink-mute,#8C97A4)', marginTop: 2 } }, 'Dados do Cortex + cálculo do mês para enviar à contabilidade')
-      ),
-      React.createElement('button', { onClick: exportar, style: { padding: '10px 18px', borderRadius: 'var(--r-sm,10px)', background: 'var(--accent,#1068B0)', color: '#fff', fontWeight: 600, fontSize: 13.5, fontFamily: 'inherit', border: 'none', cursor: 'pointer', boxShadow: '0 3px 10px rgba(16,104,176,.3)' } }, 'Gerar folha (Excel)')
-    ),
-
-    // Controles
-    React.createElement('div', { style: Object.assign({}, card, { display: 'flex', flexWrap: 'wrap', gap: 18, alignItems: 'center' }) },
-      React.createElement('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
-        React.createElement('span', { style: lbl }, 'Dias úteis'),
-        React.createElement('input', { type: 'number', value: diasUteis, onChange: function (e) { setDiasUteis(Number(e.target.value) || 0); }, style: Object.assign({}, inp, { width: 54 }) })
-      ),
-      React.createElement('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
-        React.createElement('span', { style: lbl }, 'VT diário R$'),
-        React.createElement('input', { type: 'number', step: '0.01', value: vtDiario, onChange: function (e) { setVtDiario(e.target.value); }, style: Object.assign({}, inp, { width: 62 }) }),
-        React.createElement('span', { style: { fontSize: 11, color: 'var(--ink-mute,#8C97A4)' } }, '× 2 × dias')
-      ),
-      React.createElement('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
-        React.createElement('span', { style: lbl }, 'INSS patronal % (Med Center)'),
-        React.createElement('input', { type: 'number', value: inssPat, onChange: function (e) { setInssPat(e.target.value); }, style: Object.assign({}, inp, { width: 54 }) })
-      ),
-      React.createElement('label', { style: { display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer', marginLeft: 'auto' } },
-        React.createElement('input', { type: 'checkbox', checked: vaMode, onChange: function (e) { setVaMode(e.target.checked); } }),
-        'Simular gratificação como Vale-Alimentação (isento)'
-      )
-    ),
-
-    // Tabela
-    React.createElement('div', { style: Object.assign({}, card, { overflowX: 'auto', padding: 8 }) },
-      React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', minWidth: 920 } },
-        React.createElement('thead', null,
-          React.createElement('tr', { style: { borderBottom: '2px solid var(--line,#E7EDF3)' } },
-            React.createElement('th', { style: Object.assign({}, th, { textAlign: 'left' }) }, 'Colaborador'),
-            React.createElement('th', { style: th }, 'Dias'),
-            React.createElement('th', { style: th }, 'Faltas'),
-            React.createElement('th', { style: th }, 'Atest.'),
-            React.createElement('th', { style: th }, 'Proventos'),
-            React.createElement('th', { style: th }, 'VA'),
-            React.createElement('th', { style: th }, 'VT'),
-            React.createElement('th', { style: th }, 'FGTS'),
-            React.createElement('th', { style: th }, 'INSS pat.'),
-            React.createElement('th', { style: Object.assign({}, th, { color: 'var(--accent,#1068B0)' }) }, 'Custo empresa')
-          )
-        ),
-        React.createElement('tbody', null,
-          calc.map(function (l, i) {
-            return React.createElement('tr', { key: i, style: { borderBottom: '1px solid var(--line,#EEF3F8)' } },
-              React.createElement('td', { style: tdL },
-                React.createElement('div', { style: { fontWeight: 600, color: 'var(--ink,#1C2530)' } }, l.nome),
-                React.createElement('div', { style: { fontSize: 11, color: 'var(--ink-mute,#8C97A4)' } }, l.cargo + ' · ' + l.empresa + ' · ' + l.regime)
-              ),
-              React.createElement('td', { style: td }, React.createElement('input', { type: 'number', value: rows[i].dias_trabalhados, onChange: function (e) { setCell(i, 'dias_trabalhados', e.target.value); }, style: inp })),
-              React.createElement('td', { style: td }, React.createElement('input', { type: 'number', value: rows[i].faltas, onChange: function (e) { setCell(i, 'faltas', e.target.value); }, style: inp })),
-              React.createElement('td', { style: td }, React.createElement('input', { type: 'number', value: rows[i].atestado_dias, onChange: function (e) { setCell(i, 'atestado_dias', e.target.value); }, style: inp })),
-              React.createElement('td', { style: td }, brl(l.proventos)),
-              React.createElement('td', { style: td }, l.beneficioVA ? brl(l.beneficioVA) : '—'),
-              React.createElement('td', { style: td }, brl(l.vtCusto)),
-              React.createElement('td', { style: td }, brl(l.fgts)),
-              React.createElement('td', { style: td }, l.inssPatronal ? brl(l.inssPatronal) : '—'),
-              React.createElement('td', { style: Object.assign({}, td, { fontWeight: 700, color: 'var(--ink,#1C2530)' }) }, brl(l.custoEmpresa))
-            );
+        let miss = 0;
+        const linhas = (colabs || [])
+          .map((c) => {
+            const regime = /estag/i.test(c.regime || '') ? 'EST'
+              : /clt/i.test(c.regime || '') ? 'CLT' : null;
+            if (!regime) return null;
+            let empresa = FOLHA_CO[c.company_id];
+            if (!empresa) empresa = /talent/i.test(c.pagador || '') ? 'talentos' : 'medcenter';
+            const cpf = soDigitos(c.cpf);
+            const p = pontoMap[cpf];
+            if (!p) miss++;
+            return {
+              id: c.id, nome: c.nome, cargo: c.cargo || '', empresa, regime,
+              base: Number(c.salario) || 0, cpf,
+              dias: p && p.dias != null ? Number(p.dias) : diasUteis,
+              faltas: p && p.faltas != null ? Number(p.faltas) : 0,
+              atestados: p && p.atestados != null ? Number(p.atestados) : 0,
+              horas: p && p.horas != null ? Number(p.horas) : '',
+              recebe_vt: false,
+              autofill: !!p,
+            };
           })
-        ),
-        React.createElement('tfoot', null,
-          React.createElement('tr', { style: { borderTop: '2px solid var(--line,#E7EDF3)', fontWeight: 700 } },
-            React.createElement('td', { style: tdL }, 'TOTAL (' + calc.length + ')'),
-            React.createElement('td', { style: td, colSpan: 3 }, ''),
-            React.createElement('td', { style: td }, brl(tot.proventos)),
-            React.createElement('td', { style: td }, tot.va ? brl(tot.va) : '—'),
-            React.createElement('td', { style: td }, brl(tot.vt)),
-            React.createElement('td', { style: td }, brl(tot.fgts)),
-            React.createElement('td', { style: td }, tot.pat ? brl(tot.pat) : '—'),
-            React.createElement('td', { style: Object.assign({}, td, { color: 'var(--accent,#1068B0)' }) }, brl(tot.custo))
-          )
-        )
-      )
-    ),
+          .filter(Boolean);
 
-    React.createElement('div', { style: { fontSize: 12, color: 'var(--ink-mute,#8C97A4)', lineHeight: 1.6 } },
-      React.createElement('div', null, '• INSS e IRRF do empregado são calculados pela contabilidade — aqui mostramos o que a empresa gasta e os dados variáveis do mês.'),
-      React.createElement('div', null, '• Talentos entra como Simples (patronal embutido no DAS = sem INSS patronal por fora). Confirmar anexo com o Marcos.'),
-      vaMode
-        ? React.createElement('div', { style: { color: 'var(--c-pos,#15803D)', fontWeight: 600 } }, '• Modo Vale-Alimentação ligado: a gratificação saiu da base de encargo. A diferença no custo é a economia (e o risco trabalhista que você elimina).')
-        : React.createElement('div', null, '• A gratificação está entrando como salário (cenário correto). Ligue o modo VA acima para simular a troca por vale-alimentação.')
-    )
+        if (!vivo) return;
+        setRows(linhas); setPontoMiss(miss); setLoading(false);
+      } catch (e) {
+        if (!vivo) return;
+        setErro(e.message); setLoading(false);
+      }
+    })();
+    return () => { vivo = false; };
+  }, [comp]);
+
+  const opts = {
+    diasUteis: Number(diasUteis) || 22,
+    descontaVT,
+    patronalMed: (Number(patronalMed) || 0) / 100,
+    talentosCPPfora,
+  };
+
+  const setCell = (id, campo, val) => {
+    setRows((prev) => prev.map((r) => r.id === id
+      ? { ...r, [campo]: (campo === 'horas' ? val : (val === '' ? 0 : Number(val))) }
+      : r));
+  };
+
+  const clt = rows.filter((r) => r.regime === 'CLT');
+  const est = rows.filter((r) => r.regime === 'EST');
+  const cltCalc = clt.map((r) => ({ r, c: calcCLT(r, opts) }));
+  const estCalc = est.map((r) => ({ r, c: calcEstagio(r, opts) }));
+
+  const totCusto = r2(cltCalc.reduce((s, x) => s + x.c.custo, 0) + estCalc.reduce((s, x) => s + x.c.custo, 0));
+  const totLiquido = r2(cltCalc.reduce((s, x) => s + x.c.liquido, 0) + estCalc.reduce((s, x) => s + x.c.liquido, 0));
+  const nPessoas = rows.length;
+
+  const shiftMes = (delta) => {
+    const [y, m] = comp.split('-').map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    setComp(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+  const mesLabel = (() => {
+    const [y, m] = comp.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }).replace('.', '');
+  })();
+
+  const exportar = () => {
+    if (!window.XLSX) { alert('XLSX não carregado.'); return; }
+    const wb = window.XLSX.utils.book_new();
+    const cltData = cltCalc.map(({ r, c }) => ({
+      Colaborador: r.nome, Empresa: r.empresa, Dias: r.dias, Faltas: r.faltas, 'Atestado (d)': r.atestados,
+      'Salário base': r.base, 'Desc. faltas': c.descFaltas, INSS: c.inss, IRRF: c.irrf, VT: c.vtDesc,
+      'Líquido': c.liquido, FGTS: c.fgts, 'INSS patronal': c.patronal, '13º prov.': c.prov13,
+      'Férias+1/3 prov.': c.provFerias, 'Custo empresa': c.custo,
+    }));
+    const estData = estCalc.map(({ r, c }) => ({
+      Estagiário: r.nome, Empresa: r.empresa, Dias: r.dias, Faltas: r.faltas, Horas: r.horas,
+      'Bolsa base': r.base, Excedente: c.excedente, IRRF: c.irrf, 'Líquido': c.liquido,
+      'Recesso prov.': c.recesso, 'Custo empresa': c.custo,
+    }));
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(cltData), 'CLT');
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(estData), 'Estagio');
+    window.XLSX.writeFile(wb, `Folha_${comp}.xlsx`);
+  };
+
+  // estilos de tabela
+  const th = { textAlign: 'right', padding: '9px 10px', font: '700 10px var(--f-sans)', color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '.4px', whiteSpace: 'nowrap' };
+  const thL = { ...th, textAlign: 'left' };
+  const td = { textAlign: 'right', padding: '8px 10px', font: '500 12.5px var(--f-mono)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
+  const tdL = { textAlign: 'left', padding: '8px 10px' };
+  const inp = { width: 48, padding: '4px 6px', borderRadius: 'var(--r-md)', border: '1px solid var(--line-strong)', textAlign: 'right', font: '500 12.5px var(--f-mono)', background: 'var(--field)', color: 'var(--ink)' };
+
+  const NumCell = ({ id, campo, value }) => (
+    <input type="number" value={value} onChange={(e) => setCell(id, campo, e.target.value)} style={inp} />
+  );
+  const NomeCell = ({ r }) => (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, font: '600 12.5px var(--f-sans)', color: 'var(--ink)' }}>
+        {r.nome}
+        {!r.autofill && <Pill status="pendente" size="sm">manual</Pill>}
+        {FOLHA_EXC[r.cpf] && <Pill status="hoje" size="sm">excedente</Pill>}
+      </div>
+      <div style={{ font: '500 11px var(--f-sans)', color: 'var(--ink-3)', marginTop: 2 }}>
+        {(r.cargo || '—')} · {r.empresa === 'talentos' ? 'Talentos' : 'Med Center'}
+      </div>
+    </div>
+  );
+
+  const ctrlWrap = { display: 'flex', alignItems: 'center', gap: 8 };
+  const ctrlLbl = { font: '600 11.5px var(--f-sans)', color: 'var(--ink-2)' };
+  const ctrlInp = { width: 56, padding: '5px 8px', borderRadius: 'var(--r-md)', border: '1px solid var(--line-strong)', textAlign: 'right', font: '500 12.5px var(--f-mono)', background: 'var(--field)', color: 'var(--ink)' };
+
+  return (
+    <>
+      <Band
+        title="Folha do Mês"
+        subtitle="Cortex → ponto_mensal (casado por CPF) + cálculo 2026 · CLT e estágio"
+        right={
+          <>
+            <MonthNav label={mesLabel} onPrev={() => shiftMes(-1)} onNext={() => shiftMes(1)} />
+            <Btn variant="primary" icon="file" onBand onClick={exportar}>Gerar Excel</Btn>
+          </>
+        }
+        metricLabel="Custo total da empresa"
+        metric={totCusto}
+        stats={[
+          { label: 'Líquido a pagar', value: totLiquido },
+          { label: 'Pessoas', value: String(nPessoas) },
+          { label: 'Sem ponto', value: String(pontoMiss), color: pontoMiss > 0 ? 'var(--on-accent-neg)' : 'var(--on-accent)' },
+        ]}
+      />
+
+      <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        {/* controles globais */}
+        <Card padding={14} style={{ display: 'flex', flexWrap: 'wrap', gap: 18, alignItems: 'center' }}>
+          <div style={ctrlWrap}>
+            <span style={ctrlLbl}>Dias úteis</span>
+            <input type="number" value={diasUteis} onChange={(e) => setDiasUteis(e.target.value)} style={ctrlInp} />
+          </div>
+          <div style={ctrlWrap}>
+            <span style={ctrlLbl}>Patronal Med Center %</span>
+            <input type="number" value={patronalMed} onChange={(e) => setPatronalMed(e.target.value)} style={ctrlInp} />
+          </div>
+          <label style={{ ...ctrlWrap, cursor: 'pointer' }}>
+            <input type="checkbox" checked={descontaVT} onChange={(e) => setDescontaVT(e.target.checked)} />
+            <span style={ctrlLbl}>Descontar VT (6%)</span>
+          </label>
+          <label style={{ ...ctrlWrap, cursor: 'pointer' }} title="Ligue só se o Marcos confirmar que o CPP do Talentos fica FORA do DAS">
+            <input type="checkbox" checked={talentosCPPfora} onChange={(e) => setTalentosCPPfora(e.target.checked)} />
+            <span style={ctrlLbl}>Talentos: CPP fora do DAS (+20%)</span>
+          </label>
+          <div style={{ marginLeft: 'auto' }}>
+            <Segmented
+              options={[{ value: 'CLT', label: `CLT (${clt.length})` }, { value: 'EST', label: `Estágio (${est.length})` }]}
+              value={aba} onChange={setAba}
+            />
+          </div>
+        </Card>
+
+        {loading && <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-3)', font: '500 13px var(--f-sans)' }}>Carregando folha…</div>}
+        {erro && <Card padding={16} style={{ color: 'var(--c-neg)', font: '500 12.5px var(--f-sans)' }}>Erro ao carregar: {erro}</Card>}
+
+        {!loading && !erro && pontoMiss > 0 && (
+          <Card padding={12} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--c-warn-bg)', border: 'none' }}>
+            <Icon name="alert" size={16} style={{ color: 'var(--c-warn)' }} />
+            <span style={{ font: '500 12.5px var(--f-sans)', color: 'var(--ink-2)' }}>
+              {pontoMiss} pessoa(s) sem ponto casado por CPF neste mês — os dias/faltas vieram no padrão e estão marcados como <b>manual</b>. Preencha o CPF no Cortex ou ajuste aqui.
+            </span>
+          </Card>
+        )}
+
+        {/* ── TABELA CLT ── */}
+        {!loading && !erro && aba === 'CLT' && (
+          clt.length === 0
+            ? <EmptyState icon="users" title="Nenhum CLT ativo" hint="Cadastre colaboradores CLT no RH para aparecerem aqui." />
+            : <Card padding={0} style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                    <th style={{ ...thL, padding: '9px 14px' }}>Colaborador</th>
+                    <th style={th}>Dias</th><th style={th}>Faltas</th><th style={th}>Atest.</th>
+                    <th style={th}>Salário</th><th style={th}>INSS</th><th style={th}>IRRF</th>
+                    <th style={th}>Líquido</th><th style={th}>FGTS</th><th style={th}>Patronal</th>
+                    <th style={{ ...th, color: 'var(--accent)' }}>Custo empresa</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cltCalc.map(({ r, c }) => (
+                    <tr key={r.id} style={{ borderBottom: '1px solid var(--line)' }}>
+                      <td style={{ ...tdL, padding: '8px 14px' }}><NomeCell r={r} /></td>
+                      <td style={td}><NumCell id={r.id} campo="dias" value={r.dias} /></td>
+                      <td style={td}><NumCell id={r.id} campo="faltas" value={r.faltas} /></td>
+                      <td style={td}><NumCell id={r.id} campo="atestados" value={r.atestados} /></td>
+                      <td style={td}>{window.fmtMoney(r.base)}</td>
+                      <td style={{ ...td, color: 'var(--c-neg)' }}>{c.inss ? '- ' + window.fmtMoney(c.inss) : '—'}</td>
+                      <td style={{ ...td, color: 'var(--c-neg)' }}>{c.irrf ? '- ' + window.fmtMoney(c.irrf) : '—'}</td>
+                      <td style={{ ...td, fontWeight: 700 }}>{window.fmtMoney(c.liquido)}</td>
+                      <td style={td}>{window.fmtMoney(c.fgts)}</td>
+                      <td style={td}>{c.patronal ? window.fmtMoney(c.patronal) : '—'}</td>
+                      <td style={{ ...td, fontWeight: 700, color: 'var(--accent)' }}>{window.fmtMoney(c.custo)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: '2px solid var(--line-strong)', font: '700 12.5px var(--f-mono)' }}>
+                    <td style={{ ...tdL, padding: '10px 14px', font: '700 12px var(--f-sans)' }}>TOTAL CLT ({clt.length})</td>
+                    <td colSpan={3} />
+                    <td style={td}>{window.fmtMoney(cltCalc.reduce((s, x) => s + x.r.base, 0))}</td>
+                    <td style={td}>{window.fmtMoney(cltCalc.reduce((s, x) => s + x.c.inss, 0))}</td>
+                    <td style={td}>{window.fmtMoney(cltCalc.reduce((s, x) => s + x.c.irrf, 0))}</td>
+                    <td style={td}>{window.fmtMoney(cltCalc.reduce((s, x) => s + x.c.liquido, 0))}</td>
+                    <td style={td}>{window.fmtMoney(cltCalc.reduce((s, x) => s + x.c.fgts, 0))}</td>
+                    <td style={td}>{window.fmtMoney(cltCalc.reduce((s, x) => s + x.c.patronal, 0))}</td>
+                    <td style={{ ...td, color: 'var(--accent)' }}>{window.fmtMoney(cltCalc.reduce((s, x) => s + x.c.custo, 0))}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </Card>
+        )}
+
+        {/* ── TABELA ESTÁGIO ── */}
+        {!loading && !erro && aba === 'EST' && (
+          est.length === 0
+            ? <EmptyState icon="users" title="Nenhum estágio ativo" hint="Cadastre estagiários no RH para aparecerem aqui." />
+            : <Card padding={0} style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                    <th style={{ ...thL, padding: '9px 14px' }}>Estagiário</th>
+                    <th style={th}>Dias</th><th style={th}>Faltas</th><th style={th}>Horas</th>
+                    <th style={th}>Bolsa</th><th style={th}>Excedente</th><th style={th}>IRRF</th>
+                    <th style={th}>Líquido</th><th style={th}>Recesso</th>
+                    <th style={{ ...th, color: 'var(--accent)' }}>Custo empresa</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {estCalc.map(({ r, c }) => (
+                    <tr key={r.id} style={{ borderBottom: '1px solid var(--line)' }}>
+                      <td style={{ ...tdL, padding: '8px 14px' }}><NomeCell r={r} /></td>
+                      <td style={td}><NumCell id={r.id} campo="dias" value={r.dias} /></td>
+                      <td style={td}><NumCell id={r.id} campo="faltas" value={r.faltas} /></td>
+                      <td style={td}>
+                        {FOLHA_EXC[r.cpf]
+                          ? <NumCell id={r.id} campo="horas" value={r.horas} />
+                          : <span style={{ color: 'var(--ink-3)' }}>—</span>}
+                      </td>
+                      <td style={td}>{window.fmtMoney(r.base)}</td>
+                      <td style={{ ...td, color: c.excedente ? 'var(--c-pos)' : 'inherit' }}>{c.excedente ? '+ ' + window.fmtMoney(c.excedente) : '—'}</td>
+                      <td style={{ ...td, color: 'var(--c-neg)' }}>{c.irrf ? '- ' + window.fmtMoney(c.irrf) : '—'}</td>
+                      <td style={{ ...td, fontWeight: 700 }}>{window.fmtMoney(c.liquido)}</td>
+                      <td style={td}>{window.fmtMoney(c.recesso)}</td>
+                      <td style={{ ...td, fontWeight: 700, color: 'var(--accent)' }}>{window.fmtMoney(c.custo)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: '2px solid var(--line-strong)', font: '700 12.5px var(--f-mono)' }}>
+                    <td style={{ ...tdL, padding: '10px 14px', font: '700 12px var(--f-sans)' }}>TOTAL ESTÁGIO ({est.length})</td>
+                    <td colSpan={3} />
+                    <td style={td}>{window.fmtMoney(estCalc.reduce((s, x) => s + x.r.base, 0))}</td>
+                    <td style={td}>{window.fmtMoney(estCalc.reduce((s, x) => s + x.c.excedente, 0))}</td>
+                    <td style={td}>{window.fmtMoney(estCalc.reduce((s, x) => s + x.c.irrf, 0))}</td>
+                    <td style={td}>{window.fmtMoney(estCalc.reduce((s, x) => s + x.c.liquido, 0))}</td>
+                    <td style={td}>{window.fmtMoney(estCalc.reduce((s, x) => s + x.c.recesso, 0))}</td>
+                    <td style={{ ...td, color: 'var(--accent)' }}>{window.fmtMoney(estCalc.reduce((s, x) => s + x.c.custo, 0))}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </Card>
+        )}
+
+        {/* rodapé de notas */}
+        {!loading && !erro && (
+          <div style={{ font: '500 11.5px var(--f-sans)', color: 'var(--ink-3)', lineHeight: 1.7 }}>
+            <div>• Tabelas oficiais 2026: INSS (Portaria MPS/MF, teto R$ 8.475,55) e IRRF (Lei 15.270/25 — base tributável até R$ 5.000 isenta).</div>
+            <div>• Talentos = Simples → sem INSS patronal (ligue o toggle só se o Marcos confirmar CPP fora do DAS). Med Center = Presumido, patronal ajustável acima.</div>
+            <div>• Estágio: sem INSS/FGTS/13º/férias — só provisão de recesso (1/12) e VT se houver. Excedente aparece só para quem tem regra cadastrada.</div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 window.FolhaProvisoes = FolhaProvisoes;
