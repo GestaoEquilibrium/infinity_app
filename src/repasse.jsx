@@ -272,7 +272,7 @@ const CaixaPage = () => {
         {/* Formulário */}
         <window.Card padding={20}>
           <h3 style={{ font: 'var(--t-h2)', color: 'var(--ink)', marginBottom: 16 }}>Novo lançamento</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1.4fr 1fr', gap: 14, marginBottom: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
             <window.Field label="Profissional *">
               <select value={form.colaborador_id} onChange={e => set('colaborador_id', e.target.value)} style={window.inputStyle}>
                 <option value="">— Selecione —</option>
@@ -287,8 +287,6 @@ const CaixaPage = () => {
                 {TIPOS_SERVICO_R.map(t => <option key={t}>{t}</option>)}
               </select>
             </window.Field>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr 1.4fr', gap: 14 }}>
             <window.Field label="Valor recebido *">
               <input value={form.valor} onChange={e => set('valor', e.target.value)} placeholder="0,00" inputMode="decimal" style={window.inputStyle} />
             </window.Field>
@@ -300,9 +298,7 @@ const CaixaPage = () => {
             <window.Field label="CPF para NF (opcional)">
               <input value={form.cpf_nf} onChange={e => set('cpf_nf', e.target.value)} placeholder="000.000.000-00" style={window.inputStyle} />
             </window.Field>
-          </div>
-          <div style={{ marginTop: 14 }}>
-            <window.Field label="Observação (opcional)">
+            <window.Field label="Observação (opcional)" style={{ gridColumn: '1 / -1' }}>
               <input value={form.observacao} onChange={e => set('observacao', e.target.value)} placeholder="Ex.: pacote fechado, valor combinado..." style={window.inputStyle} />
             </window.Field>
           </div>
