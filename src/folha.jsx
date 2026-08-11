@@ -52,11 +52,13 @@ const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 // ═══ MOTOR — TRILHA CLT ═══
 function calcCLT(row, opts) {
-  const base = Number(row.base) || 0;
-  const dia = base / 30;
+  const base = Number(row.base) || 0;                 // salário base (fixo, não muda)
+  const grat = Number(row.grat) || 0;                 // gratificação (separada, editável)
+  const salMensal = base + grat;                      // gratificação habitual entra como salário
+  const dia = salMensal / 30;
   const faltas = Number(row.faltas) || 0;
-  const descFaltas = r2(dia * faltas);            // atestado não desconta
-  const sal = r2(base - descFaltas);
+  const descFaltas = r2(dia * faltas);                // atestado não desconta
+  const sal = r2(salMensal - descFaltas);
 
   const inss = inssEmpregado(sal);
   const irrf = irrfMensal(sal - inss);
@@ -64,7 +66,7 @@ function calcCLT(row, opts) {
   const diasUteis = Number(opts.diasUteis) || 22;
   const diasTrab = Math.max(diasUteis - faltas, 0);
   const vtCusto = opts.descontaVT ? r2(5.70 * 2 * diasTrab) : 0;
-  const vtDesc = opts.descontaVT ? r2(Math.min(base * 0.06, vtCusto)) : 0;
+  const vtDesc = opts.descontaVT ? r2(Math.min(salMensal * 0.06, vtCusto)) : 0;
 
   const liquido = r2(sal - inss - irrf - vtDesc);
 
@@ -72,13 +74,13 @@ function calcCLT(row, opts) {
   let patronal = 0;
   if (row.empresa === 'medcenter') patronal = r2(sal * (Number(opts.patronalMed) || 0));
   else if (row.empresa === 'talentos') patronal = opts.talentosCPPfora ? r2(sal * 0.20) : 0;
-  const prov13 = r2(base / 12);
-  const provFerias = r2(base / 12 + base / 12 / 3);
+  const prov13 = r2(salMensal / 12);
+  const provFerias = r2(salMensal / 12 + salMensal / 12 / 3);
   const fgtsProv = r2((prov13 + provFerias) * FGTS_ALIQ);
   const vtEmp = r2(vtCusto - vtDesc);
   const custo = r2(sal + fgts + patronal + prov13 + provFerias + fgtsProv + vtEmp);
 
-  return { sal, descFaltas, inss, irrf, vtDesc, liquido, fgts, patronal, prov13, provFerias, fgtsProv, vtEmp, custo };
+  return { base, grat, salMensal, sal, descFaltas, inss, irrf, vtDesc, liquido, fgts, patronal, prov13, provFerias, fgtsProv, vtEmp, custo };
 }
 
 // ═══ MOTOR — TRILHA ESTÁGIO ═══
@@ -187,14 +189,15 @@ function FolhaProvisoes() {
             const regime = /estag/i.test(c.regime || '') ? 'EST'
               : /clt/i.test(c.regime || '') ? 'CLT' : null;
             if (!regime) return null;
-            let empresa = FOLHA_CO[c.company_id];
-            if (!empresa) empresa = /talent/i.test(c.pagador || '') ? 'talentos' : 'medcenter';
+            let empresa = /talent/i.test(c.pagador || '') ? 'talentos'
+              : /med\s*center/i.test(c.pagador || '') ? 'medcenter'
+              : (FOLHA_CO[c.company_id] || 'medcenter');
             const cpf = soDigitos(c.cpf);
             const p = pontoMap[cpf];
             if (!p) miss++;
             return {
               id: c.id, nome: c.nome, cargo: c.cargo || '', empresa, regime,
-              base: Number(c.salario) || 0, cpf,
+              base: Number(c.salario) || 0, grat: Number(c.gratificacao) || 0, cpf,
               dias: p && p.dias != null ? Number(p.dias) : diasUteis,
               faltas: p && p.faltas != null ? Number(p.faltas) : 0,
               atestados: p && p.atestados != null ? Number(p.atestados) : 0,
@@ -228,6 +231,16 @@ function FolhaProvisoes() {
       : r));
   };
 
+  // grava a gratificação no banco (ao sair do campo)
+  const saveGrat = async (id, val) => {
+    try {
+      await folhaSb(`/colaboradores?id=eq.${id}`, {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({ gratificacao: Number(val) || 0 }),
+      });
+    } catch (e) { console.warn('salvar gratificação', e.message); }
+  };
+
   const clt = rows.filter((r) => r.regime === 'CLT');
   const est = rows.filter((r) => r.regime === 'EST');
   const cltCalc = clt.map((r) => ({ r, c: calcCLT(r, opts) }));
@@ -252,7 +265,7 @@ function FolhaProvisoes() {
     const wb = window.XLSX.utils.book_new();
     const cltData = cltCalc.map(({ r, c }) => ({
       Colaborador: r.nome, Empresa: r.empresa, Dias: r.dias, Faltas: r.faltas, 'Atestado (d)': r.atestados,
-      'Salário base': r.base, 'Desc. faltas': c.descFaltas, INSS: c.inss, IRRF: c.irrf, VT: c.vtDesc,
+      'Salário base': r.base, 'Gratificação': r.grat, 'Desc. faltas': c.descFaltas, INSS: c.inss, IRRF: c.irrf, VT: c.vtDesc,
       'Líquido': c.liquido, FGTS: c.fgts, 'INSS patronal': c.patronal, '13º prov.': c.prov13,
       'Férias+1/3 prov.': c.provFerias, 'Custo empresa': c.custo,
     }));
@@ -363,7 +376,7 @@ function FolhaProvisoes() {
                   <tr style={{ borderBottom: '1px solid var(--line)' }}>
                     <th style={{ ...thL, padding: '9px 14px' }}>Colaborador</th>
                     <th style={th}>Dias</th><th style={th}>Faltas</th><th style={th}>Atest.</th>
-                    <th style={th}>Salário</th><th style={th}>INSS</th><th style={th}>IRRF</th>
+                    <th style={th}>Salário</th><th style={th}>Gratif.</th><th style={th}>INSS</th><th style={th}>IRRF</th>
                     <th style={th}>Líquido</th><th style={th}>FGTS</th><th style={th}>Patronal</th>
                     <th style={{ ...th, color: 'var(--accent)' }}>Custo empresa</th>
                   </tr>
@@ -376,6 +389,7 @@ function FolhaProvisoes() {
                       <td style={td}><NumCell id={r.id} campo="faltas" value={r.faltas} /></td>
                       <td style={td}><NumCell id={r.id} campo="atestados" value={r.atestados} /></td>
                       <td style={td}>{window.fmtMoney(r.base)}</td>
+                      <td style={td}><input type="number" value={r.grat} onChange={(e) => setCell(r.id, 'grat', e.target.value)} onBlur={() => saveGrat(r.id, r.grat)} style={{ ...inp, width: 72 }} /></td>
                       <td style={{ ...td, color: 'var(--c-neg)' }}>{c.inss ? '- ' + window.fmtMoney(c.inss) : '—'}</td>
                       <td style={{ ...td, color: 'var(--c-neg)' }}>{c.irrf ? '- ' + window.fmtMoney(c.irrf) : '—'}</td>
                       <td style={{ ...td, fontWeight: 700 }}>{window.fmtMoney(c.liquido)}</td>
@@ -390,6 +404,7 @@ function FolhaProvisoes() {
                     <td style={{ ...tdL, padding: '10px 14px', font: '700 12px var(--f-sans)' }}>TOTAL CLT ({clt.length})</td>
                     <td colSpan={3} />
                     <td style={td}>{window.fmtMoney(cltCalc.reduce((s, x) => s + x.r.base, 0))}</td>
+                    <td style={td}>{window.fmtMoney(cltCalc.reduce((s, x) => s + (x.r.grat || 0), 0))}</td>
                     <td style={td}>{window.fmtMoney(cltCalc.reduce((s, x) => s + x.c.inss, 0))}</td>
                     <td style={td}>{window.fmtMoney(cltCalc.reduce((s, x) => s + x.c.irrf, 0))}</td>
                     <td style={td}>{window.fmtMoney(cltCalc.reduce((s, x) => s + x.c.liquido, 0))}</td>
@@ -458,6 +473,7 @@ function FolhaProvisoes() {
           <div style={{ font: '500 11.5px var(--f-sans)', color: 'var(--ink-3)', lineHeight: 1.7 }}>
             <div>• Tabelas oficiais 2026: INSS (Portaria MPS/MF, teto R$ 8.475,55) e IRRF (Lei 15.270/25 — base tributável até R$ 5.000 isenta).</div>
             <div>• Talentos = Simples → sem INSS patronal (ligue o toggle só se o Marcos confirmar CPP fora do DAS). Med Center = Presumido, patronal ajustável acima.</div>
+            <div>• Gratificação: campo separado do salário base, editável e salvo no banco; entra como salário na base de INSS/FGTS (cenário correto).</div>
             <div>• Estágio: sem INSS/FGTS/13º/férias — só provisão de recesso (1/12) e VT se houver. Excedente aparece só para quem tem regra cadastrada.</div>
           </div>
         )}
