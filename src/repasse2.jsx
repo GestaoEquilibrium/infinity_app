@@ -108,6 +108,7 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
     }
     const holding = Number(regra.holding_mensal || 0);
     let sessoes = 0, receita = 0, repasse = 0, faltas = 0, ausencias = 0, pendentes = 0;
+    let particularCount = 0;  // atendimentos particulares (não entram no demonstrativo)
     const convCount = {};
     const detalhes = [];      // atendimentos de convênio computados (p/ demonstrativo detalhado)
     const diaInfo = {};       // dia -> { realizado, ausente } para saber se faltou o dia inteiro
@@ -129,9 +130,13 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
       else if (STATUS_PENDENTE.includes(status)) pendentes++;
       if (!STATUS_COMPUTA.includes(status)) continue;
 
+      // Particular NÃO entra no demonstrativo (pago por outra via). Pula
+      // completamente: não conta sessão, não soma receita nem repasse.
+      const convBase = conv.replace(/ \/ Não Informado$/, '');
+      if (/^particular/i.test(convBase)) { particularCount++; continue; }
+
       sessoes++;
       convCount[conv] = (convCount[conv] || 0) + 1;
-      const convBase = conv.replace(/ \/ Não Informado$/, '');
       let tarifa = buscarTarifa(conv, proc);
       if (tarifa == null) {
         tarifa = 0;
@@ -148,16 +153,12 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
       }
       repasse += rep;
 
-      // Detalhamento: SÓ convênio (exclui particular), com o valor que o
-      // PROFISSIONAL recebe naquele atendimento (já com imposto e split).
-      const ehParticular = /^particular/i.test(convBase);
-      if (!ehParticular) {
-        detalhes.push({
-          dia, hora: a['Horário'] || a['Horario'] || '',
-          paciente: a['Paciente'] || a['Cliente'] || '',
-          convenio: conv, valor: rep,
-        });
-      }
+      // Detalhamento: só convênio, com o valor que o PROFISSIONAL recebe.
+      detalhes.push({
+        dia, hora: a['Horário'] || a['Horario'] || '',
+        paciente: a['Paciente'] || a['Cliente'] || '',
+        convenio: conv, valor: rep,
+      });
     }
 
     // Particular NÃO entra neste demonstrativo — é pago ao profissional por outra via.
@@ -198,7 +199,7 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
       rep_convenio: repasse, rep_particular: repassePart,
       pct_conv: Number(regra.pct_convenio || 0), pct_part: Number(regra.pct_particular || 0),
       valor_fixo: Number(regra.valor_fixo || 0),
-      sessoes, particular_n: cx.n, receita: receitaTotal, bruto, holding, liquido, imposto, margem,
+      sessoes, particular_n: particularCount || cx.n, receita: receitaTotal, bruto, holding, liquido, imposto, margem,
       faltas, ausencias, pendentes, convCount, competencia: regra.competencia_convenio,
       detalhes,
     });
