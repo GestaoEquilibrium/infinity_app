@@ -1957,20 +1957,15 @@ const ComprasPage = ({ filter, setFilter }) => {
       {/* ── Faixa azul ── */}
       <window.Band
         title="Compras"
-        subtitle="Lançamentos efetivos do caixa — o que entrou e saiu de verdade"
+        subtitle="Lançamentos efetivos do caixa — o que saiu de verdade"
         right={
           <>
             <ExcelImporter onImport={() => tick()} />
             <window.Btn variant="primary" icon="plus" onBand onClick={() => setEditing({ type: 'saida', amount: 0 })}>Nova compra</window.Btn>
           </>
         }
-        metricLabel="Saídas"
+        metricLabel="Total gasto em compras"
         metric={total_out}
-        stats={[
-          { label: 'Entradas', value: total_in, color: 'var(--on-accent-pos)' },
-          { label: 'Saldo do período', value: saldo, color: saldo >= 0 ? 'var(--on-accent-pos)' : 'var(--on-accent-neg)' },
-          { label: 'Saldo anterior', value: saldo_ant, color: 'var(--on-accent)' },
-        ]}
       />
 
       <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 14 }}>
