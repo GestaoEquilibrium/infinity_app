@@ -1572,6 +1572,21 @@ const ContasPage = ({ filter, setFilter }) => {
       .catch(() => setBancos([]));
   }, [_prof?.company_id, (window.CONTAS || []).length]);
 
+  // grava o saldo do dia: recalcula saldo_inicial = valor digitado − movimento
+  const parseBRL = (t) => {
+    const n = Number(String(t).replace(/[^\d,.-]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+    return isFinite(n) ? n : null;
+  };
+  const saveSaldo = async (b, txt) => {
+    const novo = parseBRL(txt);
+    if (novo == null || Math.abs(novo - b.saldo) < 0.005) return;
+    try {
+      await window.updateContaBancaria(b.id, { saldo_inicial: Number((novo - (b.movimento || 0)).toFixed(2)) });
+      const r = await window.fetchContasBancarias(_prof.company_id);
+      setBancos(window.saldosPorConta(r));
+    } catch (e) { alert('Não consegui salvar o saldo: ' + e.message); }
+  };
+
   // ── Recorrentes: molde + materialização do mês visível ──
   const [recorrentes, setRecorrentes] = React.useState([]);
   const [recEdit, setRecEdit] = React.useState(null);
@@ -1725,7 +1740,18 @@ const ContasPage = ({ filter, setFilter }) => {
             {bancos.map(b => (
               <div key={b.id} style={{ background: 'var(--surface)', padding: '13px 16px' }}>
                 <div style={{ font: '600 10px var(--f-sans)', color: 'var(--ink-4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.nome}</div>
-                <window.Money value={b.saldo} size="kpi" colorBySign style={{ marginTop: 3, display: 'block' }} />
+                <input
+                  key={b.saldo}
+                  type="text"
+                  defaultValue={window.fmt(b.saldo)}
+                  title="Clique para ajustar o saldo de hoje"
+                  onFocus={(e) => e.target.select()}
+                  onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                  onBlur={(e) => saveSaldo(b, e.target.value)}
+                  style={{ marginTop: 3, display: 'block', width: '100%', boxSizing: 'border-box', border: '1px solid transparent', background: 'transparent', font: '700 18px var(--f-mono)', color: b.saldo < 0 ? 'var(--c-neg)' : 'var(--ink)', padding: '2px 4px', borderRadius: 'var(--r-sm)', outline: 'none', cursor: 'text' }}
+                  onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--line-strong)'; }}
+                  onMouseOut={(e) => { e.currentTarget.style.borderColor = 'transparent'; }}
+                />
               </div>
             ))}
             <div style={{ background: 'var(--accent-soft)', padding: '13px 16px' }}>
@@ -1781,7 +1807,7 @@ const ContasPage = ({ filter, setFilter }) => {
                         <tr key={r.id} style={{ borderTop: '1px solid var(--line-2)', opacity: ativo ? 1 : 0.5 }}>
                           <td style={{ padding: '9px 8px', font: '500 12.5px var(--f-sans)', color: 'var(--ink)' }}>{r.tipo === 'receber' ? '↓ ' : ''}{r.description}</td>
                           <td style={{ padding: '9px 8px' }}>{r.category ? <window.CatPill cat={window.catColor(r.category, r.tipo==='pagar'?'saida':'entrada')}>{r.category}</window.CatPill> : '—'}</td>
-                          <td style={{ padding: '9px 8px', textAlign: 'center' }}><window.Money value={r.dia_vencimento} size="table" style={{ color: 'var(--ink-2)' }} /></td>
+                          <td style={{ padding: '9px 8px', textAlign: 'center', font: '500 12.5px var(--f-mono)', color: 'var(--ink-2)' }}>{r.dia_vencimento}</td>
                           <td style={{ padding: '9px 8px', textAlign: 'right' }}><window.Money value={r.previsto} size="table" style={{ color: 'var(--ink)' }} /></td>
                           <td style={{ padding: '9px 8px', textAlign: 'center' }}>
                             <window.Pill status={ativo ? 'pago' : 'pendente'}>{ativo ? 'Ativo' : 'Pausado'}</window.Pill>
