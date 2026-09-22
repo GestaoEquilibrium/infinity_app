@@ -31,7 +31,7 @@ const ConciliacaoPage = ({ embedded = false, onExport } = {}) => {
 
   // separa transações do banco (integração) das contas do sistema
   const ehDoBanco = (r) => /a classificar/i.test(r.category || '');
-  const ehTransferencia = (r) => /transfer/i.test(r.category || '');
+  const ehTransferencia = (r) => (window.ehTransferenciaInterna ? window.ehTransferenciaInterna(r) : /transfer/i.test(r.category || ''));
 
   const { conciliados, soBanco, soSistema } = useMemoCC(() => {
     if (!rows) return { conciliados: [], soBanco: [], soSistema: [] };
