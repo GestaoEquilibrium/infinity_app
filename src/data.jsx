@@ -282,7 +282,18 @@ function monthlyAggregates() {
 // como receita nem como despesa (o dinheiro não entrou nem saiu do grupo).
 function ehTransferenciaInterna(x) {
   const c = (x && (x.category || x.categoria)) || '';
-  return c.toLowerCase().indexOf('transfer') === 0 || c === 'Transferência Interna';
+  if (c.toLowerCase().indexOf('transfer') === 0 || c === 'Transferência Interna') return true;
+  // Também trata como interna quando a contraparte é uma entidade do próprio grupo.
+  // O sync do banco (MP/Inter) traz a perna do outro lado como entrada/saída "A Classificar";
+  // sem isto, as varreduras internas viram receita/despesa fantasma no resultado.
+  const alvo = (((x && x.description) || '') + ' ' + c).toUpperCase();
+  const GRUPO = [
+    'EQUILIBRIUM CLIN DE PSIC', 'EIRELI',
+    'EQUILIBRIUM NEGOCIOS', 'NEGOCIOS E PARTICIPACOES',
+    'MEDCENTER INVESTIMENTOS', 'INVESTIMENTOS E PARTICIPACOES',
+    'EQUILIBRIUM TALENTOS', 'EQUILIBRIUM MEDCENTER', 'EQUILIBRIUM MEDCEN',
+  ];
+  return GRUPO.some(function (g) { return alvo.indexOf(g) !== -1; });
 }
 
 // Saldo anterior — net cumulative balance up to (but not including) a month
