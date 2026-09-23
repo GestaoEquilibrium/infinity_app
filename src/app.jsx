@@ -179,13 +179,23 @@ const CompanySelectorSide = () => {
         display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
       }}>
         <window.Icon name="wallet" size={16} style={{ color: 'var(--ink-3)' }} />
-        <span style={{ flex: 1, textAlign: 'left', font: '600 12.5px var(--f-sans)', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{active?.name || 'Empresa'}</span>
+        <span style={{ flex: 1, textAlign: 'left', font: '600 12.5px var(--f-sans)', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeId === 'GRUPO' ? 'Grupo (todas)' : (active?.name || 'Empresa')}</span>
         <window.Icon name="chevron_down" size={14} style={{ color: 'var(--ink-3)' }} />
       </button>
       {open && (
         <div style={{ position: 'absolute', top: 46, left: 0, right: 0, zIndex: 50,
           background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-xl)',
           boxShadow: 'var(--sh-2)', padding: 5 }}>
+          <button key="GRUPO" onClick={() => { switchCompany('GRUPO'); setOpen(false); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+              padding: '9px 10px', borderRadius: 'var(--r-md)', cursor: 'pointer', marginBottom: 4,
+              borderBottom: '1px solid var(--line)',
+              background: activeId === 'GRUPO' ? 'var(--accent-soft)' : 'transparent',
+              color: activeId === 'GRUPO' ? 'var(--accent)' : 'var(--ink)',
+              font: `${activeId === 'GRUPO' ? 600 : 500} 12.5px var(--f-sans)` }}>
+            <span style={{ flex: 1 }}>Grupo (todas as empresas)</span>
+            {activeId === 'GRUPO' && <window.Icon name="check" size={14} />}
+          </button>
           {companies.map(c => {
             const isActive = c.id === activeId, isHome = c.id === homeCompanyId;
             return (
