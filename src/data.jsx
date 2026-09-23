@@ -409,6 +409,7 @@ async function parseExcelContas(file) {
     const prevRaw = row['previsto'] || row['valor'] || row['amount'] || row['value'] || 0;
     const realRaw = row['realizado'] || row['pago_valor'] || 0;
     const pagoRaw = (row['pago'] || row['status'] || '').toString().toLowerCase();
+    const conta = row['conta'] || row['banco'] || row['conta bancária'] || row['conta bancaria'] || null;
     const parseNum = (v) => typeof v === 'number' ? v : Number(String(v).replace(/[^\d,.-]/g, '').replace(',', '.')) || 0;
     const previsto = parseNum(prevRaw);
     const realizado = parseNum(realRaw);
@@ -429,6 +430,7 @@ async function parseExcelContas(file) {
       id: `imp-conta-${Date.now()}-${i}`,
       tipo, category, description,
       vencimento: date,
+      conta,
       previsto,
       realizado: pago ? (realizado || previsto) : 0,
       pago,
