@@ -64,6 +64,19 @@ async function refreshSession() {
   return _refreshing;
 }
 
+// ─── Modo "Grupo" (consolida Med Center + Talentos) ───
+// Só muda algo quando a empresa ativa é 'GRUPO'; qualquer outro id se comporta igual a antes.
+const GRUPO_COMPANY_IDS = ['7663eaab-3fa3-4067-91f6-71f8c77f8b55', '17749e39-3e73-41ab-b731-9463d760887b'];
+function coFilter(cid) {
+  return cid === 'GRUPO'
+    ? `company_id=in.(${GRUPO_COMPANY_IDS.join(',')})`
+    : `company_id=eq.${cid}`;
+}
+// Para GRAVAR não dá pra usar 'GRUPO' (precisa de um CNPJ real): cai na empresa-base (home).
+function realCompany(cid) {
+  return cid === 'GRUPO' ? (window.HOME_COMPANY_ID || GRUPO_COMPANY_IDS[0]) : cid;
+}
+
 async function sbRest(path, opts = {}, _jaTentou) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
     ...opts,
@@ -147,7 +160,7 @@ async function updateProfile(userId, patch) {
   });
 }
 async function listTeam(companyId) {
-  return sbRest(`/profiles?company_id=eq.${companyId}&select=*&order=created_at.asc`);
+  return sbRest(`/profiles?${coFilter(companyId)}&select=*&order=created_at.asc`);
 }
 async function inviteMember(email, role, companyId) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/invite_member_by_email`, {
@@ -195,7 +208,7 @@ function rowToConta(r) {
 }
 function contaToRow(c, companyId, userId) {
   return {
-    company_id: companyId,
+    company_id: realCompany(companyId),
     created_by: userId,
     description: c.description,
     category: c.category,
@@ -210,7 +223,7 @@ function contaToRow(c, companyId, userId) {
   };
 }
 async function fetchContas(companyId) {
-  const rows = await sbRest(`/transactions?company_id=eq.${companyId}&select=*&order=date.desc&limit=1000`);
+  const rows = await sbRest(`/transactions?${coFilter(companyId)}&select=*&order=date.desc&limit=1000`);
   return rows.map(rowToConta);
 }
 async function createConta(c, companyId, userId) {
@@ -229,12 +242,12 @@ async function markContaPaga(id, actualValue) {
 // O molde fica aqui; cada mês vira uma conta PENDENTE em `transactions`
 // (vinculada por recorrente_id) só quando você abre o mês na tela Contas.
 async function fetchRecorrentes(companyId) {
-  const rows = await sbRest(`/contas_recorrentes?company_id=eq.${companyId}&select=*&order=description.asc`);
+  const rows = await sbRest(`/contas_recorrentes?${coFilter(companyId)}&select=*&order=description.asc`);
   return Array.isArray(rows) ? rows : [];
 }
 async function createRecorrente(companyId, userId, r) {
   const body = {
-    company_id: companyId, created_by: userId,
+    company_id: realCompany(companyId), created_by: userId,
     description: r.description, category: r.category || null,
     tipo: r.tipo === 'receber' ? 'receber' : 'pagar',
     previsto: Number(r.previsto || 0),
@@ -263,11 +276,11 @@ async function deleteRecorrente(id) {
 
 // ---- Produção mensal (base da projeção) ----
 async function fetchProducaoMensal(companyId) {
-  return sbRest(`/producao_mensal?company_id=eq.${companyId}&select=*&order=competencia.asc`);
+  return sbRest(`/producao_mensal?${coFilter(companyId)}&select=*&order=competencia.asc`);
 }
 async function upsertProducaoMensal(companyId, userId, comp, convenio, atendimentos, valorPorAtend, ajustado, obs) {
   const body = {
-    company_id: companyId, competencia: comp, convenio,
+    company_id: realCompany(companyId), competencia: comp, convenio,
     atendimentos, valor_por_atend: valorPorAtend,
     ajustado: !!ajustado, observacao: obs || null, updated_at: new Date().toISOString(),
   };
@@ -279,7 +292,7 @@ async function upsertProducaoMensal(companyId, userId, comp, convenio, atendimen
 
 // ---- Contas bancárias / saldo real ----
 async function fetchContasBancarias(companyId) {
-  return sbRest(`/contas_bancarias?company_id=eq.${companyId}&ativo=is.true&select=*&order=ordem.asc`);
+  return sbRest(`/contas_bancarias?${coFilter(companyId)}&ativo=is.true&select=*&order=ordem.asc`);
 }
 async function updateContaBancaria(id, patch) {
   return sbRest(`/contas_bancarias?id=eq.${id}`, {
@@ -320,7 +333,7 @@ function rowToCompra(r) {
 }
 function compraToRow(c, companyId, userId) {
   return {
-    company_id: companyId,
+    company_id: realCompany(companyId),
     created_by: userId,
     item: c.description,
     supplier: c.category,
@@ -332,7 +345,7 @@ function compraToRow(c, companyId, userId) {
   };
 }
 async function fetchCompras(companyId) {
-  const rows = await sbRest(`/purchases?company_id=eq.${companyId}&select=*&order=date.desc&limit=1000`);
+  const rows = await sbRest(`/purchases?${coFilter(companyId)}&select=*&order=date.desc&limit=1000`);
   return rows.map(rowToCompra);
 }
 async function createCompra(c, companyId, userId) {
@@ -376,13 +389,13 @@ async function deleteCompra(id) {
 
 // ---- Categories ----
 async function fetchCategories(companyId) {
-  const rows = await sbRest(`/categories?company_id=eq.${companyId}&select=*&order=name.asc`);
+  const rows = await sbRest(`/categories?${coFilter(companyId)}&select=*&order=name.asc`);
   return rows || [];
 }
 async function createCategory(companyId, userId, { name, type, color }) {
   return sbRest('/categories', {
     method: 'POST',
-    body: JSON.stringify({ company_id: companyId, name, type, color: color || '#6b7280', is_active: true }),
+    body: JSON.stringify({ company_id: realCompany(companyId), name, type, color: color || '#6b7280', is_active: true }),
     prefer: 'return=representation',
   });
 }
@@ -399,14 +412,14 @@ async function deleteCategory(id) {
 
 // ---- Audit log ----
 async function fetchAuditLog(companyId, limit = 100) {
-  return sbRest(`/audit_log?company_id=eq.${companyId}&select=*&order=created_at.desc&limit=${limit}`);
+  return sbRest(`/audit_log?${coFilter(companyId)}&select=*&order=created_at.desc&limit=${limit}`);
 }
 async function logAction(companyId, userId, action, tableName, recordId, newData) {
   try {
     await sbRest('/audit_log', {
       method: 'POST',
       body: JSON.stringify({
-        company_id: companyId,
+        company_id: realCompany(companyId),
         user_id: userId,
         action, table_name: tableName, record_id: recordId, new_data: newData,
       }),
@@ -437,14 +450,14 @@ async function fetchCompanies() {
 // ---- Eventos da agenda da clínica (manuais) ----
 async function fetchEventos(companyId) {
   const hoje = new Date().toISOString().slice(0, 10);
-  const rows = await sbRest(`/eventos_agenda?company_id=eq.${companyId}&data=gte.${hoje}&select=*&order=data.asc`);
+  const rows = await sbRest(`/eventos_agenda?${coFilter(companyId)}&data=gte.${hoje}&select=*&order=data.asc`);
   return Array.isArray(rows) ? rows : [];
 }
 async function createEvento(companyId, titulo, data, tipo, observacao) {
   return sbRest(`/eventos_agenda`, {
     method: 'POST',
     headers: { Prefer: 'return=representation' },
-    body: JSON.stringify([{ company_id: companyId, titulo, data, tipo: tipo || 'evento', observacao: observacao || null }]),
+    body: JSON.stringify([{ company_id: realCompany(companyId), titulo, data, tipo: tipo || 'evento', observacao: observacao || null }]),
   });
 }
 async function deleteEvento(id) {
