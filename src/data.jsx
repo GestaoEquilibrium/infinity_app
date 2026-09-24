@@ -315,7 +315,9 @@ function saldoAnterior(monthKeyStr) {
 async function parseExcel(file) {
   if (!window.XLSX) throw new Error('XLSX library not loaded');
   const buf = await file.arrayBuffer();
-  const wb = window.XLSX.read(buf, { type: 'array' });
+  // raw: true → em CSV, NÃO converte '10/09/2026' em data americana (mês/dia); mantém o texto
+  // e deixa o parser abaixo ler como DD/MM/AAAA. Não afeta arquivos .xlsx.
+  const wb = window.XLSX.read(buf, { type: 'array', raw: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = window.XLSX.utils.sheet_to_json(ws, { raw: false, defval: '' });
   return rows.map((r, i) => {
@@ -339,7 +341,8 @@ async function parseExcel(file) {
         date = dateRaw.trim().slice(0, 10);
       } else {
         const d = new Date(dateRaw);
-        if (!isNaN(d)) date = d.toISOString().slice(0, 10);
+        // data local (toISOString converte pra UTC e volta um dia no fuso de Brasília)
+        if (!isNaN(d)) date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       }
     }
     return {
@@ -395,7 +398,9 @@ async function addCompras(rows) {
 async function parseExcelContas(file) {
   if (!window.XLSX) throw new Error('XLSX library not loaded');
   const buf = await file.arrayBuffer();
-  const wb = window.XLSX.read(buf, { type: 'array' });
+  // raw: true → em CSV, NÃO converte '10/09/2026' em data americana (mês/dia); mantém o texto
+  // e deixa o parser abaixo ler como DD/MM/AAAA. Não afeta arquivos .xlsx.
+  const wb = window.XLSX.read(buf, { type: 'array', raw: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = window.XLSX.utils.sheet_to_json(ws, { raw: false, defval: '' });
   return rows.map((r, i) => {
@@ -423,7 +428,8 @@ async function parseExcelContas(file) {
         date = dateRaw.trim().slice(0, 10);
       } else {
         const d = new Date(dateRaw);
-        if (!isNaN(d)) date = d.toISOString().slice(0, 10);
+        // data local (toISOString converte pra UTC e volta um dia no fuso de Brasília)
+        if (!isNaN(d)) date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       }
     }
     return {
