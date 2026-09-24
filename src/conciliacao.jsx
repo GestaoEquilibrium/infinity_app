@@ -20,9 +20,7 @@ const ConciliacaoPage = ({ embedded = false, onExport } = {}) => {
     if (!companyId) { setLoading(false); return; }
     setLoading(true); setErro(null);
     try {
-      const base = window.SUPABASE_URL + '/rest/v1/transactions?company_id=eq.' + companyId + '&select=*&order=date.desc&limit=2000';
-      const h = { apikey: window.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + (window.getSession?.()?.access_token || window.SUPABASE_ANON_KEY) };
-      const data = await fetch(base, { headers: h }).then(r => r.json());
+      const data = await window.fetchTodas(`/transactions?${companyId === 'GRUPO' ? 'company_id=in.(7663eaab-3fa3-4067-91f6-71f8c77f8b55,17749e39-3e73-41ab-b731-9463d760887b)' : 'company_id=eq.' + companyId}&select=*&order=date.desc,id.asc`);
       setRows(Array.isArray(data) ? data : []);
     } catch (e) { setErro(e.message); }
     finally { setLoading(false); }
@@ -30,7 +28,8 @@ const ConciliacaoPage = ({ embedded = false, onExport } = {}) => {
   useEffectCC(() => { carregar(); }, [carregar]);
 
   // separa transações do banco (integração) das contas do sistema
-  const ehDoBanco = (r) => /a classificar/i.test(r.category || '');
+  // Origem real do lançamento (coluna 'origem'); lançamentos antigos sem a coluna caem na regra velha.
+  const ehDoBanco = (r) => r.origem ? r.origem !== 'sistema' : /a classificar/i.test(r.category || '');
   const ehTransferencia = (r) => (window.ehTransferenciaInterna ? window.ehTransferenciaInterna(r) : /transfer/i.test(r.category || ''));
 
   const { conciliados, soBanco, soSistema } = useMemoCC(() => {
