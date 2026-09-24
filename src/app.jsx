@@ -330,7 +330,7 @@ const Hub = ({ onPick }) => {
 
 const DEFAULT_ORDER = ['flow', 'agenda', 'kpis'];
 
-const Dashboard = ({ filter, setFilter }) => {
+const Dashboard = ({ filter, setFilter, setPage }) => {
   const data = window.useWidgetData(filter);
   const { profile } = useAuth();
   const [seg, setSeg] = useState('mes'); // 'dia' | 'mes'
@@ -354,6 +354,26 @@ const Dashboard = ({ filter, setFilter }) => {
   const saldoBanco = (bancos || []).reduce((a, b) => a + b.saldo, 0);
   const nContas = (bancos || []).length;
   const resultado = data.totalIn - data.totalOut;
+
+  // ── Extratos pendentes: contas SEM sync automático cujo último lançamento
+  // vinculado (campo "conta") tem mais de 7 dias. Mercado Pago e Inter ficam fora (sync).
+  const DIAS_LIMITE = 7;
+  const pendentes = React.useMemo(() => {
+    if (!bancos) return [];
+    const AUTO = /mercado\s*pago|\binter\b/i;
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    const tx = window.CONTAS || [];
+    return bancos
+      .filter(cb => !AUTO.test(cb.nome || ''))
+      .map(cb => {
+        let ult = null;
+        tx.forEach(c => { if ((c.conta || '') === cb.nome && c.vencimento && (!ult || c.vencimento > ult)) ult = c.vencimento; });
+        const dias = ult ? Math.floor((hoje - new Date(ult + 'T00:00:00')) / 86400000) : null;
+        return { nome: cb.nome, ult, dias };
+      })
+      .filter(p => p.dias === null || p.dias > DIAS_LIMITE);
+  }, [bancos, (window.CONTAS || []).length]);
+  const fmtBR = (iso) => iso ? iso.split('-').reverse().join('/') : '';
 
   // série do gráfico conforme o segmento
   const hojeMes = new Date().toISOString().slice(0, 7); // YYYY-MM
@@ -395,6 +415,24 @@ const Dashboard = ({ filter, setFilter }) => {
 
       {/* ── Conteúdo ── */}
       <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Lembrete: extratos pendentes de importação */}
+        {pendentes.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: 'var(--c-warn-bg, #FFF6E6)', border: '1px solid var(--c-warn, #E0A43A)', borderRadius: 'var(--r-xl)' }}>
+            <window.Icon name="alert" size={18} style={{ color: 'var(--c-warn, #B5731A)', flexShrink: 0 }} />
+            <div style={{ flex: 1, font: '500 13px var(--f-sans)', color: 'var(--ink)', lineHeight: 1.5 }}>
+              <b>Extratos pendentes</b>{' — importe para manter os saldos em dia: '}
+              {pendentes.map((p, i) => (
+                <span key={p.nome}>
+                  {i > 0 && ' · '}
+                  <b>{p.nome}</b>{' '}
+                  <span style={{ color: 'var(--ink-3)' }}>({p.ult ? `último em ${fmtBR(p.ult)}` : 'nenhum importado'})</span>
+                </span>
+              ))}
+            </div>
+            {setPage && <window.Btn variant="primary" size="sm" icon="file" onClick={() => setPage('contas')}>Importar extrato</window.Btn>}
+          </div>
+        )}
+
         {/* Saldos bancários (faixa fina) */}
         {bancos && bancos.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${bancos.length}, 1fr)`, gap: 1, background: 'var(--line)', border: '1px solid var(--line)', borderRadius: 'var(--r-xl)', overflow: 'hidden' }}>
@@ -866,7 +904,7 @@ const AppShell = () => {
   useEffect(() => { localStorage.setItem('infinity-filter-v2', JSON.stringify(filter)); }, [filter]);
 
   const pages = {
-    dashboard: <Dashboard filter={filter} setFilter={setFilter} />,
+    dashboard: <Dashboard filter={filter} setFilter={setFilter} setPage={setPage} />,
     contas: <ContasPage filter={filter} setFilter={setFilter} />,
     projecao: <window.ProjecaoPage />,
     impostos: <window.ImpostosPage filter={filter} setFilter={setFilter} />,
