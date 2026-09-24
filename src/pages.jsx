@@ -1576,6 +1576,17 @@ const RecorrenteModal = ({ record, onClose }) => {
 
 const ContasPage = ({ filter, setFilter }) => {
   const [editing, setEditing] = React.useState(null);
+  // aberto pela busca do topo: abre direto a conta escolhida
+  React.useEffect(() => {
+    const abre = () => {
+      const id = window.__eqAbrirConta; if (!id) return;
+      const c = (window.CONTAS || []).find(x => x.id === id);
+      if (c) { window.__eqAbrirConta = null; setEditing(c); }
+    };
+    abre();
+    window.addEventListener('eq-abrir-conta', abre);
+    return () => window.removeEventListener('eq-abrir-conta', abre);
+  }, []);
   const [confirmando, setConfirmando] = React.useState(null);
   const [showReplicar, setShowReplicar] = React.useState(false);
   const [, tick] = React.useReducer(x => x + 1, 0);

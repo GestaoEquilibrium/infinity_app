@@ -236,7 +236,7 @@ const AJUDA_GLOSSARIO = [
 const AJUDA_TITULOS = {
   dashboard: 'Dashboard', caixa: 'Caixa — Particular', contas: 'Contas', projecao: 'Projeção de Caixa',
   impostos: 'Impostos', repasse: 'Repasse', compras: 'Compras', agenda: 'Agenda',
-  relatorios: 'Relatórios', rh: 'RH', equipe: 'Equipe', perfil: 'Meu perfil', config: 'Configurações',
+  relatorios: 'Relatórios', rh: 'Colaboradores', equipe: 'Acessos', perfil: 'Meu perfil', config: 'Configurações',
 };
 
 // ─── estilos base ──────────────────────────────────────────────────────────
@@ -360,8 +360,8 @@ const AjudaBanner = ({ page }) => {
 };
 
 // ─── Aba Ajuda ─────────────────────────────────────────────────────────────
-const AjudaTelaCard = ({ chave, nome, info }) => {
-  const [aberto, setAberto] = React.useState(false);
+const AjudaTelaCard = ({ chave, nome, info, abertoInicial }) => {
+  const [aberto, setAberto] = React.useState(!!abertoInicial);
   return (
     <div style={{ ...ajCard, padding: 0, overflow: 'hidden' }}>
       <button onClick={() => setAberto(a => !a)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '13px 15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
@@ -384,15 +384,93 @@ const AjudaTelaCard = ({ chave, nome, info }) => {
 // ═══════════════ Documentos da clínica (POP etc.) ═══════════════
 // O conteúdo NÃO fica no código (o site é público no GitHub): vem da tabela
 // ajuda_documentos, que só quem tem acesso liberado consegue ler.
+// ─── busca: normalização, destaque e índice ───
+const ajNorm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const AjTermo = React.createContext('');
+// realça as palavras buscadas dentro de um texto
+const AjMarca = ({ txt }) => {
+  const termo = React.useContext(AjTermo);
+  const s = String(txt || '');
+  const palavras = ajNorm(termo).split(/\s+/).filter(w => w.length >= 2);
+  if (!palavras.length) return s;
+  const n = ajNorm(s);
+  const marcas = [];
+  palavras.forEach(w => { let i = n.indexOf(w); while (i >= 0) { marcas.push([i, i + w.length]); i = n.indexOf(w, i + w.length); } });
+  if (!marcas.length) return s;
+  marcas.sort((a, b) => a[0] - b[0]);
+  const out = []; let pos = 0;
+  marcas.forEach(([a, b], k) => { if (a < pos) return; out.push(s.slice(pos, a)); out.push(<mark key={k} style={{ background: 'var(--c-warning-bg, #FFF1B8)', color: 'inherit', borderRadius: 3, padding: '0 1px' }}>{s.slice(a, b)}</mark>); pos = b; });
+  out.push(s.slice(pos));
+  return <>{out}</>;
+};
 const ajNegrito = (txt) => String(txt || '').split(/(\*\*[^*]+\*\*)/g).map((t, i) =>
-  t.startsWith('**') && t.endsWith('**') ? <b key={i} style={{ color: 'var(--ink)' }}>{t.slice(2, -2)}</b> : <React.Fragment key={i}>{t}</React.Fragment>);
+  t.startsWith('**') && t.endsWith('**') ? <b key={i} style={{ color: 'var(--ink)' }}><AjMarca txt={t.slice(2, -2)} /></b> : <AjMarca key={i} txt={t} />);
+
+// texto corrido de um bloco do documento (para a busca)
+const ajTextoBloco = (b) => {
+  const tira = (t) => String(t || '').replace(/\*\*/g, '');
+  if (b.t === 'p') return tira(b.x);
+  if (b.t === 'callout') return tira(b.titulo) + '. ' + tira(b.x);
+  if (b.t === 'lista') return tira(b.titulo) + ' ' + (b.itens || []).map(tira).join(' · ');
+  if (b.t === 'tabela') return (b.titulo || '') + ' ' + (b.lin || []).map(l => l.join(' — ')).join(' · ');
+  if (b.t === 'check') return 'Checklist: ' + (b.itens || []).join(' · ');
+  return '';
+};
+
+// documentos (POP) carregados uma vez só e guardados
+let ajDocsPromessa = null;
+function ajCarregarDocs(forcar) {
+  if (!ajDocsPromessa || forcar) {
+    ajDocsPromessa = (async () => {
+      try { return await window.__sbRest('/ajuda_documentos?select=id,titulo,subtitulo,versao,conteudo,atualizado_em&order=titulo.asc') || []; }
+      catch (e) { ajDocsPromessa = null; return []; }
+    })();
+  }
+  return ajDocsPromessa;
+}
+
+// índice de tudo que existe na Ajuda: POP (bloco a bloco), telas e conceitos
+function ajIndice(docs) {
+  const itens = [];
+  (docs || []).forEach(d => (d.conteudo?.partes || []).forEach(p => (p.blocos || []).forEach((b, i) => {
+    const texto = ajTextoBloco(b);
+    if (texto.trim()) itens.push({ grupo: d.titulo, titulo: p.titulo.replace(/^Parte [IVX]+ — /, '') + (b.titulo ? ' · ' + String(b.titulo).split(' — ')[0] : ''), texto,
+      alvo: { aba: p.id === 'checklist' ? 'checklist' : 'doc', doc: d.id, parte: p.id, bloco: i } });
+  })));
+  Object.keys(AJUDA).forEach(k => {
+    const a = AJUDA[k];
+    const texto = [a.resumo, a.quemUsa, a.cenario, ...(a.passos || []).map(x => x.t + ' ' + (x.obs || '')), ...(a.erros || []).map(x => x.msg + ' ' + x.causa), ...(a.dicas || []), ...(a.cuidado || [])].filter(Boolean).join(' · ');
+    itens.push({ grupo: 'Telas do sistema', titulo: AJUDA_TITULOS[k] || k, texto, alvo: { aba: 'telas', tela: k } });
+  });
+  AJUDA_GLOSSARIO.forEach((g, i) => itens.push({ grupo: 'Conceitos', titulo: g.termo, texto: g.texto, alvo: { aba: 'conceitos', conceito: i } }));
+  return itens;
+}
+
+// busca no índice: todas as palavras precisam aparecer; título pesa mais
+function ajBuscar(indice, termo, limite = 30) {
+  const ws = ajNorm(termo).split(/\s+/).filter(w => w.length >= 2);
+  if (!ws.length) return [];
+  const res = [];
+  indice.forEach(it => {
+    const nt = ajNorm(it.titulo), nx = ajNorm(it.texto);
+    if (!ws.every(w => nt.includes(w) || nx.includes(w))) return;
+    let score = 0; ws.forEach(w => { if (nt.includes(w)) score += 3; if (nx.includes(w)) score += 1; });
+    const i = nx.indexOf(ws.find(w => nx.includes(w)) || '');
+    const ini = Math.max(0, i - 50);
+    const trecho = i < 0 ? it.texto.slice(0, 140) : (ini ? '…' : '') + it.texto.slice(ini, ini + 150) + (ini + 150 < it.texto.length ? '…' : '');
+    res.push({ ...it, score, trecho });
+  });
+  return res.sort((a, b) => b.score - a.score).slice(0, limite);
+}
+// usado pela busca do topo do sistema
+async function eqAjudaBuscar(termo, limite) { return ajBuscar(ajIndice(await ajCarregarDocs()), termo, limite); }
 
 const AjudaBloco = ({ b, docId }) => {
   const txt = { fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.6, margin: '8px 0' };
   if (b.t === 'p') return <p style={txt}>{ajNegrito(b.x)}</p>;
   if (b.t === 'callout') return (
     <div style={{ ...ajCard, borderLeftColor: 'var(--c-tertiary, var(--accent))', margin: '10px 0' }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 3 }}>{b.titulo}</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 3 }}><AjMarca txt={b.titulo} /></div>
       <div style={{ fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.55 }}>{ajNegrito(b.x)}</div>
     </div>
   );
@@ -404,11 +482,11 @@ const AjudaBloco = ({ b, docId }) => {
   );
   if (b.t === 'tabela') return (
     <div style={{ margin: '12px 0' }}>
-      {b.titulo && <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>{b.titulo}</div>}
+      {b.titulo && <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}><AjMarca txt={b.titulo} /></div>}
       <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 'var(--r-md)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
           <thead><tr>{b.cab.map((h, i) => <th key={i} style={{ textAlign: 'left', padding: '8px 10px', background: 'var(--surface-2, #F6F8FA)', borderBottom: '1px solid var(--line)', fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.3 }}>{h}</th>)}</tr></thead>
-          <tbody>{b.lin.map((l, i) => <tr key={i}>{l.map((c, j) => <td key={j} style={{ padding: '7px 10px', borderTop: i ? '1px solid var(--line-2, var(--line))' : 0, color: j ? 'var(--ink-soft)' : 'var(--ink)', fontWeight: j ? 400 : 600, verticalAlign: 'top' }}>{c}</td>)}</tr>)}</tbody>
+          <tbody>{b.lin.map((l, i) => <tr key={i}>{l.map((c, j) => <td key={j} style={{ padding: '7px 10px', borderTop: i ? '1px solid var(--line-2, var(--line))' : 0, color: j ? 'var(--ink-soft)' : 'var(--ink)', fontWeight: j ? 400 : 600, verticalAlign: 'top' }}><AjMarca txt={c} /></td>)}</tr>)}</tbody>
         </table>
       </div>
     </div>
@@ -446,116 +524,184 @@ const AjudaChecklist = ({ itens, docId }) => {
   );
 };
 
-const AjudaDocumento = ({ doc }) => {
-  const [aberto, setAberto] = React.useState(false);
+// baixa o PDF original guardado junto com o documento
+async function ajBaixarPdf(doc) {
+  const r = await window.__sbRest(`/ajuda_documentos?id=eq.${doc.id}&select=pdf_base64,pdf_nome`);
+  const row = r && r[0];
+  if (!row || !row.pdf_base64) { alert('Este documento não tem PDF anexado.'); return; }
+  const bin = atob(row.pdf_base64); const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+  const a = document.createElement('a'); a.href = url; a.download = row.pdf_nome || (doc.id + '.pdf');
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// Documento em duas colunas: sumário fixo à esquerda, conteúdo à direita
+const AjudaDocumento = ({ doc, alvo }) => {
+  const partes = (doc.conteudo?.partes || []).filter(p => p.id !== 'checklist');
+  const [ativa, setAtiva] = React.useState(partes[0]?.id);
   const [baixando, setBaixando] = React.useState(false);
-  const partes = doc.conteudo?.partes || [];
-  const ir = (id) => { const el = document.getElementById('ajdoc-' + doc.id + '-' + id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
-  const baixar = async () => {
-    setBaixando(true);
-    try {
-      const r = await window.__sbRest(`/ajuda_documentos?id=eq.${doc.id}&select=pdf_base64,pdf_nome`);
-      const row = r && r[0];
-      if (!row || !row.pdf_base64) { alert('Este documento não tem PDF anexado.'); return; }
-      const bin = atob(row.pdf_base64); const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-      const a = document.createElement('a'); a.href = url; a.download = row.pdf_nome || (doc.id + '.pdf');
-      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
-    } catch (e) { alert('Não consegui baixar: ' + e.message); }
-    finally { setBaixando(false); }
+  const idSec = (id) => 'ajdoc-' + doc.id + '-' + id;
+  const ir = (id, bloco) => {
+    setAtiva(id);
+    const el = document.getElementById(bloco != null ? idSec(id) + '-b' + bloco : idSec(id)) || document.getElementById(idSec(id));
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: bloco != null ? 'center' : 'start' });
+      if (bloco != null) { el.style.transition = 'background .3s'; el.style.background = 'var(--accent-soft, #E8F0FE)'; setTimeout(() => { el.style.background = ''; }, 1800); }
+    }
   };
+  React.useEffect(() => { if (alvo && alvo.doc === doc.id && alvo.parte) setTimeout(() => ir(alvo.parte, alvo.bloco), 80); }, [alvo]);
+  const baixar = async () => { setBaixando(true); try { await ajBaixarPdf(doc); } catch (e) { alert('Não consegui baixar: ' + e.message); } setBaixando(false); };
+
   return (
-    <div style={{ ...ajCard, borderLeftColor: 'var(--accent)', padding: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>{doc.titulo} <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink-mute)' }}>{doc.versao}</span></div>
-          <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>{doc.subtitulo} · confidencial, uso interno</div>
-        </div>
-        <button onClick={baixar} disabled={baixando} style={ajBtnLink}>{baixando ? 'Baixando…' : 'Baixar PDF'}</button>
-        <button onClick={() => setAberto(a => !a)} style={ajBtnLink}>{aberto ? 'Fechar' : 'Abrir'}</button>
+    <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 22, alignItems: 'start' }}>
+      <nav style={{ position: 'sticky', top: 12, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', letterSpacing: 0.5, margin: '2px 10px 6px' }}>SUMÁRIO</div>
+        {partes.map(p => (
+          <button key={p.id} onClick={() => ir(p.id)} style={{ textAlign: 'left', border: 'none', cursor: 'pointer', padding: '7px 10px', borderRadius: 'var(--r-md)', fontSize: 13, lineHeight: 1.3,
+            background: ativa === p.id ? 'var(--accent-soft, #E8F0FE)' : 'transparent', color: ativa === p.id ? 'var(--accent)' : 'var(--ink-soft)', fontWeight: ativa === p.id ? 700 : 500 }}>
+            {p.titulo.replace(/^Parte ([IVX]+) — /, '$1. ')}
+          </button>
+        ))}
+        <div style={{ borderTop: '1px solid var(--line)', margin: '10px 0 4px' }} />
+        <button onClick={baixar} disabled={baixando} style={{ ...ajBtnLink, textAlign: 'left', padding: '6px 10px' }}>{baixando ? 'Baixando…' : '⬇ Baixar PDF original'}</button>
+        <div style={{ fontSize: 11.5, color: 'var(--ink-mute)', padding: '4px 10px' }}>{doc.versao} · confidencial, uso interno</div>
+      </nav>
+      <div style={{ ...ajCard, borderLeftColor: 'var(--accent)', padding: '6px 24px 22px' }}>
+        {doc.conteudo?.intro && <p style={{ fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.6, maxWidth: 820 }}>{doc.conteudo.intro}</p>}
+        {partes.map(p => (
+          <section key={p.id} id={idSec(p.id)} style={{ maxWidth: 900, scrollMarginTop: 16 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)', margin: '24px 0 4px', paddingBottom: 6, borderBottom: '1px solid var(--line)' }}>{p.titulo}</h3>
+            {p.blocos.map((b, i) => <div key={i} id={idSec(p.id) + '-b' + i} style={{ borderRadius: 'var(--r-md)', margin: '0 -8px', padding: '0 8px' }}><AjudaBloco b={b} docId={doc.id} /></div>)}
+          </section>
+        ))}
+        {doc.conteudo?.aprovacao && <p style={{ fontSize: 12.5, color: 'var(--ink-mute)', marginTop: 20 }}>{doc.conteudo.aprovacao}</p>}
       </div>
-      {aberto && (
-        <div style={{ borderTop: '1px solid var(--line)', padding: '6px 18px 18px' }}>
-          {doc.conteudo?.intro && <p style={{ fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.6, maxWidth: 820 }}>{doc.conteudo.intro}</p>}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '6px 0 4px' }}>
-            {partes.map(p => (
-              <button key={p.id} onClick={() => ir(p.id)} style={{ border: '1px solid var(--line)', background: 'var(--surface-2, #F6F8FA)', borderRadius: 999, padding: '4px 11px', fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', cursor: 'pointer' }}>{p.titulo.replace(/^Parte [IVX]+ — /, '')}</button>
-            ))}
-          </div>
-          {partes.map(p => (
-            <section key={p.id} id={'ajdoc-' + doc.id + '-' + p.id} style={{ maxWidth: 900, scrollMarginTop: 16 }}>
-              <h3 style={{ fontSize: 15.5, fontWeight: 700, color: 'var(--ink)', margin: '22px 0 4px', paddingBottom: 6, borderBottom: '1px solid var(--line)' }}>{p.titulo}</h3>
-              {p.blocos.map((b, i) => <AjudaBloco key={i} b={b} docId={doc.id} />)}
-            </section>
+    </div>
+  );
+};
+
+// ─── Aba Ajuda: central de ajuda com busca ─────────────────────────────────
+const AjudaPage = () => {
+  const [docs, setDocs] = React.useState(null);
+  const [termo, setTermo] = React.useState('');
+  const [aba, setAba] = React.useState(null);
+  const [alvo, setAlvo] = React.useState(null);
+  const [termoMarca, setTermoMarca] = React.useState('');
+  const ordem = ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'rh', 'equipe', 'perfil', 'config'];
+
+  React.useEffect(() => { ajCarregarDocs(true).then(d => setDocs(d || [])); }, []);
+  const pop = (docs || [])[0];
+  const abaAtual = aba || (docs == null ? null : (pop ? 'doc' : 'telas'));
+
+  // leva até um resultado (vindo da busca daqui ou da busca do topo do sistema)
+  const abrir = (a, t) => {
+    setTermo(''); setTermoMarca(t || ''); setAba(a.aba); setAlvo({ ...a, _n: Date.now() });
+    if (a.aba !== 'doc') setTimeout(() => {
+      const el = document.getElementById(a.tela ? 'ajtela-' + a.tela : a.conceito != null ? 'ajconc-' + a.conceito : '');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 80);
+  };
+  React.useEffect(() => {
+    const vem = () => { const a = window.__eqAjudaAlvo; if (a) { window.__eqAjudaAlvo = null; abrir(a.alvo, a.termo); } };
+    vem();
+    window.addEventListener('eq-ajuda-ir', vem);
+    return () => window.removeEventListener('eq-ajuda-ir', vem);
+  }, []);
+
+  const indice = React.useMemo(() => ajIndice(docs || []), [docs]);
+  const resultados = termo.trim().length >= 2 ? ajBuscar(indice, termo, 40) : null;
+  const grupos = resultados ? [...new Set(resultados.map(r => r.grupo))].map(g => ({ g, itens: resultados.filter(r => r.grupo === g) })) : [];
+
+  const reativar = () => {
+    ordem.forEach(k => localStorage.removeItem('infinity-ajuda-hide-' + k));
+    alert('Pronto! As caixas de ajuda voltam a aparecer no topo de cada tela.');
+  };
+  const checklist = pop && (pop.conteudo?.partes || []).find(p => p.id === 'checklist');
+  const itensCheck = checklist ? ((checklist.blocos || []).find(b => b.t === 'check') || {}).itens || [] : [];
+  const ABAS = [
+    ...(pop ? [{ value: 'doc', label: pop.titulo }] : []),
+    ...(itensCheck.length ? [{ value: 'checklist', label: 'Checklist do mês' }] : []),
+    { value: 'telas', label: 'Telas do sistema' },
+    { value: 'conceitos', label: 'Conceitos' },
+  ];
+
+  return (
+    <div>
+      <window.PageHeader title="Central de ajuda" subtitle="O manual do financeiro (POP), o passo a passo de cada tela e os conceitos que se repetem"
+        action={<window.Btn variant="ghost" icon="sparkles" onClick={reativar}>Reativar dicas nas telas</window.Btn>} />
+
+      {/* busca da ajuda */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, height: 44, padding: '0 14px', margin: '4px 0 16px', maxWidth: 720,
+        border: '1px solid var(--line-strong, var(--line))', borderRadius: 'var(--r-lg)', background: 'var(--field, var(--surface))' }}>
+        <window.Icon name="search" size={18} style={{ color: 'var(--ink-mute)' }} />
+        <input value={termo} onChange={e => setTermo(e.target.value)} autoFocus
+          placeholder='Pesquisar na ajuda — ex.: "glosa", "dia 20", "CND", "INSS", "evolução"'
+          style={{ flex: 1, border: 'none', outline: 'none', background: 'none', fontSize: 14, color: 'var(--ink)' }} />
+        {termo && <button onClick={() => setTermo('')} style={{ ...ajBtnLink, color: 'var(--ink-mute)' }}>✕</button>}
+      </div>
+
+      {resultados ? (
+        <div style={{ maxWidth: 900 }}>
+          {!resultados.length && <div style={{ fontSize: 13.5, color: 'var(--ink-mute)', padding: '10px 2px' }}>Nada encontrado para "{termo}". Tente outra palavra.</div>}
+          {grupos.map(({ g, itens }) => (
+            <div key={g} style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', letterSpacing: 0.5, marginBottom: 6 }}>{g.toUpperCase()} · {itens.length}</div>
+              <div style={{ display: 'grid', gap: 6 }}>
+                {itens.map((r, i) => (
+                  <button key={i} onClick={() => abrir(r.alvo, termo)} style={{ ...ajCard, textAlign: 'left', cursor: 'pointer', borderLeftColor: g === 'Conceitos' ? 'var(--c-secondary)' : 'var(--accent)' }}>
+                    <AjTermo.Provider value={termo}>
+                      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}><AjMarca txt={r.titulo} /></div>
+                      <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', lineHeight: 1.5, marginTop: 2 }}><AjMarca txt={r.trecho} /></div>
+                    </AjTermo.Provider>
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
-          {doc.conteudo?.aprovacao && <p style={{ fontSize: 12.5, color: 'var(--ink-mute)', marginTop: 20 }}>{doc.conteudo.aprovacao}</p>}
         </div>
+      ) : (
+        <>
+          {abaAtual && <window.Segmented options={ABAS} value={abaAtual} onChange={(v) => { setAba(v); setTermoMarca(''); }} />}
+          {termoMarca && <div style={{ fontSize: 12.5, color: 'var(--ink-mute)', margin: '10px 0 0' }}>Destacando "{termoMarca}" · <button onClick={() => setTermoMarca('')} style={ajBtnLink}>limpar destaque</button></div>}
+          <div style={{ marginTop: 16 }}>
+            <AjTermo.Provider value={termoMarca}>
+              {docs == null && <div style={{ fontSize: 13, color: 'var(--ink-mute)' }}>Carregando…</div>}
+              {abaAtual === 'doc' && pop && <AjudaDocumento doc={pop} alvo={alvo} />}
+              {abaAtual === 'checklist' && (
+                <div style={{ ...ajCard, maxWidth: 820, padding: '14px 20px' }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>Checklist de fechamento mensal</div>
+                  <div style={{ fontSize: 13, color: 'var(--ink-soft)', margin: '3px 0 6px' }}>Só libere o pagamento quando todos os itens estiverem conferidos. As marcações ficam guardadas por mês neste navegador.</div>
+                  <AjudaChecklist itens={itensCheck} docId={pop.id} />
+                </div>
+              )}
+              {abaAtual === 'telas' && (
+                <div style={{ display: 'grid', gap: 10, maxWidth: 900 }}>
+                  {ordem.filter(k => AJUDA[k]).map(k => (
+                    <div key={k} id={'ajtela-' + k}>
+                      <AjudaTelaCard key={k + (alvo && alvo.tela === k ? alvo._n : '')} chave={k} nome={AJUDA_TITULOS[k] || k} info={AJUDA[k]} abertoInicial={!!(alvo && alvo.tela === k)} />
+                    </div>
+                  ))}
+                  <p style={{ fontSize: 12.5, color: 'var(--ink-mute)', marginTop: 8 }}>Dispensou uma caixa de ajuda numa tela e quer de volta? Clique em "Reativar dicas nas telas" lá em cima.</p>
+                </div>
+              )}
+              {abaAtual === 'conceitos' && (
+                <div style={{ display: 'grid', gap: 10, maxWidth: 900 }}>
+                  <p style={{ fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.6, margin: 0 }}>Ideias que aparecem no sistema todo e explicam por que os números às vezes parecem estranhos — e por que estão certos.</p>
+                  {AJUDA_GLOSSARIO.map((g, i) => (
+                    <div key={i} id={'ajconc-' + i} style={{ ...ajCard, borderLeftColor: 'var(--c-secondary)', outline: alvo && alvo.conceito === i ? '2px solid var(--accent)' : 'none' }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', marginBottom: 3 }}><AjMarca txt={g.termo} /></div>
+                      <div style={{ fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.55 }}><AjMarca txt={g.texto} /></div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </AjTermo.Provider>
+          </div>
+        </>
       )}
     </div>
   );
 };
 
-const AjudaDocumentos = ({ secTitulo }) => {
-  const [docs, setDocs] = React.useState(null);
-  React.useEffect(() => {
-    (async () => {
-      try { setDocs(await window.__sbRest('/ajuda_documentos?select=id,titulo,subtitulo,versao,conteudo,atualizado_em&order=titulo.asc') || []); }
-      catch (e) { setDocs([]); }
-    })();
-  }, []);
-  if (!docs || !docs.length) return null;
-  return (
-    <>
-      <div style={secTitulo}>DOCUMENTOS DA CLÍNICA</div>
-      <div style={{ display: 'grid', gap: 10 }}>{docs.map(d => <AjudaDocumento key={d.id} doc={d} />)}</div>
-    </>
-  );
-};
-
-const AjudaPage = () => {
-  const ordem = ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'rh', 'equipe', 'perfil', 'config'];
-  const reativar = () => {
-    ordem.forEach(k => localStorage.removeItem('infinity-ajuda-hide-' + k));
-    alert('Pronto! As caixas de ajuda voltam a aparecer no topo de cada tela.');
-  };
-  const secTitulo = { fontSize: 13, fontWeight: 700, color: 'var(--ink-mute)', letterSpacing: 0.4, margin: '26px 0 10px' };
-
-  return (
-    <div>
-      <window.PageHeader title="Ajuda" subtitle="Como fazer cada coisa no sistema — passo a passo, com os conceitos que se repetem"
-        action={<window.Btn variant="ghost" icon="sparkles" onClick={reativar}>Reativar dicas nas telas</window.Btn>} />
-
-      <AjudaDocumentos secTitulo={{ ...secTitulo, marginTop: 18 }} />
-
-      <div style={secTitulo}>PRIMEIROS CONCEITOS</div>
-      <p style={{ fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.6, maxWidth: 760, marginBottom: 8 }}>
-        Três ideias aparecem no sistema todo e explicam por que os números às vezes parecem estranhos — e por que estão certos.
-      </p>
-      <div style={{ display: 'grid', gap: 10 }}>
-        {AJUDA_GLOSSARIO.map((g, i) => (
-          <div key={i} style={{ ...ajCard, borderLeftColor: 'var(--c-secondary)' }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', marginBottom: 3 }}>{g.termo}</div>
-            <div style={{ fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.55 }}>{g.texto}</div>
-          </div>
-        ))}
-      </div>
-
-      <div style={secTitulo}>TELA POR TELA</div>
-      <p style={{ fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.6, maxWidth: 760, marginBottom: 12 }}>
-        Clique em cada tela para abrir o passo a passo. O print de cada uma entra assim que for adicionado.
-      </p>
-      <div style={{ display: 'grid', gap: 10 }}>
-        {ordem.filter(k => AJUDA[k]).map(k => (
-          <AjudaTelaCard key={k} chave={k} nome={AJUDA_TITULOS[k] || k} info={AJUDA[k]} />
-        ))}
-      </div>
-
-      <p style={{ fontSize: 12.5, color: 'var(--ink-mute)', marginTop: 24 }}>
-        Dispensou uma caixa de ajuda numa tela e quer de volta? Clique em "Reativar dicas nas telas" lá em cima.
-      </p>
-    </div>
-  );
-};
-
-Object.assign(window, { AJUDA, AJUDA_GLOSSARIO, AJUDA_TITULOS, AjudaBanner, AjudaPage });
+Object.assign(window, { AJUDA, AJUDA_GLOSSARIO, AJUDA_TITULOS, AjudaBanner, AjudaPage, eqAjudaBuscar });

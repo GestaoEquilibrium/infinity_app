@@ -194,6 +194,25 @@ const PagamentosEquipePage = () => {
   }, [comp]);
   React.useEffect(() => { carregar(); }, [carregar]);
 
+  // aberto pela busca do topo: vai para o mês do pagamento e abre a edição dele
+  const [abrirId, setAbrirId] = React.useState(null);
+  React.useEffect(() => {
+    const vem = () => {
+      const a = window.__eqAbrirPagamento; if (!a) return;
+      window.__eqAbrirPagamento = null;
+      if (a.comp) setComp(a.comp);
+      setAbrirId(a.id);
+    };
+    vem();
+    window.addEventListener('eq-abrir-pagamento', vem);
+    return () => window.removeEventListener('eq-abrir-pagamento', vem);
+  }, []);
+  React.useEffect(() => {
+    if (!abrirId || !lista) return;
+    const p = lista.find(x => x.id === abrirId);
+    if (p) { setEditando(p); setAbrirId(null); }
+  }, [abrirId, lista]);
+
   const trazerFolha = async () => {
     if ((lista || []).length && !window.confirm('Isso acrescenta quem está no ponto e ainda não está na lista deste mês (e atualiza valores ainda não pagos). Se a folha do mês já foi lançada pela planilha, pode trazer gente repetida. Continuar?')) return;
     setTrazendo(true); setMsg('');

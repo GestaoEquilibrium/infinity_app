@@ -239,7 +239,157 @@ const CompanySelectorSide = () => {
 };
 
 // ─── Header (60px) ───
-const Header = ({ theme, setTheme }) => {
+// ─── Busca global (topo) ───
+// Procura em: Ajuda/POP, telas do sistema, contas e lançamentos, pessoas e pagamentos da equipe.
+const buscaNorm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const buscaValor = (q) => {
+  const t = String(q).trim();
+  if (!/^(r\$\s*)?[\d.]+(,\d{1,2})?$|^(r\$\s*)?\d+(\.\d{1,2})?$/i.test(t)) return null;
+  const u = t.replace(/r\$\s*/i, '');
+  const n = (t.includes(',') || /^\d{1,3}(\.\d{3})+$/.test(u)) ? Number(u.replace(/\./g, '').replace(',', '.')) : Number(u);
+  return isFinite(n) && n > 0 ? n : null;
+};
+let buscaCache = { pessoas: null, pagamentos: null, quando: 0 };
+async function buscaCarregarBase() {
+  if (buscaCache.pessoas && Date.now() - buscaCache.quando < 5 * 60 * 1000) return buscaCache;
+  const cf = window.coFilter ? window.coFilter('GRUPO') : '';
+  const [pessoas, pagamentos] = await Promise.all([
+    window.__sbRest(`/colaboradores?${cf}&select=id,nome,cargo,status,regime&order=nome.asc&limit=2000`).catch(() => []),
+    window.__sbRest(`/pagamentos?${cf}&select=id,nome,cargo,competencia,grupo,valor_liquido,status&order=competencia.desc&limit=3000`).catch(() => []),
+  ]);
+  buscaCache = { pessoas: pessoas || [], pagamentos: pagamentos || [], quando: Date.now() };
+  return buscaCache;
+}
+
+const BuscaGlobal = ({ setPage }) => {
+  const { profile, demo } = useAuth();
+  const role = demo ? 'admin' : (profile?.role || 'viewer');
+  const pode = (k) => k === 'ajuda' || window.canAccess(role, ACESSO_ALIAS[k] || k);
+  const [q, setQ] = useState('');
+  const [aberto, setAberto] = useState(false);
+  const [res, setRes] = useState([]);
+  const [sel, setSel] = useState(0);
+  const [carregando, setCarregando] = useState(false);
+  const ref = useRef(null), inp = useRef(null);
+
+  // Ctrl+K / ⌘K foca a busca
+  useEffect(() => {
+    const h = (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); inp.current?.focus(); setAberto(true); } };
+    const fora = (e) => { if (!ref.current?.contains(e.target)) setAberto(false); };
+    window.addEventListener('keydown', h); document.addEventListener('mousedown', fora);
+    return () => { window.removeEventListener('keydown', h); document.removeEventListener('mousedown', fora); };
+  }, []);
+
+  useEffect(() => {
+    const termo = q.trim();
+    if (termo.length < 2) { setRes([]); return; }
+    let vivo = true;
+    const t = setTimeout(async () => {
+      setCarregando(true);
+      const ws = buscaNorm(termo).split(/\s+/).filter(Boolean);
+      const casa = (txt) => { const n = buscaNorm(txt); return ws.every(w => n.includes(w)); };
+      const valor = buscaValor(termo);
+      const out = [];
+
+      // telas do sistema
+      const telas = [...SIDE_GROUPS.flatMap(g => g.itens), { k: 'hoje', label: 'Hoje (visão operacional)' }, { k: 'equipe', label: 'Acessos' }, { k: 'ajuda', label: 'Ajuda' }, { k: 'config', label: 'Configurações' }, { k: 'perfil', label: 'Meu perfil' }];
+      const vistas = new Set();
+      telas.filter(it => pode(it.k) && !vistas.has(it.k) && vistas.add(it.k) && casa(it.label + ' ' + (TITULOS[it.k] || ''))).slice(0, 4)
+        .forEach(it => out.push({ grupo: 'Telas', titulo: it.label, sub: 'Abrir a tela', ir: () => setPage(it.k) }));
+
+      // ajuda e POP
+      try {
+        const aj = window.eqAjudaBuscar ? await window.eqAjudaBuscar(termo, 5) : [];
+        aj.forEach(r => out.push({ grupo: 'Ajuda e POP', titulo: r.titulo, sub: r.trecho, tag: r.grupo,
+          ir: () => { window.__eqAjudaAlvo = { alvo: r.alvo, termo }; setPage('ajuda'); setTimeout(() => window.dispatchEvent(new Event('eq-ajuda-ir')), 50); } }));
+      } catch (e) { /* segue */ }
+
+      // contas e lançamentos
+      if (pode('contas')) {
+        const contas = (window.CONTAS || []).filter(c => valor != null
+          ? [c.previsto, c.realizado, c.value, c.amount].some(v => Math.abs((Number(v) || 0) - valor) < 0.01)
+          : casa((c.description || '') + ' ' + (c.category || '')));
+        contas.sort((a, b) => String(b.vencimento || '').localeCompare(String(a.vencimento || '')));
+        contas.slice(0, 6).forEach(c => out.push({ grupo: 'Contas e lançamentos', titulo: c.description || '(sem descrição)',
+          sub: `${c.vencimento ? window.fmtDate(c.vencimento) : ''} · ${window.fmt(Number(c.pago ? c.realizado : c.previsto) || Number(c.realizado) || Number(c.previsto) || 0)} · ${c.category || 'sem categoria'}${c.pago ? ' · pago' : ''}`,
+          tag: c.tipo === 'receber' ? 'Entrada' : 'Saída',
+          ir: () => { window.__eqAbrirConta = c.id; setPage('contas'); setTimeout(() => window.dispatchEvent(new Event('eq-abrir-conta')), 80); } }));
+      }
+
+      // pessoas e pagamentos da equipe
+      if (valor == null && (pode('rh') || pode('equipe_pag'))) {
+        try {
+          const base = await buscaCarregarBase();
+          if (pode('rh')) base.pessoas.filter(p => casa(p.nome + ' ' + (p.cargo || ''))).slice(0, 4)
+            .forEach(p => out.push({ grupo: 'Pessoas', titulo: p.nome, sub: [p.cargo, p.regime, p.status].filter(Boolean).join(' · '), ir: () => setPage('rh') }));
+          if (pode('equipe_pag')) base.pagamentos.filter(p => casa(p.nome)).slice(0, 4)
+            .forEach(p => out.push({ grupo: 'Pagamentos da equipe', titulo: p.nome,
+              sub: `${p.competencia} · ${p.grupo === 'dia20' ? 'Dia 20' : '5º dia útil'} · ${window.fmt(Number(p.valor_liquido) || 0)} · ${p.status === 'pago' ? 'pago' : 'pendente'}`,
+              ir: () => { window.__eqAbrirPagamento = { comp: p.competencia, id: p.id }; setPage('equipe_pag'); setTimeout(() => window.dispatchEvent(new Event('eq-abrir-pagamento')), 80); } }));
+        } catch (e) { /* segue */ }
+      } else if (valor != null && pode('equipe_pag')) {
+        try {
+          const base = await buscaCarregarBase();
+          base.pagamentos.filter(p => Math.abs((Number(p.valor_liquido) || 0) - valor) < 0.01).slice(0, 4)
+            .forEach(p => out.push({ grupo: 'Pagamentos da equipe', titulo: p.nome, sub: `${p.competencia} · ${window.fmt(Number(p.valor_liquido) || 0)}`,
+              ir: () => { window.__eqAbrirPagamento = { comp: p.competencia, id: p.id }; setPage('equipe_pag'); setTimeout(() => window.dispatchEvent(new Event('eq-abrir-pagamento')), 80); } }));
+        } catch (e) { /* segue */ }
+      }
+      if (vivo) { setRes(out); setSel(0); setCarregando(false); }
+    }, 220);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [q]);
+
+  const escolher = (r) => { if (!r) return; setAberto(false); setQ(''); inp.current?.blur(); r.ir(); };
+  const tecla = (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSel(i => Math.min(i + 1, res.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setSel(i => Math.max(i - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); escolher(res[sel]); }
+    else if (e.key === 'Escape') { setAberto(false); inp.current?.blur(); }
+  };
+
+  const mostra = aberto && q.trim().length >= 2;
+  let ultimoGrupo = null;
+  return (
+    <div ref={ref} style={{ position: 'relative', flex: 1, maxWidth: 520 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, height: 36, padding: '0 12px', borderRadius: 'var(--r-lg)',
+        border: '1px solid ' + (aberto ? 'var(--accent)' : 'var(--line-strong)'), background: 'var(--field)' }}>
+        <window.Icon name="search" size={16} style={{ color: 'var(--ink-3)' }} />
+        <input ref={inp} value={q} onChange={e => { setQ(e.target.value); setAberto(true); }} onFocus={() => setAberto(true)} onKeyDown={tecla}
+          placeholder="Buscar no sistema, na ajuda e no POP…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', font: '400 12.5px var(--f-sans)', color: 'var(--ink)' }} />
+        {q ? <button onClick={() => { setQ(''); inp.current?.focus(); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-3)', fontSize: 13 }}>✕</button>
+          : <kbd className="mono" style={{ padding: '2px 6px', borderRadius: 'var(--r-sm)', background: 'var(--surface-3)', font: '500 10px var(--f-mono)', color: 'var(--ink-3)' }}>Ctrl K</kbd>}
+      </div>
+      {mostra && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, width: 'min(640px, 90vw)', maxHeight: '70vh', overflowY: 'auto', zIndex: 1500,
+          background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-xl)', boxShadow: 'var(--sh-2, 0 12px 32px rgba(0,0,0,.15))', padding: 6 }}>
+          {carregando && !res.length && <div style={{ padding: 14, font: '400 12.5px var(--f-sans)', color: 'var(--ink-3)' }}>Procurando…</div>}
+          {!carregando && !res.length && <div style={{ padding: 14, font: '400 12.5px var(--f-sans)', color: 'var(--ink-3)' }}>Nada encontrado para "{q}".</div>}
+          {res.map((r, i) => {
+            const cab = r.grupo !== ultimoGrupo; ultimoGrupo = r.grupo;
+            return (
+              <React.Fragment key={i}>
+                {cab && <div style={{ padding: '8px 10px 4px', font: '700 10.5px var(--f-sans)', letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>{r.grupo}</div>}
+                <button onMouseEnter={() => setSel(i)} onMouseDown={e => e.preventDefault()} onClick={() => escolher(r)}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer', padding: '8px 10px', borderRadius: 'var(--r-md)',
+                    background: sel === i ? 'var(--accent-soft, var(--bg))' : 'transparent' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                    <span style={{ font: '600 13px var(--f-sans)', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{r.titulo}</span>
+                    {r.tag && <span style={{ marginLeft: 'auto', flexShrink: 0, font: '600 10.5px var(--f-sans)', color: 'var(--ink-3)', background: 'var(--surface-2, var(--bg))', padding: '1px 7px', borderRadius: 999 }}>{r.tag}</span>}
+                  </div>
+                  {r.sub && <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{r.sub}</div>}
+                </button>
+              </React.Fragment>
+            );
+          })}
+          <div style={{ padding: '6px 10px 4px', font: '400 11px var(--f-sans)', color: 'var(--ink-3)', borderTop: '1px solid var(--line)', marginTop: 4 }}>↑ ↓ para escolher · Enter abre · Esc fecha · dá para buscar por valor (ex.: 1.869,32)</div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const Header = ({ theme, setTheme, setPage }) => {
   return (
     <header style={{
       height: 'var(--header-h)', flexShrink: 0,
@@ -247,13 +397,7 @@ const Header = ({ theme, setTheme }) => {
       display: 'flex', alignItems: 'center', gap: 12, padding: '0 20px',
     }}>
       {/* Busca */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 1, maxWidth: 420,
-        height: 36, padding: '0 12px', borderRadius: 'var(--r-lg)',
-        border: '1px solid var(--line-strong)', background: 'var(--field)' }}>
-        <window.Icon name="search" size={16} style={{ color: 'var(--ink-3)' }} />
-        <input placeholder="Buscar…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', font: '400 12.5px var(--f-sans)', color: 'var(--ink)' }} />
-        <kbd className="mono" style={{ padding: '2px 6px', borderRadius: 'var(--r-sm)', background: 'var(--surface-3)', font: '500 10px var(--f-mono)', color: 'var(--ink-3)' }}>⌘K</kbd>
-      </div>
+      <BuscaGlobal setPage={setPage} />
 
       <div style={{ flex: 1 }} />
 
@@ -989,7 +1133,7 @@ const AppShell = () => {
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       <Sidebar page={page} setPage={setPage} modulo={modulo} setModulo={setModulo} visao={visao} trocarVisao={trocarVisao} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <Header theme={theme} setTheme={setTheme} />
+        <Header theme={theme} setTheme={setTheme} setPage={setPage} />
         <main style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
           {/* Faixa padrão só para telas ainda não migradas.
               Telas migradas renderizam a própria faixa internamente. */}
