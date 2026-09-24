@@ -72,6 +72,11 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
     tarifaConvMap[c] = Number(t.valor);
   });
 
+  const tarifasCod = tarifas.filter(t => t.codigo).map(t => ({
+    conv: norm(t.convenio), codigo: String(t.codigo).padStart(8, '0'),
+    desc: norm(t.tipo_servico), valor: Number(t.valor),
+  }));
+
   // Busca a tarifa certa por convênio + procedimento
   const buscarTarifa = (convenio, procedimento) => {
     const c = norm(convenio.replace(/ \/ Não Informado$/, ''));
@@ -83,6 +88,17 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
       if (tarifaMap[`PARTICULAR|${procServ}`] != null) return tarifaMap[`PARTICULAR|${procServ}`];
       if (tarifaConvMap['PARTICULAR'] != null) return tarifaConvMap['PARTICULAR'];
     }
+    // 3) Tabela por código (planilha de convênios): casa pelo código TUSS que
+    //    vier no procedimento ou pela descrição; o convênio da tarifa precisa
+    //    estar contido no nome do convênio do relatório (o mais específico vence:
+    //    "UNIMED PMU" antes de "UNIMED").
+    const codProc = (String(procedimento || '').match(/\b\d{7,8}\b/) || [])[0];
+    const descProc = norm(procedimento).replace(/^\d{7,8}\s*[-–]?\s*/, '');
+    const cands = tarifasCod
+      .filter(t => c.includes(t.conv))
+      .filter(t => (codProc && t.codigo === codProc.padStart(8, '0')) || t.desc === descProc)
+      .sort((a, b) => b.conv.length - a.conv.length);
+    if (cands.length) return cands[0].valor;
     return null; // sem match — vira pendência
   };
 
@@ -1195,7 +1211,7 @@ const TarifasTab = ({ tarifas, setTarifas, companyId }) => {
           {tarifas.map(t => (
             <tr key={t.id} style={{ borderBottom: '1px solid var(--line-2)' }}>
               <td style={{ padding: '10px 20px', font: '600 12.5px var(--f-sans)', color: 'var(--ink)' }}>{t.convenio}</td>
-              <td style={{ padding: '10px 20px', font: '400 12px var(--f-sans)', color: 'var(--ink-2)' }}>{t.tipo_servico}</td>
+              <td style={{ padding: '10px 20px', font: '400 12px var(--f-sans)', color: 'var(--ink-2)' }}>{t.codigo && <span className="mono" style={{ color: 'var(--ink-3)', marginRight: 8 }}>{t.codigo}</span>}{t.tipo_servico}</td>
               <td style={{ padding: '10px 20px', textAlign: 'right' }}>
                 {editId === t.id ? (
                   <input autoFocus defaultValue={t.valor}
