@@ -464,7 +464,21 @@ async function deleteEvento(id) {
   return sbRest(`/eventos_agenda?id=eq.${id}`, { method: 'DELETE' });
 }
 
+// ---- Favorecidos (CPF mascarado do Sicoob → pessoa) ----
+async function fetchFavorecidos() {
+  // Lê das duas empresas do grupo (a regra de acesso do banco filtra o que o usuário pode ver)
+  return sbRest(`/favorecidos?${coFilter('GRUPO')}&select=cpf_meio,nome,papel`);
+}
+async function salvarFavorecido(cpfMeio, nome, companyId) {
+  return sbRest('/favorecidos?on_conflict=company_id,cpf_meio', {
+    method: 'POST',
+    body: JSON.stringify({ company_id: realCompany(companyId), cpf_meio: cpfMeio, nome }),
+    prefer: 'resolution=merge-duplicates,return=minimal',
+  });
+}
+
 Object.assign(window, {
+  fetchFavorecidos, salvarFavorecido,
   fetchEventos, createEvento, deleteEvento,
   SUPABASE_URL, SUPABASE_ANON_KEY,
   __sbRest: sbRest, refreshSession,
