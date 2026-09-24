@@ -507,6 +507,7 @@ async function reclassificarPendentes() {
 }
 
 Object.assign(window, {
+  coFilter, realCompany,
   fetchFavorecidos, salvarFavorecido, salvarRegra, reclassificarPendentes, fetchTodas,
   fetchEventos, createEvento, deleteEvento,
   SUPABASE_URL, SUPABASE_ANON_KEY,
