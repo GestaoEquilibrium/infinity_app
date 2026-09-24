@@ -203,6 +203,8 @@ function rowToConta(r) {
     pagoEm: r.settled_at,
     conta: r.conta || null,
     recorrente_id: r.recorrente_id || null,
+    origem: r.origem || 'sistema',
+    baixa_de: r.baixa_de || null,
     created_by: r.created_by,
   };
 }
@@ -220,10 +222,23 @@ function contaToRow(c, companyId, userId) {
     settled_at: c.pagoEm || null,
     conta: c.conta || null,
     recorrente_id: c.recorrente_id || null,
+    ...(c.origem ? { origem: c.origem } : {}),   // sem origem → 'sistema' (padrão do banco)
   };
 }
+// O Supabase devolve no máximo 1.000 linhas por pedido — busca em páginas até acabar
+// (antes, acima de 1.000 lançamentos os mais antigos sumiam sem aviso).
+async function fetchTodas(pathBase, pagina = 1000) {
+  const out = [];
+  for (let off = 0; off < 50000; off += pagina) {
+    const lote = await sbRest(`${pathBase}&limit=${pagina}&offset=${off}`);
+    if (!Array.isArray(lote)) break;
+    out.push(...lote);
+    if (lote.length < pagina) break;
+  }
+  return out;
+}
 async function fetchContas(companyId) {
-  const rows = await sbRest(`/transactions?${coFilter(companyId)}&select=*&order=date.desc&limit=1000`);
+  const rows = await fetchTodas(`/transactions?${coFilter(companyId)}&select=*&order=date.desc,id.asc`);
   return rows.map(rowToConta);
 }
 async function createConta(c, companyId, userId) {
@@ -492,7 +507,7 @@ async function reclassificarPendentes() {
 }
 
 Object.assign(window, {
-  fetchFavorecidos, salvarFavorecido, salvarRegra, reclassificarPendentes,
+  fetchFavorecidos, salvarFavorecido, salvarRegra, reclassificarPendentes, fetchTodas,
   fetchEventos, createEvento, deleteEvento,
   SUPABASE_URL, SUPABASE_ANON_KEY,
   __sbRest: sbRest, refreshSession,
