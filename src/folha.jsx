@@ -109,6 +109,7 @@ function calcEstagio(row, opts) {
 
 // expõe p/ conferência no console
 window.FolhaMotor = { inssEmpregado, irrfMensal, calcCLT, calcEstagio };
+window.calcularFolhaMes = (...a) => calcularFolhaMes(...a);
 
 // ═══ Supabase REST (mesmo padrão do rh.jsx) ═══
 const folhaSb = async (path, opts = {}) => {
@@ -147,6 +148,68 @@ function normalizaPonto(p) {
 }
 
 // ═══ COMPONENTE ═══
+// ═══ Carrega colaboradores CLT/Estágio + ponto do Cortex de uma competência ═══
+// Usada pela tela de Folha E pela tela de Pagamentos da equipe (mesmo cálculo nos dois lugares).
+async function carregarFolhaMes(comp, diasUteis = 22) {
+        const inList = `(${FOLHA_CO_IDS.join(',')})`;
+  const colabs = await folhaSb(`/colaboradores?select=*&company_id=in.${inList}&status=eq.Ativo&order=nome.asc&limit=1000`);
+
+  // ponto_mensal — defensivo: se a tabela/coluna não existir, segue sem auto
+  let pontoRows = [];
+  try {
+    pontoRows = await folhaSb(`/ponto_mensal?select=*&limit=5000`);
+  } catch (e) { console.warn('ponto_mensal indisponível — folha em modo manual', e.message); }
+
+  // indexa ponto por UUID Cortex, CPF e nome (filtra competência quando existe)
+  const byCortex = {}, byCpf = {}, byNome = {};
+  (pontoRows || []).forEach((raw) => {
+    const p = normalizaPonto(raw);
+    if (p.competencia && String(p.competencia).slice(0, 7) !== comp) return;
+    if (p.cortex) byCortex[p.cortex] = p;
+    if (p.cpf) byCpf[p.cpf] = p;
+    if (p.nome) byNome[normNome(p.nome)] = p;
+  });
+
+  let miss = 0;
+  const linhas = (colabs || [])
+    .map((c) => {
+      const regime = /estag/i.test(c.regime || '') ? 'EST'
+        : /clt/i.test(c.regime || '') ? 'CLT' : null;
+      if (!regime) return null;
+      let empresa = /talent/i.test(c.pagador || '') ? 'talentos'
+        : /med\s*center/i.test(c.pagador || '') ? 'medcenter'
+        : (FOLHA_CO[c.company_id] || 'medcenter');
+      const cpf = soDigitos(c.cpf);
+      const p = byCortex[c.ponto_digital_id] || byCpf[cpf] || byNome[normNome(c.nome)] || null;
+      if (!p) miss++;
+      return {
+        id: c.id, nome: c.nome, cargo: c.cargo || '', empresa, regime,
+        company_id: c.company_id, pagador: c.pagador || null,
+        base: Number(c.salario) || 0, grat: Number(c.gratificacao) || 0, cpf,
+        dias: p && p.dias != null ? Number(p.dias) : diasUteis,
+        faltas: p && p.faltas != null ? Number(p.faltas) : 0,
+        atestados: p && p.atestados != null ? Number(p.atestados) : 0,
+        horas: p && p.horas != null ? Number(p.horas) : '',
+        recebe_vt: false,
+        autofill: !!p,
+      };
+    })
+    .filter(Boolean);
+
+  return { linhas, miss };
+}
+
+// Folha calculada (líquido de cada pessoa) com as opções padrão
+async function calcularFolhaMes(comp, opts = {}) {
+  const o = { diasUteis: 22, descontaVT: true, patronalMed: 0.28, talentosCPPfora: false, ...opts };
+  const { linhas, miss } = await carregarFolhaMes(comp, o.diasUteis);
+  const pessoas = linhas.map((r) => {
+    const c = r.regime === 'CLT' ? calcCLT(r, o) : calcEstagio(r, o);
+    return { ...r, liquido: r2(c.liquido) };
+  });
+  return { pessoas, miss };
+}
+
 function FolhaProvisoes() {
   const { Band, Card, Btn, Money, Segmented, MonthNav, Pill, EmptyState, Field, Icon } = window;
   const [loading, setLoading] = React.useState(true);
@@ -168,50 +231,7 @@ function FolhaProvisoes() {
     (async () => {
       setLoading(true); setErro(null);
       try {
-        const inList = `(${FOLHA_CO_IDS.join(',')})`;
-        const colabs = await folhaSb(`/colaboradores?select=*&company_id=in.${inList}&status=eq.Ativo&order=nome.asc&limit=1000`);
-
-        // ponto_mensal — defensivo: se a tabela/coluna não existir, segue sem auto
-        let pontoRows = [];
-        try {
-          pontoRows = await folhaSb(`/ponto_mensal?select=*&limit=5000`);
-        } catch (e) { console.warn('ponto_mensal indisponível — folha em modo manual', e.message); }
-
-        // indexa ponto por UUID Cortex, CPF e nome (filtra competência quando existe)
-        const byCortex = {}, byCpf = {}, byNome = {};
-        (pontoRows || []).forEach((raw) => {
-          const p = normalizaPonto(raw);
-          if (p.competencia && String(p.competencia).slice(0, 7) !== comp) return;
-          if (p.cortex) byCortex[p.cortex] = p;
-          if (p.cpf) byCpf[p.cpf] = p;
-          if (p.nome) byNome[normNome(p.nome)] = p;
-        });
-
-        let miss = 0;
-        const linhas = (colabs || [])
-          .map((c) => {
-            const regime = /estag/i.test(c.regime || '') ? 'EST'
-              : /clt/i.test(c.regime || '') ? 'CLT' : null;
-            if (!regime) return null;
-            let empresa = /talent/i.test(c.pagador || '') ? 'talentos'
-              : /med\s*center/i.test(c.pagador || '') ? 'medcenter'
-              : (FOLHA_CO[c.company_id] || 'medcenter');
-            const cpf = soDigitos(c.cpf);
-            const p = byCortex[c.ponto_digital_id] || byCpf[cpf] || byNome[normNome(c.nome)] || null;
-            if (!p) miss++;
-            return {
-              id: c.id, nome: c.nome, cargo: c.cargo || '', empresa, regime,
-              base: Number(c.salario) || 0, grat: Number(c.gratificacao) || 0, cpf,
-              dias: p && p.dias != null ? Number(p.dias) : diasUteis,
-              faltas: p && p.faltas != null ? Number(p.faltas) : 0,
-              atestados: p && p.atestados != null ? Number(p.atestados) : 0,
-              horas: p && p.horas != null ? Number(p.horas) : '',
-              recebe_vt: false,
-              autofill: !!p,
-            };
-          })
-          .filter(Boolean);
-
+        const { linhas, miss } = await carregarFolhaMes(comp, diasUteis);
         if (!vivo) return;
         setRows(linhas); setPontoMiss(miss); setLoading(false);
       } catch (e) {
@@ -253,6 +273,23 @@ function FolhaProvisoes() {
   const totCusto = r2(cltCalc.reduce((s, x) => s + x.c.custo, 0) + estCalc.reduce((s, x) => s + x.c.custo, 0));
   const totLiquido = r2(cltCalc.reduce((s, x) => s + x.c.liquido, 0) + estCalc.reduce((s, x) => s + x.c.liquido, 0));
   const nPessoas = rows.length;
+
+  // Envia o líquido de cada pessoa para os Pagamentos da equipe do mês seguinte (5º dia útil)
+  const [enviando, setEnviando] = React.useState(false);
+  const [msgEnvio, setMsgEnvio] = React.useState('');
+  const enviarPagamentos = async () => {
+    if (!window.enviarFolhaParaPagamentos) { setMsgEnvio('Módulo de pagamentos não carregado.'); return; }
+    const [y, m] = comp.split('-').map(Number);
+    const d = new Date(y, m, 1);
+    const pagComp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    setEnviando(true); setMsgEnvio('');
+    try {
+      const pessoas = [...cltCalc, ...estCalc].map(({ r, c }) => ({ ...r, liquido: r2(c.liquido) }));
+      const res = await window.enviarFolhaParaPagamentos(pagComp, { pessoas });
+      setMsgEnvio(`Pagamentos de ${pagComp.split('-').reverse().join('/')}: ${res.criados} novo(s), ${res.atualizados} atualizado(s), ${res.jaPagos} já pago(s) (não mexidos).`);
+    } catch (e) { setMsgEnvio('Erro ao enviar: ' + e.message); }
+    setEnviando(false);
+  };
 
   const shiftMes = (delta) => {
     const [y, m] = comp.split('-').map(Number);
@@ -318,6 +355,9 @@ function FolhaProvisoes() {
         right={
           <>
             <MonthNav label={mesLabel} onPrev={() => shiftMes(-1)} onNext={() => shiftMes(1)} />
+            <Btn variant="secondary" icon="users" onBand onClick={enviarPagamentos} disabled={enviando || loading || !rows.length}>
+              {enviando ? 'Enviando…' : 'Enviar para pagamentos'}
+            </Btn>
             <Btn variant="primary" icon="file" onBand onClick={exportar}>Gerar Excel</Btn>
           </>
         }
@@ -331,6 +371,12 @@ function FolhaProvisoes() {
       />
 
       <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        {msgEnvio && (
+          <Card padding={12} style={{ font: '500 13px var(--f-sans)', color: /erro/i.test(msgEnvio) ? 'var(--c-neg)' : 'var(--ink)' }}>
+            {msgEnvio} Os valores aparecem em <b>Pagamentos da equipe</b>, no grupo do 5º dia útil.
+          </Card>
+        )}
 
         {/* controles globais */}
         <Card padding={14} style={{ display: 'flex', flexWrap: 'wrap', gap: 18, alignItems: 'center' }}>
