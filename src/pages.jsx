@@ -1584,8 +1584,6 @@ const ContasPage = ({ filter, setFilter }) => {
     window.addEventListener('sb-data-hydrated', h);
     return () => window.removeEventListener('sb-data-hydrated', h);
   }, []);
-  const [status, setStatus] = React.useState('all');
-  const [tipoView, setTipoView] = React.useState('todos');
   const [bancos, setBancos] = React.useState(null);
   const { profile: _prof } = window.useAuth();
   React.useEffect(() => {
@@ -1684,60 +1682,149 @@ const ContasPage = ({ filter, setFilter }) => {
     catch (e) { alert('Erro: ' + e.message); }
   };
 
+  // ═══════════ Organização da tela (v2: saldo em destaque + abas) ═══════════
+  const [aba, setAba] = React.useState('pagar');          // 'pagar' | 'mes' | 'pend'
   const [q, setQ] = React.useState('');
+  const [abertos, setAbertos] = React.useState({});        // grupos expandidos
+  const [verInternas, setVerInternas] = React.useState(false);
+  const alterna = (k) => setAbertos(a => ({ ...a, [k]: !a[k] }));
+
+  const ehInterna = (c) => !!(window.ehTransferenciaInterna && window.ehTransferenciaInterna(c));
+  const bate = (c) => !q || (c.description || '').toLowerCase().includes(q.toLowerCase())
+                         || (c.category || '').toLowerCase().includes(q.toLowerCase());
+  const valor = (c) => (c.pago ? (c.realizado || c.previsto) : c.previsto) || 0;
+  const soma = (arr) => arr.reduce((s, c) => s + valor(c), 0);
+
+  // contas do período escolhido na barra de mês
   const contas = window.filterContas(
     filter.mode === 'month' ? { month: filter.month }
     : filter.mode === 'ciclo' ? { mode: 'ciclo', month: filter.month, corte: filter.corte }
     : { from: filter.from, to: filter.to });
-
-  const saidasPeriodo = contas.filter(c => c.tipo === 'pagar' && !(window.ehTransferenciaInterna && window.ehTransferenciaInterna(c)));
-  const somaPrev = (arr) => arr.reduce((s, c) => s + (c.previsto || 0), 0);
-  const resumoPessoal = somaPrev(saidasPeriodo.filter(ehPessoal));
-  const resumoContas  = somaPrev(saidasPeriodo.filter(c => !ehPessoal(c)));
-  const nPessoal = saidasPeriodo.filter(ehPessoal).length;
-  const nContas  = saidasPeriodo.filter(c => !ehPessoal(c)).length;
-
-  const filtered = contas.filter(c => {
-    if (tipoView === 'entradas' && c.tipo !== 'receber') return false;
-    if (tipoView === 'contas'  && (c.tipo !== 'pagar' || ehPessoal(c))) return false;
-    if (tipoView === 'pessoal' && (c.tipo !== 'pagar' || !ehPessoal(c))) return false;
-    if (status === 'pendente' && c.pago) return false;
-    if (q && !(c.description.toLowerCase().includes(q.toLowerCase()) || c.category.toLowerCase().includes(q.toLowerCase()))) return false;
-    return true;
-  });
-
-  const semInterna = contas.filter(c => !(window.ehTransferenciaInterna && window.ehTransferenciaInterna(c)));
-  const entradas = semInterna.filter(c => c.tipo === 'receber');
-  const saidas   = semInterna.filter(c => c.tipo === 'pagar');
-  const tot_prev_out = saidas.reduce((s, c) => s + c.previsto, 0);
-  const tot_real_in  = entradas.reduce((s, c) => s + (c.pago ? (c.realizado || c.previsto) : 0), 0);
-  const tot_real_out = saidas.reduce((s, c) => s + (c.pago ? (c.realizado || c.previsto) : 0), 0);
+  const semInterna = contas.filter(c => !ehInterna(c));
+  const tot_real_in  = soma(semInterna.filter(c => c.tipo === 'receber' && c.pago));
+  const tot_real_out = soma(semInterna.filter(c => c.tipo === 'pagar' && c.pago));
   const resultado = tot_real_in - tot_real_out;
-  const aPagar = tot_prev_out - tot_real_out;
 
-  const saldo_ant = filter.mode === 'month'
-    ? window.saldoAnterior(filter.month)
-    : (filter.from ? window.saldoAnterior(filter.from.slice(0, 7)) : 0);
-  const saldo_periodo = saldo_ant + tot_real_in - tot_real_out;
-  const mesAntLabel = (() => {
-    const ref = filter.mode === 'month' ? filter.month : (filter.from || '').slice(0, 7);
-    if (!ref) return 'mês anterior';
-    const [y, m] = ref.split('-').map(Number);
-    const prev = new Date(y, m - 2, 1);
-    return (window.months || [])[prev.getMonth()] + '/' + String(prev.getFullYear()).slice(2);
-  })();
+  // datas locais (evita o "volta um dia" do fuso)
+  const isoLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const hoje = isoLocal(new Date());
+  const em7 = isoLocal(new Date(Date.now() + 7 * 86400000));
+
+  // ── ABA "A pagar": vencidas (de qualquer mês) + o que vence no período ──
+  const pendentesPagar = (window.CONTAS || []).filter(c => c.tipo === 'pagar' && !c.pago && !ehInterna(c) && bate(c));
+  const idsPeriodo = new Set(contas.map(c => c.id));
+  const vencidas = pendentesPagar.filter(c => (c.vencimento || '') < hoje).sort((a, b) => a.vencimento < b.vencimento ? -1 : 1);
+  const proximas = pendentesPagar.filter(c => c.vencimento >= hoje && c.vencimento <= em7).sort((a, b) => a.vencimento < b.vencimento ? -1 : 1);
+  const depois = pendentesPagar.filter(c => c.vencimento > em7 && idsPeriodo.has(c.id));
+  const depoisPorDia = {};
+  depois.forEach(c => { (depoisPorDia[c.vencimento] = depoisPorDia[c.vencimento] || []).push(c); });
+  const totalAPagar = soma(vencidas) + soma(proximas) + soma(depois);
+  const aReceber = contas.filter(c => c.tipo === 'receber' && !c.pago && !ehInterna(c) && bate(c));
+
+  // ── ABA "Movimentos do mês": o que já foi pago/recebido, agrupado por categoria ──
+  const realizados = semInterna.filter(c => c.pago && bate(c));
+  const agrupa = (arr) => {
+    const g = {};
+    arr.forEach(c => { const k = c.category || 'Sem categoria'; (g[k] = g[k] || []).push(c); });
+    return Object.entries(g).map(([cat, itens]) => ({ cat, itens, total: soma(itens) })).sort((a, b) => b.total - a.total);
+  };
+  const gruposEntrada = agrupa(realizados.filter(c => c.tipo === 'receber'));
+  const gruposSaida = agrupa(realizados.filter(c => c.tipo === 'pagar'));
+  const internas = contas.filter(c => ehInterna(c) && bate(c));
+
+  // ── ABA "Pendências": o que precisa de atenção ──
+  const RE_CPF = /\*\*\*\.\d{3}\.\d{3}/;
+  const aClassificar = semInterna.filter(c => /a classificar/i.test(c.category || '') && bate(c));
+  const semNome = semInterna.filter(c => RE_CPF.test(c.description || '') && !/a classificar/i.test(c.category || '') && bate(c));
+  const extratosAtrasados = (bancos || [])
+    .filter(b => !/mercado\s*pago|\binter\b/i.test(b.nome || ''))
+    .map(b => {
+      let ult = null;
+      (window.CONTAS || []).forEach(c => { if ((c.conta || '') === b.nome && c.vencimento && (!ult || c.vencimento > ult)) ult = c.vencimento; });
+      const dias = ult ? Math.floor((new Date(hoje + 'T00:00:00') - new Date(ult + 'T00:00:00')) / 86400000) : null;
+      return { nome: b.nome, ult, dias };
+    })
+    .filter(p => p.dias === null || p.dias > 7);
+  const nPend = aClassificar.length + semNome.length + extratosAtrasados.length;
 
   const recAtivos = recorrentes.filter(r => r.ativo !== false).length;
   const totalBanco = (bancos || []).reduce((a, b) => a + b.saldo, 0);
+
+  // ── peças visuais reaproveitadas ──
+  const Linha = ({ c, mostrarPagar }) => {
+    const receber = c.tipo === 'receber';
+    const venc = (c.vencimento || '') < hoje && !c.pago;
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '78px minmax(0,1fr) auto auto auto', alignItems: 'center', gap: 12, padding: '9px 16px', borderTop: '1px solid var(--line-2)' }}>
+        <span className="mono" style={{ font: '400 12px var(--f-mono)', color: venc ? 'var(--c-neg)' : 'var(--ink-3)' }}>{window.fmtDate(c.vencimento)}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <span style={{ font: '500 13px var(--f-sans)', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.description}</span>
+          {c.recorrente_id && <window.Icon name="clock" size={13} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />}
+        </span>
+        <window.CatPill cat={window.catColor(c.category, receber ? 'entrada' : 'saida')}>{c.category}</window.CatPill>
+        <window.Money value={valor(c)} size="table" style={{ color: receber ? 'var(--c-pos)' : 'var(--ink)', fontWeight: 600, minWidth: 96, textAlign: 'right' }} />
+        <span style={{ display: 'flex', gap: 5, justifyContent: 'flex-end', minWidth: mostrarPagar ? 132 : 64 }}>
+          {mostrarPagar && !c.pago && (
+            <window.Btn variant="secondary" size="sm" icon="check" onClick={() => setConfirmando(c)}>{receber ? 'Receber' : 'Pagar'}</window.Btn>
+          )}
+          <RowActions onEdit={() => setEditing(c)} onDelete={() => { if (confirm(`Excluir "${c.description}"?`)) window.deleteContaLocal(c.id); }} />
+        </span>
+      </div>
+    );
+  };
+
+  const Bloco = ({ titulo, icone, cor, total, itens, chave, mostrarPagar, inicialAberto, nota }) => {
+    if (!itens.length) return null;
+    const aberto = abertos[chave] ?? !!inicialAberto;
+    return (
+      <window.Card padding={0} style={{ overflow: 'hidden', borderColor: cor === 'neg' ? 'var(--c-neg)' : undefined }}>
+        <button onClick={() => alterna(chave)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+          <window.Icon name={aberto ? 'chevron_down' : 'chevron_right'} size={15} style={{ color: 'var(--ink-3)' }} />
+          {icone && <window.Icon name={icone} size={16} style={{ color: cor === 'neg' ? 'var(--c-neg)' : 'var(--ink-3)' }} />}
+          <span style={{ font: '600 13.5px var(--f-sans)', color: cor === 'neg' ? 'var(--c-neg)' : 'var(--ink)' }}>{titulo}</span>
+          <span style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)' }}>{itens.length} {itens.length === 1 ? 'lançamento' : 'lançamentos'}</span>
+          {nota && <span style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-4)' }}>{nota}</span>}
+          <window.Money value={total} size="table" style={{ marginLeft: 'auto', fontWeight: 700, color: cor === 'pos' ? 'var(--c-pos)' : cor === 'neg' ? 'var(--c-neg)' : 'var(--ink)' }} />
+        </button>
+        {aberto && itens.map(c => <Linha key={c.id} c={c} mostrarPagar={mostrarPagar} />)}
+      </window.Card>
+    );
+  };
+
+  const Titulo = ({ children, valorTotal, cor }) => (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '6px 2px 0' }}>
+      <span style={{ font: '600 15px var(--f-sans)', color: 'var(--ink)' }}>{children}</span>
+      {valorTotal != null && <window.Money value={valorTotal} size="table" style={{ fontWeight: 700, color: cor || 'var(--ink-2)' }} />}
+    </div>
+  );
+
+  const Aba = ({ k, children, contador, alerta }) => {
+    const on = aba === k;
+    return (
+      <button onClick={() => setAba(k)} style={{ padding: '11px 16px', background: 'none', border: 'none', cursor: 'pointer',
+        borderBottom: `2px solid ${on ? 'var(--accent)' : 'transparent'}`, marginBottom: -1,
+        font: `${on ? 600 : 500} 13.5px var(--f-sans)`, color: on ? 'var(--accent)' : 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        {children}
+        {contador != null && contador !== 0 && (
+          <span style={{ font: '600 11px var(--f-sans)', padding: '1px 8px', borderRadius: 999,
+            background: alerta ? 'var(--c-warn-bg, #FFF6E6)' : 'var(--accent-soft)', color: alerta ? 'var(--c-warn, #B5731A)' : 'var(--accent)' }}>{contador}</span>
+        )}
+      </button>
+    );
+  };
+
+  const Vazio = ({ titulo, dica }) => (
+    <div style={{ padding: 36 }}><window.EmptyState icon="check" title={titulo} hint={dica} /></div>
+  );
 
   return (
     <div className="anim-fade">
       {showReplicar && <ReplicarPrestadoresModal onClose={() => setShowReplicar(false)} />}
 
-      {/* ── Faixa azul ── */}
+      {/* ── Faixa: o número principal é o dinheiro que existe nos bancos ── */}
       <window.Band
         title="Contas"
-        subtitle="O que entrou, o que saiu e o que falta pagar"
+        subtitle="Quanto temos, o que falta pagar e o que aconteceu no mês"
         right={
           <>
             <ExcelImporter target="contas" />
@@ -1745,24 +1832,24 @@ const ContasPage = ({ filter, setFilter }) => {
             <window.Btn variant="primary" icon="plus" onBand onClick={() => setEditing({ tipo: 'pagar', pago: false, previsto: 0, realizado: 0 })}>Nova conta</window.Btn>
           </>
         }
-        metricLabel="Resultado do mês"
-        metric={resultado}
+        metricLabel="Dinheiro nas contas hoje"
+        metric={bancos ? totalBanco : '—'}
         stats={[
-          { label: 'Entrou', value: tot_real_in, color: 'var(--on-accent-pos)' },
-          { label: 'Saiu', value: tot_real_out, color: 'var(--on-accent-neg)' },
-          { label: 'A pagar ainda', value: aPagar, color: 'var(--on-accent)' },
+          { label: 'Entrou no mês', value: tot_real_in, color: 'var(--on-accent-pos)' },
+          { label: 'Saiu no mês', value: tot_real_out, color: 'var(--on-accent-neg)' },
+          { label: 'Sobrou no mês', value: resultado, color: resultado >= 0 ? 'var(--on-accent-pos)' : 'var(--on-accent-neg)' },
         ]}
       />
 
       <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         <window.FilterBar filter={filter} setFilter={setFilter} />
 
-        {/* Saldo real nas contas */}
+        {/* Saldos por banco (clique no valor para ajustar pelo extrato) */}
         {bancos && bancos.length > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${bancos.length + 1}, 1fr)`, gap: 1, background: 'var(--line)', border: '1px solid var(--line)', borderRadius: 'var(--r-xl)', overflow: 'hidden' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(150px, 1fr))`, gap: 1, background: 'var(--line)', border: '1px solid var(--line)', borderRadius: 'var(--r-xl)', overflow: 'hidden' }}>
             {bancos.map(b => (
-              <div key={b.id} style={{ background: 'var(--surface)', padding: '13px 16px' }}>
-                <div style={{ font: '600 10px var(--f-sans)', color: 'var(--ink-4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.nome}</div>
+              <div key={b.id} style={{ background: 'var(--surface)', padding: '11px 16px' }}>
+                <div style={{ font: '500 11.5px var(--f-sans)', color: 'var(--ink-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.nome}</div>
                 <input
                   key={b.saldo}
                   type="text"
@@ -1771,203 +1858,128 @@ const ContasPage = ({ filter, setFilter }) => {
                   onFocus={(e) => e.target.select()}
                   onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
                   onBlur={(e) => saveSaldo(b, e.target.value)}
-                  style={{ marginTop: 3, display: 'block', width: '100%', boxSizing: 'border-box', border: '1px solid transparent', background: 'transparent', font: '700 18px var(--f-mono)', color: b.saldo < 0 ? 'var(--c-neg)' : 'var(--ink)', padding: '2px 4px', borderRadius: 'var(--r-sm)', outline: 'none', cursor: 'text' }}
+                  style={{ marginTop: 2, display: 'block', width: '100%', boxSizing: 'border-box', border: '1px solid transparent', background: 'transparent', font: '700 16px var(--f-mono)', color: b.saldo < 0 ? 'var(--c-neg)' : 'var(--ink)', padding: '2px 4px', borderRadius: 'var(--r-sm)', outline: 'none', cursor: 'text' }}
                   onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--line-strong)'; }}
                   onMouseOut={(e) => { e.currentTarget.style.borderColor = 'transparent'; }}
                 />
               </div>
             ))}
-            <div style={{ background: 'var(--accent-soft)', padding: '13px 16px' }}>
-              <div style={{ font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--accent)' }}>Total disponível</div>
-              <window.Money value={totalBanco} size="kpi" colorBySign style={{ marginTop: 3, display: 'block' }} />
-            </div>
           </div>
         )}
 
-        {/* Linha de contexto */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: '10px 16px', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-lg)', font: '400 12px var(--f-sans)', color: 'var(--ink-2)' }}>
-          <span>Vinha de <b className="mono" style={{ color: saldo_ant >= 0 ? 'var(--c-pos)' : 'var(--c-neg)' }}>{window.fmt(saldo_ant)}</b> até {mesAntLabel}</span>
-          <span style={{ opacity: .3 }}>·</span>
-          <span>acumulado agora <b className="mono" style={{ color: saldo_periodo >= 0 ? 'var(--c-pos)' : 'var(--c-neg)' }}>{window.fmt(saldo_periodo)}</b></span>
-          <span style={{ marginLeft: 'auto', font: '400 10.5px var(--f-sans)', color: 'var(--ink-4)' }}>resultado acumulado — não é saldo bancário</span>
+        {/* Abas + busca */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+          <Aba k="pagar" contador={vencidas.length + proximas.length + depois.length}>A pagar</Aba>
+          <Aba k="mes">Movimentos do mês</Aba>
+          <Aba k="pend" contador={nPend} alerta>Pendências</Aba>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, width: 240, height: 32, background: 'var(--field)', border: '1px solid var(--line-strong)', borderRadius: 'var(--r-lg)', padding: '0 12px', marginBottom: 6 }}>
+            <window.Icon name="search" size={14} style={{ color: 'var(--ink-3)' }} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nome ou categoria" style={{ background: 'none', border: 'none', outline: 'none', flex: 1, font: '400 12.5px var(--f-sans)', color: 'var(--ink)' }} />
+          </div>
         </div>
 
-        {/* Pagamentos recorrentes (colapsável) */}
-        <window.Card padding={0}>
-          <button onClick={() => setRecOpen(o => !o)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '14px 18px', cursor: 'pointer', background: 'none', border: 'none' }}>
-            <window.Icon name="clock" size={16} style={{ color: 'var(--ink-3)' }} />
-            <span style={{ font: '600 13px var(--f-sans)', color: 'var(--ink)' }}>Pagamentos recorrentes</span>
-            <span style={{ font: '500 11.5px var(--f-sans)', color: 'var(--ink-3)' }}>({recAtivos} ativo{recAtivos === 1 ? '' : 's'})</span>
-            <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span onClick={(e) => { e.stopPropagation(); setRecEdit({}); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 'var(--r-md)', background: 'var(--accent)', color: '#fff', font: '600 11.5px var(--f-sans)' }}>
-                <window.Icon name="plus" size={13} stroke={2.2} /> Novo
-              </span>
-              <window.Icon name="chevron_down" size={16} style={{ color: 'var(--ink-3)', transform: recOpen ? 'rotate(180deg)' : 'none', transition: 'transform var(--dur) var(--ease)' }} />
-            </span>
-          </button>
-          {recOpen && (
-            <div style={{ padding: '0 18px 16px', borderTop: '1px solid var(--line)' }}>
-              {recorrentes.length === 0 ? (
-                <div style={{ padding: '16px 0', color: 'var(--ink-3)', font: '400 12.5px var(--f-sans)' }}>
-                  Nenhum pagamento fixo. Use "Novo" ou marque "Repetir todo mês" ao criar uma conta.
-                </div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 4 }}>
-                  <thead>
-                    <tr style={{ font: 'var(--t-label)', color: 'var(--ink-3)', textAlign: 'left', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)' }}>
-                      <th style={{ padding: '8px 8px' }}>Descrição</th>
-                      <th style={{ padding: '8px 8px' }}>Categoria</th>
-                      <th style={{ padding: '8px 8px', textAlign: 'center' }}>Dia</th>
-                      <th style={{ padding: '8px 8px', textAlign: 'right' }}>Valor</th>
-                      <th style={{ padding: '8px 8px', textAlign: 'center' }}>Situação</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recorrentes.map(r => {
-                      const ativo = r.ativo !== false;
-                      return (
-                        <tr key={r.id} style={{ borderTop: '1px solid var(--line-2)', opacity: ativo ? 1 : 0.5 }}>
-                          <td style={{ padding: '9px 8px', font: '500 12.5px var(--f-sans)', color: 'var(--ink)' }}>{r.tipo === 'receber' ? '↓ ' : ''}{r.description}</td>
-                          <td style={{ padding: '9px 8px' }}>{r.category ? <window.CatPill cat={window.catColor(r.category, r.tipo==='pagar'?'saida':'entrada')}>{r.category}</window.CatPill> : '—'}</td>
-                          <td style={{ padding: '9px 8px', textAlign: 'center', font: '500 12.5px var(--f-mono)', color: 'var(--ink-2)' }}>{r.dia_vencimento}</td>
-                          <td style={{ padding: '9px 8px', textAlign: 'right' }}><window.Money value={r.previsto} size="table" style={{ color: 'var(--ink)' }} /></td>
-                          <td style={{ padding: '9px 8px', textAlign: 'center' }}>
-                            <window.Pill status={ativo ? 'pago' : 'pendente'}>{ativo ? 'Ativo' : 'Pausado'}</window.Pill>
-                          </td>
-                          <td style={{ padding: '9px 8px', textAlign: 'right' }}>
-                            <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
-                              <window.IconBtn name="edit" size={28} onClick={() => setRecEdit(r)} title="Editar" />
-                              <window.IconBtn name={ativo ? 'clock' : 'check'} size={28} onClick={() => toggleRec(r)} title={ativo ? 'Pausar' : 'Reativar'} />
-                              <window.IconBtn name="trash" size={28} danger onClick={() => excluirRec(r)} title="Excluir" />
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
-        </window.Card>
+        {/* ───────── ABA: A PAGAR ───────── */}
+        {aba === 'pagar' && (
+          <>
+            <Titulo valorTotal={totalAPagar} cor="var(--c-neg)">Falta pagar</Titulo>
+            {!vencidas.length && !proximas.length && !depois.length && (
+              <window.Card><Vazio titulo="Nada pendente" dica="Tudo que vence neste período já foi pago." /></window.Card>
+            )}
+            <Bloco chave="venc" titulo="Vencidas" icone="alert" cor="neg" itens={vencidas} total={soma(vencidas)} mostrarPagar inicialAberto />
+            <Bloco chave="prox" titulo="Próximos 7 dias" icone="calendar" itens={proximas} total={soma(proximas)} mostrarPagar inicialAberto />
+            {Object.keys(depoisPorDia).sort().map(dia => (
+              <Bloco key={dia} chave={'dia-' + dia} titulo={`Vence em ${window.fmtDate(dia)}`} icone="calendar"
+                itens={depoisPorDia[dia]} total={soma(depoisPorDia[dia])} mostrarPagar />
+            ))}
+            {aReceber.length > 0 && (
+              <>
+                <Titulo valorTotal={soma(aReceber)} cor="var(--c-pos)">Falta receber</Titulo>
+                <Bloco chave="receber" titulo="A receber no período" icone="arrow_down" cor="pos" itens={aReceber} total={soma(aReceber)} mostrarPagar />
+              </>
+            )}
 
-        {/* Filtros de escopo */}
-        <window.Card padding={12}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            {[
-              { k: 'todos',   l: 'Tudo',          v: null },
-              { k: 'pessoal', l: 'Colaboradores', v: resumoPessoal, n: nPessoal },
-              { k: 'contas',  l: 'Fornecedores',  v: resumoContas,  n: nContas },
-              { k: 'entradas',l: 'Entradas',      v: tot_real_in },
-            ].map(x => {
-              const on = tipoView === x.k;
-              return (
-                <button key={x.k} onClick={() => setTipoView(x.k)} style={{
-                  padding: '7px 14px', borderRadius: 'var(--r-md)', cursor: 'pointer', textAlign: 'left',
-                  background: on ? 'var(--accent-soft)' : 'var(--field)',
-                  color: on ? 'var(--accent)' : 'var(--ink-2)',
-                  border: `1px solid ${on ? 'var(--accent)' : 'var(--line-strong)'}`, transition: 'all var(--dur) var(--ease)',
-                }}>
-                  <div style={{ font: '600 12px var(--f-sans)' }}>{x.l}{x.n != null ? ` · ${x.n}` : ''}</div>
-                  {x.v != null && <div className="mono" style={{ font: '500 11px var(--f-mono)', opacity: .8, marginTop: 1 }}>{window.fmt(x.v)}</div>}
-                </button>
-              );
-            })}
-            <window.Checkbox checked={status === 'pendente'} onChange={v => setStatus(v ? 'pendente' : 'all')} label="Só o que falta pagar" style={{ marginLeft: 4 }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 160, height: 34, background: 'var(--field)', border: '1px solid var(--line-strong)', borderRadius: 'var(--r-lg)', padding: '0 12px' }}>
-              <window.Icon name="search" size={15} style={{ color: 'var(--ink-3)' }} />
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nome…" style={{ background: 'none', border: 'none', outline: 'none', flex: 1, font: '400 12.5px var(--f-sans)', color: 'var(--ink)' }} />
-            </div>
-          </div>
-        </window.Card>
-
-        {/* Tabela principal */}
-        <window.Card padding={0} style={{ overflow: 'hidden' }}>
-          <div style={{ maxHeight: '64vh', overflowY: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 5 }}>
-                <tr style={{ borderBottom: '1px solid var(--line)' }}>
-                  {['Vencimento', 'Descrição', 'Categoria', 'Previsto', 'Realizado', 'Status', ''].map((h, i) => (
-                    <th key={i + h} style={{
-                      textAlign: (i === 3 || i === 4 || i === 6) ? 'right' : 'left',
-                      padding: '10px 20px', font: 'var(--t-label)', letterSpacing: 'var(--tracking-label)',
-                      color: 'var(--ink-3)', textTransform: 'uppercase',
-                    }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {saldo_ant !== 0 && (tipoView === 'todos' || tipoView === 'entradas') && (
-                  <tr style={{ borderBottom: '1px solid var(--line)', background: 'var(--surface-2)' }}>
-                    <td style={{ padding: '10px 20px' }} className="mono"><span style={{ color: 'var(--ink-4)' }}>—</span></td>
-                    <td style={{ padding: '10px 20px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 30, height: 30, borderRadius: 'var(--r-lg)', background: 'var(--c-neutral-bg)', color: 'var(--c-neutral)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                          <window.Icon name="arrow_right" size={14} stroke={2.4} />
-                        </div>
-                        <span style={{ font: '600 12.5px var(--f-sans)', color: 'var(--ink-2)' }}>Saldo anterior ({mesAntLabel})</span>
+            {/* Recorrentes: cadastro fica aqui embaixo, fechado */}
+            <window.Card padding={0}>
+              <button onClick={() => setRecOpen(o => !o)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', cursor: 'pointer', background: 'none', border: 'none' }}>
+                <window.Icon name={recOpen ? 'chevron_down' : 'chevron_right'} size={15} style={{ color: 'var(--ink-3)' }} />
+                <window.Icon name="clock" size={15} style={{ color: 'var(--ink-3)' }} />
+                <span style={{ font: '500 13px var(--f-sans)', color: 'var(--ink-2)' }}>Pagamentos que se repetem todo mês</span>
+                <span style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)' }}>({recAtivos} ativo{recAtivos === 1 ? '' : 's'})</span>
+                <span onClick={(e) => { e.stopPropagation(); setRecEdit({}); }} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 'var(--r-md)', border: '1px solid var(--line-strong)', color: 'var(--ink-2)', font: '600 11.5px var(--f-sans)' }}>
+                  <window.Icon name="plus" size={13} stroke={2.2} /> Novo
+                </span>
+              </button>
+              {recOpen && (
+                <div style={{ borderTop: '1px solid var(--line)' }}>
+                  {recorrentes.length === 0 ? (
+                    <div style={{ padding: '14px 16px', color: 'var(--ink-3)', font: '400 12.5px var(--f-sans)' }}>
+                      Nenhum pagamento fixo. Use "Novo" ou marque "Repetir todo mês" ao criar uma conta.
+                    </div>
+                  ) : recorrentes.map(r => {
+                    const ativo = r.ativo !== false;
+                    return (
+                      <div key={r.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto 70px auto auto', gap: 12, alignItems: 'center', padding: '9px 16px', borderTop: '1px solid var(--line-2)', opacity: ativo ? 1 : 0.5 }}>
+                        <span style={{ font: '500 12.5px var(--f-sans)', color: 'var(--ink)' }}>{r.tipo === 'receber' ? '↓ ' : ''}{r.description}</span>
+                        {r.category ? <window.CatPill cat={window.catColor(r.category, r.tipo === 'pagar' ? 'saida' : 'entrada')}>{r.category}</window.CatPill> : <span />}
+                        <span style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', textAlign: 'center' }}>dia {r.dia_vencimento}</span>
+                        <window.Money value={r.previsto} size="table" style={{ color: 'var(--ink)' }} />
+                        <span style={{ display: 'flex', gap: 5 }}>
+                          <window.IconBtn name="edit" size={28} onClick={() => setRecEdit(r)} title="Editar" />
+                          <window.IconBtn name={ativo ? 'clock' : 'check'} size={28} onClick={() => toggleRec(r)} title={ativo ? 'Pausar' : 'Reativar'} />
+                          <window.IconBtn name="trash" size={28} danger onClick={() => excluirRec(r)} title="Excluir" />
+                        </span>
                       </div>
-                    </td>
-                    <td style={{ padding: '10px 20px' }}><window.Pill status="pendente">Saldo</window.Pill></td>
-                    <td style={{ padding: '10px 20px', textAlign: 'right' }} className="mono"><span style={{ color: 'var(--ink-4)' }}>—</span></td>
-                    <td style={{ padding: '10px 20px', textAlign: 'right' }}><window.Money value={saldo_ant} size="table" colorBySign /></td>
-                    <td style={{ padding: '10px 20px' }}><window.Pill status="pago">Transitado</window.Pill></td>
-                    <td></td>
-                  </tr>
-                )}
-                {filtered.map((c, i) => {
-                  const catCor = window.catColor(c.category, c.tipo === 'pagar' ? 'saida' : 'entrada');
-                  const diff = c.realizado - c.previsto;
-                  const receber = c.tipo === 'receber';
-                  return (
-                    <tr key={c.id} style={{ borderBottom: '1px solid var(--line-2)', animation: `fadeIn 0.3s ease ${Math.min(i * 0.02, 0.6)}s both` }}>
-                      <td style={{ padding: '10px 20px', font: '400 12px var(--f-mono)', color: 'var(--ink-2)' }}>{window.fmtDate(c.vencimento)}</td>
-                      <td style={{ padding: '10px 20px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div style={{ width: 30, height: 30, borderRadius: 'var(--r-lg)', background: receber ? 'var(--c-pos-bg)' : 'var(--c-neg-bg)', color: receber ? 'var(--c-pos)' : 'var(--c-neg)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                            <window.Icon name={receber ? 'arrow_down' : 'arrow_up'} size={14} stroke={2.4} />
-                          </div>
-                          <span style={{ font: '500 12.5px var(--f-sans)', color: 'var(--ink)' }}>{c.description}</span>
-                          {c.recorrente_id && <window.Icon name="clock" size={13} style={{ color: 'var(--ink-4)' }} />}
-                        </div>
-                      </td>
-                      <td style={{ padding: '10px 20px' }}><window.CatPill cat={catCor}>{c.category}</window.CatPill></td>
-                      <td style={{ padding: '10px 20px', textAlign: 'right' }}><window.Money value={c.previsto} size="table" style={{ color: 'var(--ink-2)' }} /></td>
-                      <td style={{ padding: '10px 20px', textAlign: 'right' }}>
-                        {c.pago ? (
-                          <div>
-                            <window.Money value={c.realizado} size="table" colorBySign={false} style={{ color: receber ? 'var(--c-pos)' : 'var(--c-neg)', fontWeight: 600 }} />
-                            {diff !== 0 && <div style={{ font: '400 9.5px var(--f-mono)', color: (receber ? diff > 0 : diff < 0) ? 'var(--c-pos)' : 'var(--c-neg)' }}>{diff >= 0 ? '+' : ''}{window.fmtShort(diff)}</div>}
-                          </div>
-                        ) : <span style={{ color: 'var(--ink-4)' }}>—</span>}
-                      </td>
-                      <td style={{ padding: '10px 20px' }}>
-                        <window.Pill status={c.pago ? 'pago' : 'hoje'}>{c.pago ? (receber ? 'Recebido' : 'Pago') : 'Pendente'}</window.Pill>
-                      </td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
-                          {!c.pago && (
-                            <button onClick={() => setConfirmando(c)} title={receber ? 'Confirmar recebimento' : 'Confirmar pagamento'}
-                              style={{ width: 28, height: 28, borderRadius: 'var(--r-md)', background: 'var(--c-pos-bg)', color: 'var(--c-pos)', display: 'grid', placeItems: 'center', border: 'none', cursor: 'pointer' }}>
-                              <window.Icon name="check" size={14} stroke={2.5} />
-                            </button>
-                          )}
-                          <RowActions onEdit={() => setEditing(c)} onDelete={() => { if (confirm(`Excluir "${c.description}"?`)) window.deleteContaLocal(c.id); }} />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {filtered.length === 0 && (
-              <div style={{ padding: 50 }}>
-                <window.EmptyState icon="file" title="Nenhuma conta encontrada" hint="Ajuste os filtros ou lance uma nova conta." />
+                    );
+                  })}
+                </div>
+              )}
+            </window.Card>
+          </>
+        )}
+
+        {/* ───────── ABA: MOVIMENTOS DO MÊS ───────── */}
+        {aba === 'mes' && (
+          <>
+            <Titulo valorTotal={tot_real_in} cor="var(--c-pos)">Entrou</Titulo>
+            {!gruposEntrada.length && <window.Card><Vazio titulo="Nenhuma entrada no período" dica="Os recebimentos aparecem aqui quando são confirmados." /></window.Card>}
+            {gruposEntrada.map(g => <Bloco key={'e' + g.cat} chave={'e-' + g.cat} titulo={g.cat} itens={g.itens} total={g.total} cor="pos" />)}
+
+            <Titulo valorTotal={tot_real_out} cor="var(--c-neg)">Saiu</Titulo>
+            {!gruposSaida.length && <window.Card><Vazio titulo="Nenhuma saída no período" dica="Os pagamentos aparecem aqui quando são confirmados." /></window.Card>}
+            {gruposSaida.map(g => <Bloco key={'s' + g.cat} chave={'s-' + g.cat} titulo={g.cat} itens={g.itens} total={g.total} />)}
+
+            {internas.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 2px', font: '400 12.5px var(--f-sans)', color: 'var(--ink-3)' }}>
+                <window.Icon name="arrow_right" size={14} />
+                {internas.length} transferências entre as contas do grupo não entram no resultado.
+                <button onClick={() => setVerInternas(v => !v)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', font: '600 12.5px var(--f-sans)' }}>{verInternas ? 'Ocultar' : 'Ver'}</button>
               </div>
             )}
-          </div>
-        </window.Card>
+            {verInternas && <Bloco chave="internas" titulo="Transferências entre contas" itens={internas} total={soma(internas)} inicialAberto nota="não contam como entrada nem saída" />}
+          </>
+        )}
+
+        {/* ───────── ABA: PENDÊNCIAS ───────── */}
+        {aba === 'pend' && (
+          <>
+            {nPend === 0 && <window.Card><Vazio titulo="Tudo em ordem" dica="Nada sem categoria, nenhum CPF sem nome e os extratos estão em dia." /></window.Card>}
+            {extratosAtrasados.length > 0 && (
+              <window.Card>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <window.Icon name="alert" size={16} style={{ color: 'var(--c-warn, #B5731A)' }} />
+                  <span style={{ font: '600 13.5px var(--f-sans)', color: 'var(--ink)' }}>Extratos para importar</span>
+                  <span style={{ font: '400 12.5px var(--f-sans)', color: 'var(--ink-2)' }}>
+                    {extratosAtrasados.map(p => `${p.nome} (${p.ult ? 'último em ' + window.fmtDate(p.ult) : 'nenhum importado'})`).join(' · ')}
+                  </span>
+                </div>
+              </window.Card>
+            )}
+            <Bloco chave="classif" titulo="Sem categoria" icone="tag" itens={aClassificar} total={soma(aClassificar)} inicialAberto
+              nota="edite e escolha a categoria" />
+            <Bloco chave="semnome" titulo="Pix sem nome (só CPF)" icone="user" itens={semNome} total={soma(semNome)} inicialAberto
+              nota="edite e troque o CPF pelo nome" />
+          </>
+        )}
       </div>
 
       {editing && <EditModal kind="conta" record={editing} onClose={() => setEditing(null)} onSaved={() => tick()} />}
@@ -1976,6 +1988,7 @@ const ContasPage = ({ filter, setFilter }) => {
     </div>
   );
 };
+
 
 // ─── PÁGINA COMPRAS (caixa efetivo — lançamentos) ─────────────────
 const ComprasPage = ({ filter, setFilter }) => {
