@@ -85,13 +85,30 @@ const SIDE_GROUPS = [
   ]},
 ];
 
-const Sidebar = ({ page, setPage, modulo, setModulo }) => {
+// Menu enxuto da visão operacional (auxiliar)
+const OP_GROUPS = [
+  { titulo: 'Dia a dia', itens: [
+    { k: 'hoje', label: 'Hoje', icon: 'home' },
+    { k: 'contas', label: 'A pagar', icon: 'file' },
+    { k: 'caixa', label: 'Caixa do dia', icon: 'wallet' },
+    { k: 'equipe_pag', label: 'Pagamentos da equipe', icon: 'users' },
+  ]},
+  { titulo: 'Cálculos e cadastro', itens: [
+    { k: 'repasse', label: 'Repasse', icon: 'pulse' },
+    { k: 'provisoes', label: 'Folha do mês', icon: 'wallet' },
+    { k: 'rh', label: 'Cadastro da equipe', icon: 'user' },
+  ]},
+];
+const ACESSO_ALIAS = { provisoes: 'rh', hoje: 'hoje', equipe_pag: 'equipe_pag' };
+
+const Sidebar = ({ page, setPage, modulo, setModulo, visao, trocarVisao }) => {
   const { profile, demo } = useAuth();
   const role = demo ? 'admin' : (profile?.role || 'viewer');
-  const acess = (k) => window.canAccess(role, k === 'provisoes' ? 'rh' : k);
+  const acess = (k) => window.canAccess(role, ACESSO_ALIAS[k] || k);
+  const operacional = visao === 'operacional';
 
-  const grupos = SIDE_GROUPS
-    .filter(g => !modulo || g.mod === modulo)
+  const grupos = (operacional ? OP_GROUPS : SIDE_GROUPS)
+    .filter(g => operacional || !modulo || g.mod === modulo)
     .map(g => ({ ...g, itens: g.itens.filter(it => acess(it.k)) }))
     .filter(g => g.itens.length);
 
@@ -130,8 +147,12 @@ const Sidebar = ({ page, setPage, modulo, setModulo }) => {
 
       {/* Rodapé */}
       <div style={{ paddingTop: 10, borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {modulo && (
+        {modulo && !operacional && (
           <NavItem item={{ label: 'Início', icon: 'home' }} active={false} onClick={() => setModulo(null)} />
+        )}
+        {trocarVisao && (role === 'admin' || role === 'editor') && (
+          <NavItem item={{ label: operacional ? 'Visão completa' : 'Visão operacional', icon: 'transition' }} active={false}
+            onClick={() => trocarVisao(operacional ? 'completa' : 'operacional')} />
         )}
         {bottom.map(it => <NavItem key={it.k} item={it} active={page === it.k} onClick={() => setPage(it.k)} />)}
       </div>
@@ -885,14 +906,26 @@ const TITULOS = {
   impostos: 'Impostos', repasse: 'Repasse', compras: 'Compras', agenda: 'Agenda',
   relatorios: 'Relatórios', rh: 'Folha / RH', provisoes: 'Provisões', equipe: 'Equipe', conciliacao: 'Conciliação',
   perfil: 'Meu perfil', config: 'Configurações', ajuda: 'Ajuda',
+  hoje: 'Hoje', equipe_pag: 'Pagamentos da equipe',
 };
 // Telas já migradas para a cara nova fornecem a própria faixa; as demais usam a padrão.
-const MIGRADAS = new Set(['dashboard', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'relatorios', 'conciliacao', 'caixa', 'agenda']); // será preenchida nos próximos blocos
+const MIGRADAS = new Set(['dashboard', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'relatorios', 'conciliacao', 'caixa', 'agenda', 'hoje', 'equipe_pag']); // será preenchida nos próximos blocos
 
 const AppShell = () => {
   const [theme, setTheme] = useState(() => localStorage.getItem('infinity-theme') || 'light');
   const [page, setPage] = useState(() => localStorage.getItem('infinity-page') || 'dashboard');
   const [modulo, setModulo] = useState(() => localStorage.getItem('infinity-modulo') || null);
+  // Visão: 'completa' (tudo) ou 'operacional' (menu enxuto do dia a dia).
+  // Padrão: administrador abre na completa; os demais, na operacional. Fica lembrada neste navegador.
+  const { profile: perfilVisao } = useAuth();
+  const [visao, setVisao] = useState(() => localStorage.getItem('infinity-visao')
+    || ((perfilVisao?.role && perfilVisao.role !== 'admin') ? 'operacional' : 'completa'));
+  useEffect(() => { localStorage.setItem('infinity-visao', visao); }, [visao]);
+  const trocarVisao = (v) => {
+    setVisao(v);
+    if (v === 'operacional') setPage('hoje');
+    else { setModulo('financeiro'); setPage('dashboard'); }
+  };
 
   useEffect(() => { if (modulo) localStorage.setItem('infinity-modulo', modulo); else localStorage.removeItem('infinity-modulo'); }, [modulo]);
   useEffect(() => { document.body.dataset.theme = theme; localStorage.setItem('infinity-theme', theme); }, [theme]);
@@ -919,15 +952,17 @@ const AppShell = () => {
     perfil: <PerfilPage />,
     config: <ConfigPage />,
     ajuda: <window.AjudaPage />,
+    hoje: <window.HojePage setPage={setPage} />,
+    equipe_pag: <window.PagamentosEquipePage />,
   };
 
-  if (!modulo) return <Hub onPick={escolherModulo} />;
+  if (!modulo && visao !== 'operacional') return <Hub onPick={escolherModulo} />;
 
   const migrada = MIGRADAS.has(page);
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      <Sidebar page={page} setPage={setPage} modulo={modulo} setModulo={setModulo} />
+      <Sidebar page={page} setPage={setPage} modulo={modulo} setModulo={setModulo} visao={visao} trocarVisao={trocarVisao} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Header theme={theme} setTheme={setTheme} />
         <main style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
