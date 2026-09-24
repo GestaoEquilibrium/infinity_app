@@ -184,6 +184,8 @@ const PagamentosEquipePage = () => {
   const [registrando, setRegistrando] = React.useState(null);
   const [salvandoId, setSalvandoId] = React.useState(null);
   const [editando, setEditando] = React.useState(null);
+  const [modo, setModo] = React.useState(() => { try { return localStorage.getItem('eq-pag-modo') || 'lista'; } catch { return 'lista'; } });
+  React.useEffect(() => { try { localStorage.setItem('eq-pag-modo', modo); } catch {} }, [modo]);
 
   const carregar = React.useCallback(async () => {
     setLista(null); setMsg('');
@@ -193,6 +195,7 @@ const PagamentosEquipePage = () => {
   React.useEffect(() => { carregar(); }, [carregar]);
 
   const trazerFolha = async () => {
+    if ((lista || []).length && !window.confirm('Isso acrescenta quem está no ponto e ainda não está na lista deste mês (e atualiza valores ainda não pagos). Se a folha do mês já foi lançada pela planilha, pode trazer gente repetida. Continuar?')) return;
     setTrazendo(true); setMsg('');
     try {
       const r = await enviarFolhaParaPagamentos(comp);
@@ -271,13 +274,19 @@ const PagamentosEquipePage = () => {
       <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         {msg && <Card padding={12} style={{ font: '500 13px var(--f-sans)', color: /erro|não consegui/i.test(msg) ? 'var(--c-neg)' : 'var(--ink)' }}>{msg}</Card>}
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <window.Segmented options={[{ value: 'lista', label: 'Lista' }, { value: 'planilha', label: 'Planilha' }]} value={modo} onChange={setModo} />
+          {modo === 'planilha' && <span style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)' }}>Mesmas colunas da planilha de pagamentos. Clique numa célula para editar; o líquido recalcula sozinho.</span>}
+        </div>
+
         {!lista && <Card padding={24} style={{ color: 'var(--ink-3)', font: '500 13px var(--f-sans)' }}>Conferindo pagamentos com o extrato…</Card>}
+        {lista && modo === 'planilha' && <PlanilhaFolha comp={comp} itens={itens} setLista={setLista} onEditar={setEditando} setMsg={setMsg} recarregar={carregar} />}
         {lista && !itens.length && (
           <Card><div style={{ padding: 24 }}><EmptyState icon="users" title="Nenhum pagamento neste mês"
             hint='Profissionais entram quando o fechamento do Repasse é salvo. CLT e estagiários: clique em "Trazer folha do ponto".' /></div></Card>
         )}
 
-        {grupos.map(g => {
+        {modo === 'lista' && grupos.map(g => {
           const venc = g.itens[0]._venc;
           const pendG = g.itens.filter(p => p.status !== 'pago');
           return (
@@ -377,6 +386,150 @@ const RegistrarPagamentoModal = ({ p, onClose, onSaved }) => {
       </div>
     </div>
   );
+};
+
+// ═══════════════ Planilha da folha (mesmas colunas da planilha de pagamentos) ═══════════════
+// 5º dia útil: líquido = (bruto ÷ 30 × dias, ou bruto se dias vazio) − descontos − INSS − VT + bonificações
+// Dia 20:      líquido = bruto + bonificações − desconto − desconto holding   (faltas → desconto = bruto ÷ 30 × faltas)
+const opNum = (v) => { if (v === '' || v == null) return null; const n = Number(String(v).replace(/[^\d,.-]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')); return isFinite(n) ? n : null; };
+const opR2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+function opLiquidoPlanilha(p) {
+  const b = Number(p.valor_bruto) || 0, bon = Number(p.bonificacoes) || 0, desc = Number(p.descontos) || 0;
+  if (p.grupo === 'dia20') return opR2(b + bon - desc - (Number(p.desconto_holding) || 0));
+  const base = p.dias == null || p.dias === '' ? b : b / 30 * Number(p.dias);
+  return opR2(base - desc - (Number(p.inss) || 0) - (Number(p.vt) || 0) + bon);
+}
+
+const PlanilhaFolha = ({ comp, itens, setLista, onEditar, setMsg, recarregar }) => {
+  const { Card, Btn, Money } = window;
+  const D = window.__repasseData;
+  const [salvando, setSalvando] = React.useState(null);
+
+  const COLS = {
+    '5dia': [
+      { k: 'nome', t: 'Nome do colaborador', w: 230, txt: true },
+      { k: 'cargo', t: 'Cargo', w: 140, txt: true },
+      { k: 'regime', t: 'Regime', w: 96, txt: true },
+      { k: 'dias', t: 'Dias trab.', w: 66 },
+      { k: 'valor_bruto', t: 'Valor bruto', w: 100 },
+      { k: 'descontos', t: 'Descontos / faltas / holding', w: 104 },
+      { k: 'bonificacoes', t: 'Bonificações', w: 96 },
+      { k: 'inss', t: 'INSS', w: 84 },
+      { k: 'vt', t: 'V.T. (6%)', w: 84 },
+      { k: 'valor_liquido', t: 'Líquido a pagar', w: 110, forte: true },
+      { k: 'valor_pago', t: 'Valor pago', w: 104 },
+      { k: 'holding', t: 'Holding', w: 110, txt: true },
+    ],
+    'dia20': [
+      { k: 'nome', t: 'Nome do colaborador', w: 230, txt: true },
+      { k: 'cargo', t: 'Cargo', w: 140, txt: true },
+      { k: 'regime', t: 'Regime', w: 96, txt: true },
+      { k: 'faltas', t: 'Faltas', w: 66 },
+      { k: 'valor_bruto', t: 'Valor bruto', w: 100 },
+      { k: 'bonificacoes', t: 'Bonificações', w: 96 },
+      { k: 'descontos', t: 'Desconto', w: 90 },
+      { k: 'desconto_holding', t: 'Desc. holding', w: 90 },
+      { k: 'valor_liquido', t: 'Líquido a pagar', w: 110, forte: true },
+      { k: 'valor_pago', t: 'Pago', w: 104 },
+      { k: 'observacao', t: 'Observações', w: 170, txt: true },
+      { k: 'holding', t: 'Holding', w: 110, txt: true },
+    ],
+  };
+  const CALC = new Set(['dias', 'faltas', 'valor_bruto', 'descontos', 'bonificacoes', 'inss', 'vt', 'desconto_holding']);
+
+  const gravar = async (p, campo, bruto) => {
+    const col = [...COLS['5dia'], ...COLS['dia20']].find(c => c.k === campo);
+    const novo = col && col.txt ? (String(bruto).trim() || null) : opNum(bruto);
+    const atual = p[campo] == null ? null : (col && col.txt ? p[campo] : Number(p[campo]));
+    if (novo === atual || (novo == null && atual == null)) return;
+    if (campo === 'nome' && !novo) return;
+    const patch = { [campo]: novo };
+    const q = { ...p, ...patch };
+    if (campo === 'faltas' && q.grupo === 'dia20') { patch.descontos = opR2((Number(q.valor_bruto) || 0) / 30 * (Number(novo) || 0)); q.descontos = patch.descontos; }
+    if (CALC.has(campo)) { patch.valor_liquido = opLiquidoPlanilha(q); }
+    if (campo === 'valor_pago') {
+      if (novo != null && novo > 0) { patch.status = 'pago'; if (!p.data_pagamento) patch.data_pagamento = opHoje(); }
+      else if (!p.transaction_id) { patch.status = 'pendente'; patch.data_pagamento = null; }
+    }
+    setSalvando(p.id);
+    try {
+      await D.updatePagamento(p.id, patch);
+      if (patch.valor_liquido != null || campo === 'valor_liquido') {
+        const v = patch.valor_liquido != null ? patch.valor_liquido : novo;
+        const tx = p.transaction_id && (window.CONTAS || []).find(c => c.id === p.transaction_id);
+        if (tx && !tx.pago && (tx.origem || 'sistema') === 'sistema') await window.updateContaLocal(tx.id, { previsto: v });
+      }
+      setLista(l => l.map(x => x.id === p.id ? { ...x, ...patch } : x));
+    } catch (e) { setMsg('Não consegui salvar: ' + e.message); }
+    setSalvando(null);
+  };
+
+  const adicionar = async (grupo) => {
+    try {
+      await D.createPagamento({ competencia: comp, grupo, nome: 'NOVA PESSOA', status: 'pendente', origem: 'manual', valor_liquido: 0, valor_bruto: 0 },
+        window.ACTIVE_COMPANY_ID, opUserId());
+      await recarregar();
+    } catch (e) { setMsg('Não consegui adicionar: ' + e.message); }
+  };
+
+  const cel = { padding: 0, borderRight: '1px solid var(--line-2)', borderBottom: '1px solid var(--line-2)' };
+  const inp = (txt) => ({ width: '100%', boxSizing: 'border-box', border: 0, background: 'transparent', padding: '7px 8px', outline: 'none',
+    font: txt ? '500 12.5px var(--f-sans)' : '500 12.5px var(--f-mono)', textAlign: txt ? 'left' : 'right', color: 'var(--ink)' });
+  const mostra = (c, v) => v == null || v === '' ? '' : (c.txt ? v : (c.k === 'dias' || c.k === 'faltas') ? String(v).replace('.', ',') : window.fmt(Number(v)));
+
+  return ['5dia', 'dia20'].map(g => {
+    const cols = COLS[g];
+    const linhas = itens.filter(p => (p.grupo === 'dia20' ? 'dia20' : '5dia') === g).sort((a, b) => String(a.nome).localeCompare(String(b.nome)));
+    const tot = (k) => linhas.reduce((s, p) => s + (Number(p[k]) || 0), 0);
+    const aPagar = tot('valor_liquido'), pago = tot('valor_pago');
+    return (
+      <Card key={g} padding={0} style={{ overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 16px', background: 'var(--surface-2, #F6F8FA)', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ font: '700 14.5px var(--f-sans)', color: 'var(--ink)' }}>{g === 'dia20' ? 'Dia 20' : '5º dia útil'}</span>
+          <span style={{ font: '500 12.5px var(--f-sans)', color: 'var(--ink-3)' }}>{linhas.length} pessoas · vence {window.fmtDate(D.vencimentoDoGrupo(comp, g))}</span>
+          <span style={{ marginLeft: 'auto', font: '500 12.5px var(--f-sans)', color: 'var(--ink-3)' }}>A pagar</span><Money value={aPagar} size="table" style={{ fontWeight: 700 }} />
+          <span style={{ font: '500 12.5px var(--f-sans)', color: 'var(--ink-3)' }}>Pago</span><Money value={pago} size="table" style={{ fontWeight: 700 }} />
+          <span style={{ font: '500 12.5px var(--f-sans)', color: 'var(--ink-3)' }}>Diferença</span>
+          <Money value={opR2(aPagar - pago)} size="table" style={{ fontWeight: 700, color: Math.abs(aPagar - pago) > 0.009 ? 'var(--c-neg)' : 'var(--ink-3)' }} />
+          <Btn variant="secondary" size="sm" icon="plus" onClick={() => adicionar(g)}>Pessoa</Btn>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse', minWidth: '100%', tableLayout: 'fixed' }}>
+            <colgroup>{cols.map(c => <col key={c.k} style={{ width: c.w }} />)}<col style={{ width: 44 }} /></colgroup>
+            <thead>
+              <tr>{cols.map(c => (
+                <th key={c.k} style={{ padding: '8px', borderRight: '1px solid var(--line-2)', borderBottom: '1px solid var(--line)', font: '700 10.5px var(--f-sans)', textTransform: 'uppercase', letterSpacing: '.03em', color: 'var(--ink-3)', textAlign: c.txt ? 'left' : 'right', verticalAlign: 'bottom', whiteSpace: 'normal' }}>{c.t}</th>
+              ))}<th style={{ borderBottom: '1px solid var(--line)' }} /></tr>
+            </thead>
+            <tbody>
+              {linhas.map(p => {
+                const pagoRow = p.status === 'pago';
+                const dif = p.valor_pago != null && Math.abs((Number(p.valor_pago) || 0) - (Number(p.valor_liquido) || 0)) > 0.009;
+                return (
+                  <tr key={p.id} style={{ background: pagoRow ? 'var(--c-pos-bg, #F1F8F3)' : undefined, opacity: salvando === p.id ? 0.6 : 1 }}>
+                    {cols.map(c => (
+                      <td key={c.k} style={{ ...cel, background: c.forte ? 'var(--surface-2, #F6F8FA)' : undefined }}>
+                        <input key={p.id + c.k + String(p[c.k])} defaultValue={mostra(c, p[c.k])}
+                          onFocus={e => e.target.select()}
+                          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = mostra(c, p[c.k]); e.target.blur(); } }}
+                          onBlur={e => gravar(p, c.k, e.target.value)}
+                          title={c.k === 'valor_pago' && dif ? 'Pago diferente do líquido' : undefined}
+                          style={{ ...inp(c.txt), fontWeight: c.forte ? 700 : 500, color: c.k === 'valor_pago' && dif ? 'var(--c-neg)' : 'var(--ink)' }} />
+                      </td>
+                    ))}
+                    <td style={{ ...cel, borderRight: 0, textAlign: 'center' }}>
+                      <window.IconBtn name="edit" size={26} title="Editar / excluir" onClick={() => onEditar(p)} />
+                    </td>
+                  </tr>
+                );
+              })}
+              {!linhas.length && <tr><td colSpan={cols.length + 1} style={{ padding: 20, textAlign: 'center', color: 'var(--ink-3)', font: '400 12.5px var(--f-sans)' }}>Ninguém neste grupo. Use "+ Pessoa".</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    );
+  });
 };
 
 // ── Editar / excluir um lançamento de pagamento ──
