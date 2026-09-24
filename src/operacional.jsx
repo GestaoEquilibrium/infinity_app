@@ -183,6 +183,7 @@ const PagamentosEquipePage = () => {
   const [trazendo, setTrazendo] = React.useState(false);
   const [registrando, setRegistrando] = React.useState(null);
   const [salvandoId, setSalvandoId] = React.useState(null);
+  const [editando, setEditando] = React.useState(null);
 
   const carregar = React.useCallback(async () => {
     setLista(null); setMsg('');
@@ -229,6 +230,12 @@ const PagamentosEquipePage = () => {
     { k: '5dia', titulo: '5º dia útil', itens: itens.filter(p => p.grupo !== 'dia20').sort(ordena) },
     { k: 'dia20', titulo: 'Dia 20', itens: itens.filter(p => p.grupo === 'dia20').sort(ordena) },
   ].filter(g => g.itens.length);
+
+  // Nomes que parecem a mesma pessoa (ex.: "Cristina Beatriz de Lima" e "Cristina Beatriz Lima")
+  const chaveNome = (n) => opNorm(n).split(' ').filter(w => w.length >= 3 && !['dos', 'das'].includes(w)).sort().join(' ');
+  const contaNome = {};
+  itens.forEach(p => { const k = chaveNome(p.nome); contaNome[k] = (contaNome[k] || 0) + 1; });
+  const repetido = (p) => contaNome[chaveNome(p.nome)] > 1;
 
   const tipoDe = (p) => /clt/i.test(p.regime || '') ? 'CLT' : /estag/i.test(p.regime || '') ? 'Estagiário' : 'Profissional';
 
@@ -284,9 +291,12 @@ const PagamentosEquipePage = () => {
               {g.itens.map(p => {
                 const pago = p.status === 'pago';
                 return (
-                  <div key={p.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 96px 140px 110px 110px', gap: 12, alignItems: 'center', padding: '10px 18px', borderTop: '1px solid var(--line-2)' }}>
+                  <div key={p.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 96px 140px 110px 150px', gap: 12, alignItems: 'center', padding: '10px 18px', borderTop: '1px solid var(--line-2)' }}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ font: '600 13.5px var(--f-sans)', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nome}</div>
+                      <div style={{ font: '600 13.5px var(--f-sans)', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {p.nome}
+                        {repetido(p) && <span title="Existe outro lançamento com nome parecido neste mês" style={{ marginLeft: 8, font: '600 10.5px var(--f-sans)', color: 'var(--c-neg)', background: 'var(--c-neg-bg, #FBE9E7)', padding: '2px 7px', borderRadius: 999 }}>repetido?</span>}
+                      </div>
                       <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.cargo || '—'}</div>
                     </div>
                     <span style={{ font: '500 11.5px var(--f-sans)', color: 'var(--ink-2)', background: 'var(--surface-2, #EEF1F4)', padding: '3px 9px', borderRadius: 999, justifySelf: 'start' }}>{tipoDe(p)}</span>
@@ -298,8 +308,9 @@ const PagamentosEquipePage = () => {
                           onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
                           onBlur={(e) => salvarValor(p, e.target.value)} />}
                     <div style={{ textAlign: 'center' }}><Situacao p={p} /></div>
-                    <div style={{ textAlign: 'right' }}>
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
                       {!pago && <Btn variant="secondary" size="sm" icon="check" onClick={() => setRegistrando(p)}>Registrar</Btn>}
+                      <window.IconBtn name="edit" size={30} title="Editar ou excluir" onClick={() => setEditando(p)} />
                     </div>
                   </div>
                 );
@@ -309,11 +320,12 @@ const PagamentosEquipePage = () => {
         })}
 
         <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)' }}>
-          Clique no valor para ajustar antes de pagar. A situação se atualiza sozinha: quando o Pix da pessoa aparece no extrato, ela passa para "Pago".
+          Clique no valor para ajustar antes de pagar. O lápis abre a edição completa (nome, tipo, data, excluir). A situação se atualiza sozinha: quando o Pix da pessoa aparece no extrato, ela passa para "Pago".
           "Registrar" é para quando você pagou e o extrato ainda não foi importado.
         </div>
       </div>
 
+      {editando && <EditarPagamentoModal p={editando} onClose={() => setEditando(null)} onSaved={(m) => { setEditando(null); if (m) setMsg(m); carregar(); }} />}
       {registrando && <RegistrarPagamentoModal p={registrando} onClose={() => setRegistrando(null)} onSaved={() => { setRegistrando(null); carregar(); }} />}
     </div>
   );
@@ -362,6 +374,121 @@ const RegistrarPagamentoModal = ({ p, onClose, onSaved }) => {
           <Btn variant="secondary" onClick={onClose}>Cancelar</Btn>
           <Btn variant="primary" icon="check" onClick={salvar} disabled={salvando}>{salvando ? 'Salvando…' : 'Confirmar'}</Btn>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Editar / excluir um lançamento de pagamento ──
+const EditarPagamentoModal = ({ p, onClose, onSaved }) => {
+  const { Btn } = window;
+  const D = window.__repasseData;
+  const pago = p.status === 'pago';
+  const tipoIni = /clt/i.test(p.regime || '') ? 'CLT' : /estag/i.test(p.regime || '') ? 'Estagiário' : (p.regime || 'PJ');
+  const [f, setF] = React.useState({
+    nome: p.nome || '', cargo: p.cargo || '', regime: tipoIni,
+    grupo: p.grupo === 'dia20' ? 'dia20' : '5dia', valor: String(Number(p.valor_liquido) || 0).replace('.', ','),
+  });
+  const [desativar, setDesativar] = React.useState(false);
+  const [confirmaExcluir, setConfirmaExcluir] = React.useState(false);
+  const [salvando, setSalvando] = React.useState(false);
+  const [erro, setErro] = React.useState('');
+  const set = (k, v) => setF(x => ({ ...x, [k]: v }));
+  const contaLigada = () => p.transaction_id && (window.CONTAS || []).find(c => c.id === p.transaction_id);
+
+  const salvar = async () => {
+    const v = Number(String(f.valor).replace(/\./g, '').replace(',', '.'));
+    if (!f.nome.trim()) { setErro('Informe o nome.'); return; }
+    if (!isFinite(v) || v < 0) { setErro('Valor inválido.'); return; }
+    setSalvando(true); setErro('');
+    try {
+      await D.updatePagamento(p.id, { nome: f.nome.trim(), cargo: f.cargo.trim() || null, regime: f.regime, grupo: f.grupo, valor_liquido: v });
+      const tx = contaLigada();
+      if (tx && !tx.pago && (tx.origem || 'sistema') === 'sistema') {
+        await window.updateContaLocal(tx.id, { previsto: v, vencimento: D.vencimentoDoGrupo(p.competencia, f.grupo) });
+      }
+      onSaved('Lançamento de ' + f.nome.trim() + ' atualizado.');
+    } catch (e) { setErro(e.message); setSalvando(false); }
+  };
+
+  const voltarPendente = async () => {
+    setSalvando(true); setErro('');
+    try {
+      await D.updatePagamento(p.id, { status: 'pendente', data_pagamento: null, transaction_id: null });
+      onSaved(p.nome + ' voltou para pendente.');
+    } catch (e) { setErro(e.message); setSalvando(false); }
+  };
+
+  const excluir = async () => {
+    setSalvando(true); setErro('');
+    try {
+      const tx = contaLigada();
+      // a conta a pagar prevista (criada pelo sistema e ainda não paga) sai junto; Pix do extrato nunca é apagado
+      if (tx && !tx.pago && (tx.origem || 'sistema') === 'sistema') {
+        try { await window.deleteContaLocal(tx.id); } catch (e) { console.warn('remover conta prevista', e); }
+      }
+      await D.deletePagamento(p.id);
+      if (desativar && p.colaborador_id) {
+        await opSb(`/colaboradores?id=eq.${p.colaborador_id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Desligado' }) });
+      }
+      onSaved(`Lançamento de ${p.nome} excluído${desativar && p.colaborador_id ? ' e cadastro desativado' : ''}.`);
+    } catch (e) { setErro(e.message); setSalvando(false); }
+  };
+
+  const inp = { width: '100%', boxSizing: 'border-box', height: 38, padding: '0 12px', border: '1px solid var(--line-strong)', borderRadius: 'var(--r-md)', background: 'var(--field)', font: '500 14px var(--f-sans)', color: 'var(--ink)' };
+  const lab = { font: '600 12px var(--f-sans)', color: 'var(--ink-2)', display: 'block', marginBottom: 6 };
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1600, background: 'rgba(15,23,32,.45)', display: 'grid', placeItems: 'center', padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: '100%', background: 'var(--surface)', borderRadius: 'var(--r-xl)', padding: 22, boxShadow: 'var(--shadow-lg, 0 20px 50px rgba(0,0,0,.2))' }}>
+        <div style={{ font: '700 16px var(--f-sans)', color: 'var(--ink)' }}>Editar lançamento</div>
+        <div style={{ font: '400 13px var(--f-sans)', color: 'var(--ink-3)', margin: '4px 0 16px' }}>
+          {opMesLabel(p.competencia)}{pago ? ' · já pago' : ''}
+        </div>
+
+        {!confirmaExcluir ? (
+          <>
+            <div style={{ marginBottom: 12 }}><label style={lab}>Nome</label><input value={f.nome} onChange={e => set('nome', e.target.value)} style={inp} /></div>
+            <div style={{ marginBottom: 12 }}><label style={lab}>Cargo</label><input value={f.cargo} onChange={e => set('cargo', e.target.value)} style={inp} /></div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+              <div><label style={lab}>Tipo</label>
+                <select value={f.regime} onChange={e => set('regime', e.target.value)} style={inp}>
+                  {['CLT', 'Estagiário', 'PJ', 'Autônomo', 'Sócio'].concat(['CLT', 'Estagiário', 'PJ', 'Autônomo', 'Sócio'].includes(f.regime) ? [] : [f.regime]).map(r => <option key={r} value={r}>{r}</option>)}
+                </select></div>
+              <div><label style={lab}>Data de pagamento</label>
+                <select value={f.grupo} onChange={e => set('grupo', e.target.value)} style={inp}>
+                  <option value="5dia">5º dia útil</option><option value="dia20">Dia 20</option>
+                </select></div>
+            </div>
+            <div style={{ marginBottom: 12 }}><label style={lab}>Valor (R$)</label>
+              <input value={f.valor} onChange={e => set('valor', e.target.value)} inputMode="decimal" disabled={pago} style={{ ...inp, opacity: pago ? 0.6 : 1 }} /></div>
+            {erro && <div style={{ color: 'var(--c-neg)', font: '500 12.5px var(--f-sans)', marginBottom: 10 }}>{erro}</div>}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+              <Btn variant="secondary" icon="trash" onClick={() => setConfirmaExcluir(true)} disabled={salvando} style={{ color: 'var(--c-neg)' }}>Excluir</Btn>
+              {pago && <Btn variant="secondary" onClick={voltarPendente} disabled={salvando}>Voltar p/ pendente</Btn>}
+              <div style={{ flex: 1 }} />
+              <Btn variant="secondary" onClick={onClose}>Cancelar</Btn>
+              <Btn variant="primary" icon="check" onClick={salvar} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Btn>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ font: '500 13.5px var(--f-sans)', color: 'var(--ink)', marginBottom: 12 }}>
+              Excluir o lançamento de <b>{p.nome}</b> ({window.fmtBRL ? window.fmtBRL(Number(p.valor_liquido) || 0) : 'R$ ' + window.fmt(Number(p.valor_liquido) || 0)})?
+              {pago && <div style={{ color: 'var(--ink-3)', fontSize: 12.5, marginTop: 6 }}>Ele está marcado como pago. O Pix no extrato não é apagado, só este lançamento.</div>}
+            </div>
+            {p.colaborador_id && (
+              <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', font: '400 13px var(--f-sans)', color: 'var(--ink-2)', background: 'var(--surface-2, #F6F8FA)', padding: 12, borderRadius: 'var(--r-md)', marginBottom: 12, cursor: 'pointer' }}>
+                <input type="checkbox" checked={desativar} onChange={e => setDesativar(e.target.checked)} style={{ marginTop: 3 }} />
+                <span>É um <b>cadastro repetido</b> — desativar este cadastro em Colaboradores, para não voltar na próxima vez que trouxer a folha do ponto.</span>
+              </label>
+            )}
+            {erro && <div style={{ color: 'var(--c-neg)', font: '500 12.5px var(--f-sans)', marginBottom: 10 }}>{erro}</div>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <Btn variant="secondary" onClick={() => setConfirmaExcluir(false)} disabled={salvando}>Voltar</Btn>
+              <Btn variant="primary" icon="trash" onClick={excluir} disabled={salvando} style={{ background: 'var(--c-neg)', borderColor: 'var(--c-neg)' }}>{salvando ? 'Excluindo…' : 'Excluir'}</Btn>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
