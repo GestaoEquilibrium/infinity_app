@@ -380,6 +380,139 @@ const AjudaTelaCard = ({ chave, nome, info }) => {
   );
 };
 
+
+// ═══════════════ Documentos da clínica (POP etc.) ═══════════════
+// O conteúdo NÃO fica no código (o site é público no GitHub): vem da tabela
+// ajuda_documentos, que só quem tem acesso liberado consegue ler.
+const ajNegrito = (txt) => String(txt || '').split(/(\*\*[^*]+\*\*)/g).map((t, i) =>
+  t.startsWith('**') && t.endsWith('**') ? <b key={i} style={{ color: 'var(--ink)' }}>{t.slice(2, -2)}</b> : <React.Fragment key={i}>{t}</React.Fragment>);
+
+const AjudaBloco = ({ b, docId }) => {
+  const txt = { fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.6, margin: '8px 0' };
+  if (b.t === 'p') return <p style={txt}>{ajNegrito(b.x)}</p>;
+  if (b.t === 'callout') return (
+    <div style={{ ...ajCard, borderLeftColor: 'var(--c-tertiary, var(--accent))', margin: '10px 0' }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 3 }}>{b.titulo}</div>
+      <div style={{ fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.55 }}>{ajNegrito(b.x)}</div>
+    </div>
+  );
+  if (b.t === 'lista') return (
+    <div style={{ margin: '10px 0' }}>
+      {b.titulo && <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 2 }}>{ajNegrito(b.titulo)}</div>}
+      <ul style={ajLista}>{b.itens.map((it, i) => <li key={i} style={{ marginBottom: 3 }}>{ajNegrito(it)}</li>)}</ul>
+    </div>
+  );
+  if (b.t === 'tabela') return (
+    <div style={{ margin: '12px 0' }}>
+      {b.titulo && <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>{b.titulo}</div>}
+      <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 'var(--r-md)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+          <thead><tr>{b.cab.map((h, i) => <th key={i} style={{ textAlign: 'left', padding: '8px 10px', background: 'var(--surface-2, #F6F8FA)', borderBottom: '1px solid var(--line)', fontSize: 11, fontWeight: 700, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: 0.3 }}>{h}</th>)}</tr></thead>
+          <tbody>{b.lin.map((l, i) => <tr key={i}>{l.map((c, j) => <td key={j} style={{ padding: '7px 10px', borderTop: i ? '1px solid var(--line-2, var(--line))' : 0, color: j ? 'var(--ink-soft)' : 'var(--ink)', fontWeight: j ? 400 : 600, verticalAlign: 'top' }}>{c}</td>)}</tr>)}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+  if (b.t === 'check') return <AjudaChecklist itens={b.itens} docId={docId} />;
+  return null;
+};
+
+const AjudaChecklist = ({ itens, docId }) => {
+  const d = new Date();
+  const [mes, setMes] = React.useState(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  const chave = `eq-check-${docId}-${mes}`;
+  const ler = () => { try { return JSON.parse(localStorage.getItem(chave) || '{}'); } catch { return {}; } };
+  const [marcados, setMarcados] = React.useState(ler);
+  React.useEffect(() => { setMarcados(ler()); }, [chave]);
+  const alterna = (i) => {
+    const n = { ...marcados, [i]: !marcados[i] };
+    setMarcados(n);
+    try { localStorage.setItem(chave, JSON.stringify(n)); } catch {}
+  };
+  const feitos = itens.filter((_, i) => marcados[i]).length;
+  return (
+    <div style={{ margin: '10px 0' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <input type="month" value={mes} onChange={e => e.target.value && setMes(e.target.value)} style={{ height: 32, padding: '0 8px', border: '1px solid var(--line-strong, var(--line))', borderRadius: 'var(--r-md)', background: 'var(--field, var(--surface))', color: 'var(--ink)' }} />
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: feitos === itens.length ? 'var(--c-pos)' : 'var(--ink-mute)' }}>{feitos} de {itens.length} conferidos{feitos === itens.length ? ' — pode liberar o pagamento' : ''}</span>
+      </div>
+      {itens.map((it, i) => (
+        <label key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 10px', borderRadius: 'var(--r-md)', cursor: 'pointer', background: marcados[i] ? 'var(--c-pos-bg, #EEF7F0)' : 'transparent' }}>
+          <input type="checkbox" checked={!!marcados[i]} onChange={() => alterna(i)} style={{ marginTop: 3 }} />
+          <span style={{ fontSize: 13.5, lineHeight: 1.5, color: marcados[i] ? 'var(--ink-mute)' : 'var(--ink-soft)', textDecoration: marcados[i] ? 'line-through' : 'none' }}>{it}</span>
+        </label>
+      ))}
+    </div>
+  );
+};
+
+const AjudaDocumento = ({ doc }) => {
+  const [aberto, setAberto] = React.useState(false);
+  const [baixando, setBaixando] = React.useState(false);
+  const partes = doc.conteudo?.partes || [];
+  const ir = (id) => { const el = document.getElementById('ajdoc-' + doc.id + '-' + id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  const baixar = async () => {
+    setBaixando(true);
+    try {
+      const r = await window.__sbRest(`/ajuda_documentos?id=eq.${doc.id}&select=pdf_base64,pdf_nome`);
+      const row = r && r[0];
+      if (!row || !row.pdf_base64) { alert('Este documento não tem PDF anexado.'); return; }
+      const bin = atob(row.pdf_base64); const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+      const a = document.createElement('a'); a.href = url; a.download = row.pdf_nome || (doc.id + '.pdf');
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (e) { alert('Não consegui baixar: ' + e.message); }
+    finally { setBaixando(false); }
+  };
+  return (
+    <div style={{ ...ajCard, borderLeftColor: 'var(--accent)', padding: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>{doc.titulo} <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink-mute)' }}>{doc.versao}</span></div>
+          <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>{doc.subtitulo} · confidencial, uso interno</div>
+        </div>
+        <button onClick={baixar} disabled={baixando} style={ajBtnLink}>{baixando ? 'Baixando…' : 'Baixar PDF'}</button>
+        <button onClick={() => setAberto(a => !a)} style={ajBtnLink}>{aberto ? 'Fechar' : 'Abrir'}</button>
+      </div>
+      {aberto && (
+        <div style={{ borderTop: '1px solid var(--line)', padding: '6px 18px 18px' }}>
+          {doc.conteudo?.intro && <p style={{ fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.6, maxWidth: 820 }}>{doc.conteudo.intro}</p>}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '6px 0 4px' }}>
+            {partes.map(p => (
+              <button key={p.id} onClick={() => ir(p.id)} style={{ border: '1px solid var(--line)', background: 'var(--surface-2, #F6F8FA)', borderRadius: 999, padding: '4px 11px', fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', cursor: 'pointer' }}>{p.titulo.replace(/^Parte [IVX]+ — /, '')}</button>
+            ))}
+          </div>
+          {partes.map(p => (
+            <section key={p.id} id={'ajdoc-' + doc.id + '-' + p.id} style={{ maxWidth: 900, scrollMarginTop: 16 }}>
+              <h3 style={{ fontSize: 15.5, fontWeight: 700, color: 'var(--ink)', margin: '22px 0 4px', paddingBottom: 6, borderBottom: '1px solid var(--line)' }}>{p.titulo}</h3>
+              {p.blocos.map((b, i) => <AjudaBloco key={i} b={b} docId={doc.id} />)}
+            </section>
+          ))}
+          {doc.conteudo?.aprovacao && <p style={{ fontSize: 12.5, color: 'var(--ink-mute)', marginTop: 20 }}>{doc.conteudo.aprovacao}</p>}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const AjudaDocumentos = ({ secTitulo }) => {
+  const [docs, setDocs] = React.useState(null);
+  React.useEffect(() => {
+    (async () => {
+      try { setDocs(await window.__sbRest('/ajuda_documentos?select=id,titulo,subtitulo,versao,conteudo,atualizado_em&order=titulo.asc') || []); }
+      catch (e) { setDocs([]); }
+    })();
+  }, []);
+  if (!docs || !docs.length) return null;
+  return (
+    <>
+      <div style={secTitulo}>DOCUMENTOS DA CLÍNICA</div>
+      <div style={{ display: 'grid', gap: 10 }}>{docs.map(d => <AjudaDocumento key={d.id} doc={d} />)}</div>
+    </>
+  );
+};
+
 const AjudaPage = () => {
   const ordem = ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'rh', 'equipe', 'perfil', 'config'];
   const reativar = () => {
@@ -392,6 +525,8 @@ const AjudaPage = () => {
     <div>
       <window.PageHeader title="Ajuda" subtitle="Como fazer cada coisa no sistema — passo a passo, com os conceitos que se repetem"
         action={<window.Btn variant="ghost" icon="sparkles" onClick={reativar}>Reativar dicas nas telas</window.Btn>} />
+
+      <AjudaDocumentos secTitulo={{ ...secTitulo, marginTop: 18 }} />
 
       <div style={secTitulo}>PRIMEIROS CONCEITOS</div>
       <p style={{ fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.6, maxWidth: 760, marginBottom: 8 }}>
