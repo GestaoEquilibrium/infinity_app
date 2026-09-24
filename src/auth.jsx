@@ -92,12 +92,8 @@ const LoginScreen = ({ onSuccess }) => {
             {loading ? 'Processando...' : (mode === 'signin' ? 'Entrar' : 'Criar conta')}
           </button>
 
-          <div style={{ textAlign: 'center', marginTop: 8, fontSize: 13, color: 'var(--ink-mute)' }}>
-            {mode === 'signin' ? 'Ainda não tem conta?' : 'Já tem conta?'}{' '}
-            <button type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(''); }}
-              style={{ color: 'var(--ink)', fontWeight: 600, textDecoration: 'underline' }}>
-              {mode === 'signin' ? 'Cadastrar' : 'Entrar'}
-            </button>
+          <div style={{ textAlign: 'center', marginTop: 8, fontSize: 12, color: 'var(--ink-mute)' }}>
+            Não tem acesso? Peça ao administrador para criar a sua conta.
           </div>
 
           <button type="button" onClick={() => onSuccess?.({ demo: true })} style={{
@@ -374,11 +370,11 @@ const Toggle = ({ value, onChange }) => (
   </button>
 );
 
-const roleLabel = (r) => ({ admin: 'Administrador', editor: 'Editor', viewer: 'Visualizador', financeiro: 'Financeiro' })[r] || r;
+const roleLabel = (r) => ({ admin: 'Administrador', editor: 'Financeiro', diretoria: 'Diretoria', viewer: 'Visualizador', financeiro: 'Financeiro', pendente: 'Aguardando liberação', bloqueado: 'Bloqueado' })[r] || r;
 const ROLES = [
   { v: 'admin', l: 'Administrador', c: 'var(--ink)', desc: 'Acesso total' },
-  { v: 'editor', l: 'Editor / Financeiro', c: 'var(--ink-soft)', desc: 'Lança e edita' },
-  { v: 'viewer', l: 'Visualizador', c: 'var(--ink-mute)', desc: 'Somente leitura' },
+  { v: 'editor', l: 'Financeiro', c: 'var(--ink-soft)', desc: 'Lança e edita' },
+  { v: 'diretoria', l: 'Diretoria', c: 'var(--ink-mute)', desc: 'Vê tudo, não altera' },
 ];
 
 // ─── PÁGINA EQUIPE ─────────────────────────────────────────────

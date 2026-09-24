@@ -26,6 +26,7 @@ const AuthProvider = ({ children }) => {
       try {
         const p = await window.getProfile(u.id);
         setHomeCompanyId(p?.company_id || null);
+        window.__ROLE = p?.role || 'pendente';
         let active = p?.company_id || null;
         try { const saved = localStorage.getItem('infinity-active-company'); if (saved) active = saved; } catch {}
         setProfile(p ? { ...p, company_id: active } : null);
@@ -34,7 +35,7 @@ const AuthProvider = ({ children }) => {
         if (active) window.hydrateFromSupabase?.(active);
         try { setCompanies(await window.fetchCompanies()); } catch {}
       } catch { setProfile(null); }
-    } else { setProfile(null); setCompanies([]); setHomeCompanyId(null); }
+    } else { setProfile(null); setCompanies([]); setHomeCompanyId(null); window.__ROLE = null; }
   };
 
   const switchCompany = (id) => {
@@ -65,23 +66,23 @@ const AuthProvider = ({ children }) => {
 
 // ─── Sidebar ───
 const SIDE_GROUPS = [
-  { titulo: 'Financeiro', mod: 'financeiro', itens: [
+  { titulo: 'Financeiro', itens: [
     { k: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-    { k: 'caixa', label: 'Caixa', icon: 'wallet' },
     { k: 'contas', label: 'Contas', icon: 'file' },
+    { k: 'caixa', label: 'Caixa', icon: 'wallet' },
     { k: 'projecao', label: 'Projeção', icon: 'chart' },
     { k: 'impostos', label: 'Impostos', icon: 'alert' },
-    { k: 'repasse', label: 'Repasse', icon: 'pulse' },
     { k: 'compras', label: 'Compras', icon: 'tag' },
   ]},
-  { titulo: 'Gestão', mod: 'financeiro', itens: [
+  { titulo: 'Equipe', itens: [
+    { k: 'equipe_pag', label: 'Pagamentos da equipe', icon: 'users' },
+    { k: 'repasse', label: 'Repasse', icon: 'pulse' },
+    { k: 'provisoes', label: 'Folha do mês', icon: 'wallet' },
+    { k: 'rh', label: 'Colaboradores', icon: 'user' },
+  ]},
+  { titulo: 'Gestão', itens: [
     { k: 'relatorios', label: 'Relatórios', icon: 'chart' },
     { k: 'agenda', label: 'Agenda', icon: 'calendar' },
-  ]},
-  { titulo: 'Recursos Humanos', mod: 'rh', itens: [
-    { k: 'rh', label: 'Folha / RH', icon: 'users' },
-    { k: 'provisoes', label: 'Provisões', icon: 'wallet' },
-    { k: 'equipe', label: 'Equipe', icon: 'users' },
   ]},
 ];
 
@@ -108,11 +109,12 @@ const Sidebar = ({ page, setPage, modulo, setModulo, visao, trocarVisao }) => {
   const operacional = visao === 'operacional';
 
   const grupos = (operacional ? OP_GROUPS : SIDE_GROUPS)
-    .filter(g => operacional || !modulo || g.mod === modulo)
+
     .map(g => ({ ...g, itens: g.itens.filter(it => acess(it.k)) }))
     .filter(g => g.itens.length);
 
   const bottom = [
+    ...(role === 'admin' ? [{ k: 'equipe', label: 'Acessos', icon: 'users' }] : []),
     { k: 'ajuda', label: 'Ajuda', icon: 'help' },
     { k: 'config', label: 'Configurações', icon: 'settings' },
   ].filter(it => window.canAccess(role, it.k) || it.k === 'ajuda');
@@ -147,9 +149,6 @@ const Sidebar = ({ page, setPage, modulo, setModulo, visao, trocarVisao }) => {
 
       {/* Rodapé */}
       <div style={{ paddingTop: 10, borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {modulo && !operacional && (
-          <NavItem item={{ label: 'Início', icon: 'home' }} active={false} onClick={() => setModulo(null)} />
-        )}
         {trocarVisao && (role === 'admin' || role === 'editor') && (
           <NavItem item={{ label: operacional ? 'Visão completa' : 'Visão operacional', icon: 'transition' }} active={false}
             onClick={() => trocarVisao(operacional ? 'completa' : 'operacional')} />
@@ -894,9 +893,29 @@ const RelContas = ({ dados, mes }) => {
 
 // ─── App bootstrap ───
 const AppInner = () => {
-  const { ready, user, demo, enterDemo } = useAuth();
+  const { ready, user, demo, enterDemo, profile, homeCompanyId, logout } = useAuth();
   if (!ready) return <div style={{ display: 'grid', placeItems: 'center', height: '100vh', color: 'var(--ink-3)', font: '500 13px var(--f-sans)' }}>Carregando…</div>;
   if (!user && !demo) return <LoginScreen onSuccess={(res) => { if (res?.demo) enterDemo(); }} />;
+  // Conta sem acesso liberado (nova, pendente ou bloqueada): não entra no sistema.
+  const papel = profile?.role;
+  if (!demo && (!homeCompanyId || !papel || papel === 'pendente' || papel === 'bloqueado')) {
+    return (
+      <div style={{ display: 'grid', placeItems: 'center', height: '100vh', background: 'var(--bg)', font: '500 14px var(--f-sans)', color: 'var(--ink-2)' }}>
+        <div style={{ maxWidth: 420, textAlign: 'center', padding: 24 }}>
+          <div style={{ font: '700 18px var(--f-display)', color: 'var(--ink)', marginBottom: 10 }}>
+            {papel === 'bloqueado' ? 'Acesso bloqueado' : 'Seu acesso ainda não foi liberado'}
+          </div>
+          <div style={{ marginBottom: 18 }}>
+            {papel === 'bloqueado'
+              ? 'Esta conta não tem mais acesso ao EqFinances. Fale com o administrador.'
+              : 'Peça ao administrador para liberar o seu acesso e entre de novo.'}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 14 }}>{user?.email}</div>
+          <button onClick={logout} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)', cursor: 'pointer' }}>Sair</button>
+        </div>
+      </div>
+    );
+  }
   return <AppShell />;
 };
 
@@ -904,7 +923,7 @@ const AppInner = () => {
 const TITULOS = {
   dashboard: 'Dashboard', caixa: 'Caixa', contas: 'Contas', projecao: 'Projeção',
   impostos: 'Impostos', repasse: 'Repasse', compras: 'Compras', agenda: 'Agenda',
-  relatorios: 'Relatórios', rh: 'Folha / RH', provisoes: 'Provisões', equipe: 'Equipe', conciliacao: 'Conciliação',
+  relatorios: 'Relatórios', rh: 'Colaboradores', provisoes: 'Folha do mês', equipe: 'Acessos', conciliacao: 'Conciliação',
   perfil: 'Meu perfil', config: 'Configurações', ajuda: 'Ajuda',
   hoje: 'Hoje', equipe_pag: 'Pagamentos da equipe',
 };
@@ -919,17 +938,23 @@ const AppShell = () => {
   // Padrão: administrador abre na completa; os demais, na operacional. Fica lembrada neste navegador.
   const { profile: perfilVisao } = useAuth();
   const [visao, setVisao] = useState(() => localStorage.getItem('infinity-visao')
-    || ((perfilVisao?.role && perfilVisao.role !== 'admin') ? 'operacional' : 'completa'));
+    || (perfilVisao?.role === 'editor' ? 'operacional' : 'completa'));
   useEffect(() => { localStorage.setItem('infinity-visao', visao); }, [visao]);
   const trocarVisao = (v) => {
     setVisao(v);
     if (v === 'operacional') setPage('hoje');
-    else { setModulo('financeiro'); setPage('dashboard'); }
+    else setPage('dashboard');
   };
 
   useEffect(() => { if (modulo) localStorage.setItem('infinity-modulo', modulo); else localStorage.removeItem('infinity-modulo'); }, [modulo]);
   useEffect(() => { document.body.dataset.theme = theme; localStorage.setItem('infinity-theme', theme); }, [theme]);
   useEffect(() => { localStorage.setItem('infinity-page', page); }, [page]);
+  // Tela sem permissão para este tipo de acesso → volta para o Dashboard.
+  const papelAtual = perfilVisao?.role || 'viewer';
+  const podeVer = (k) => k === 'ajuda' || k === 'perfil' || window.canAccess(papelAtual, ACESSO_ALIAS[k] || k);
+  useEffect(() => { if (!podeVer(page)) setPage('dashboard'); }, [page, papelAtual]);
+  // Diretoria só visualiza: não usa a visão operacional.
+  useEffect(() => { if (papelAtual === 'diretoria' && visao === 'operacional') { setVisao('completa'); } }, [papelAtual]);
 
   const escolherModulo = (m) => { setModulo(m); setPage(m === 'financeiro' ? 'dashboard' : 'rh'); };
 
@@ -948,7 +973,7 @@ const AppShell = () => {
     relatorios: <RelatoriosPage />,
     rh: <window.RHPage />,
     provisoes: <window.FolhaProvisoes />,
-    equipe: <EquipePage />,
+    equipe: <window.AcessosPage />,
     perfil: <PerfilPage />,
     config: <ConfigPage />,
     ajuda: <window.AjudaPage />,
@@ -956,7 +981,7 @@ const AppShell = () => {
     equipe_pag: <window.PagamentosEquipePage />,
   };
 
-  if (!modulo && visao !== 'operacional') return <Hub onPick={escolherModulo} />;
+  // Menu único (Financeiro + Equipe): a antiga tela de escolha Financeiro/RH não é mais usada.
 
   const migrada = MIGRADAS.has(page);
 

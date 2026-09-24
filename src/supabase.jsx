@@ -78,6 +78,10 @@ function realCompany(cid) {
 }
 
 async function sbRest(path, opts = {}, _jaTentou) {
+  const metodo = String(opts.method || 'GET').toUpperCase();
+  if (metodo !== 'GET' && !/^\/(rpc\/(admin_definir_acesso|invite_member_by_email)|profiles|audit_log)\b/.test(String(path)) && ['diretoria', 'viewer'].includes(window.__ROLE)) {
+    throw new Error('Seu acesso é só de visualização — não é possível alterar dados.');
+  }
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
     ...opts,
     headers: { ...authHeaders(opts.prefer ? { Prefer: opts.prefer } : {}), ...(opts.headers || {}) },
@@ -184,6 +188,33 @@ async function updateMemberRole(userId, role) {
     body: JSON.stringify({ role }),
     prefer: 'return=representation',
   });
+}
+// Cria a conta de outra pessoa SEM mexer na sessão de quem está logado
+// (não usa sbAuth/signUp, que gravariam a sessão nova no navegador).
+async function criarContaUsuario(email, senha, nome) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+    method: 'POST',
+    headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: String(email).trim().toLowerCase(), password: senha, data: { name: nome } }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const m = json.msg || json.error_description || json.error || 'Não consegui criar a conta';
+    if (/already|registered|exists/i.test(m)) return { jaExistia: true };
+    if (/password/i.test(m)) throw new Error('Senha fraca: use pelo menos 6 caracteres.');
+    throw new Error(m);
+  }
+  return { jaExistia: false, precisaConfirmar: !json.access_token };
+}
+async function definirAcesso(email, role, nome) {
+  const r = await sbRest('/rpc/admin_definir_acesso', {
+    method: 'POST', body: JSON.stringify({ p_email: email, p_role: role, p_nome: nome || null }),
+  });
+  if (r && r.error) throw new Error(r.msg || r.error);
+  return r;
+}
+async function listarAcessos() {
+  return sbRest('/profiles?select=id,name,email,role,company_id,created_at&order=name.asc');
 }
 async function removeMember(userId) {
   return sbRest(`/profiles?id=eq.${userId}`, { method: 'DELETE' });
@@ -449,7 +480,11 @@ async function logAction(companyId, userId, action, tableName, recordId, newData
 const ROLE_ACCESS = {
   admin: ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'conciliacao', 'rh', 'equipe', 'perfil', 'config', 'ajuda', 'hoje', 'equipe_pag'],
   editor: ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'conciliacao', 'rh', 'perfil', 'ajuda', 'hoje', 'equipe_pag'],
+  // Diretoria: vê tudo, não altera nada (o banco bloqueia gravação)
+  diretoria: ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'conciliacao', 'rh', 'perfil', 'ajuda', 'hoje', 'equipe_pag'],
   viewer: ['dashboard', 'caixa', 'agenda', 'perfil', 'ajuda', 'hoje'],
+  pendente: ['perfil', 'ajuda'],
+  bloqueado: [],
 };
 function canAccess(role, page) {
   return (ROLE_ACCESS[role] || ROLE_ACCESS.viewer).includes(page);
@@ -507,7 +542,7 @@ async function reclassificarPendentes() {
 }
 
 Object.assign(window, {
-  coFilter, realCompany,
+  coFilter, realCompany, criarContaUsuario, definirAcesso, listarAcessos,
   fetchFavorecidos, salvarFavorecido, salvarRegra, reclassificarPendentes, fetchTodas,
   fetchEventos, createEvento, deleteEvento,
   SUPABASE_URL, SUPABASE_ANON_KEY,

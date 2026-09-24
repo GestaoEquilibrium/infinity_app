@@ -485,4 +485,134 @@ const HojePage = ({ setPage }) => {
   );
 };
 
-Object.assign(window, { HojePage, PagamentosEquipePage, enviarFolhaParaPagamentos, sincronizarPagamentosMes });
+
+// ═══════════════ Tela: Acessos (só administrador) ═══════════════
+const OP_TIPOS = [
+  { v: 'admin', l: 'Administrador', d: 'Tudo, inclusive criar e bloquear acessos' },
+  { v: 'editor', l: 'Financeiro', d: 'Lança, paga, importa e cadastra' },
+  { v: 'diretoria', l: 'Diretoria', d: 'Vê tudo, não altera nada' },
+];
+const opTipoLabel = (r) => ({ admin: 'Administrador', editor: 'Financeiro', diretoria: 'Diretoria', viewer: 'Visualizador (antigo)',
+  pendente: 'Aguardando liberação', bloqueado: 'Bloqueado' })[r] || r;
+
+const AcessosPage = () => {
+  const { Band, Card, Btn } = window;
+  const { user } = window.useAuth();
+  const [lista, setLista] = React.useState(null);
+  const [msg, setMsg] = React.useState('');
+  const [form, setForm] = React.useState({ nome: '', email: '', senha: '', role: 'diretoria' });
+  const [salvando, setSalvando] = React.useState(false);
+  const [mudando, setMudando] = React.useState(null);
+
+  const carregar = React.useCallback(async () => {
+    try { setLista(await window.listarAcessos() || []); }
+    catch (e) { setMsg('Erro ao carregar: ' + e.message); setLista([]); }
+  }, []);
+  React.useEffect(() => { carregar(); }, [carregar]);
+
+  const gerarSenha = () => {
+    const a = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let p = ''; for (let i = 0; i < 10; i++) p += a[Math.floor(Math.random() * a.length)];
+    setForm(f => ({ ...f, senha: p }));
+  };
+
+  const criar = async () => {
+    const email = form.email.trim().toLowerCase();
+    if (!form.nome.trim() || !/^\S+@\S+\.\S+$/.test(email)) { setMsg('Preencha o nome e um e-mail válido.'); return; }
+    if (form.senha.length < 6) { setMsg('A senha provisória precisa de pelo menos 6 caracteres.'); return; }
+    setSalvando(true); setMsg('');
+    try {
+      const c = await window.criarContaUsuario(email, form.senha, form.nome.trim());
+      await window.definirAcesso(email, form.role, form.nome.trim());
+      const tipo = opTipoLabel(form.role);
+      setMsg(c.jaExistia
+        ? `✓ ${form.nome} já tinha conta com esse e-mail — o acesso foi liberado como ${tipo}. A senha é a que a pessoa já usa.`
+        : `✓ Acesso criado para ${form.nome} (${tipo}). Envie para a pessoa: e-mail ${email} · senha provisória ${form.senha}` +
+          (c.precisaConfirmar ? ' — antes do primeiro login ela precisa clicar no link de confirmação que chega no e-mail.' : '') +
+          ' Peça para trocar a senha em "Meu perfil".');
+      setForm({ nome: '', email: '', senha: '', role: form.role });
+      await carregar();
+    } catch (e) { setMsg('Erro: ' + e.message); }
+    setSalvando(false);
+  };
+
+  const mudar = async (p, role) => {
+    if (role === p.role) return;
+    if (role === 'bloqueado' && !window.confirm(`Bloquear o acesso de ${p.name || p.email}? A pessoa não consegue mais entrar; o histórico dela é mantido.`)) return;
+    setMudando(p.id); setMsg('');
+    try { await window.definirAcesso(p.email, role, p.name); await carregar(); setMsg(`✓ ${p.name || p.email}: ${opTipoLabel(role)}.`); }
+    catch (e) { setMsg('Erro: ' + e.message); }
+    setMudando(null);
+  };
+
+  const inp = { width: '100%', boxSizing: 'border-box', height: 38, padding: '0 12px', border: '1px solid var(--line-strong)', borderRadius: 'var(--r-md)', background: 'var(--field)', font: '500 13.5px var(--f-sans)', color: 'var(--ink)' };
+  const lbl = { font: '600 12px var(--f-sans)', color: 'var(--ink-2)', display: 'block', marginBottom: 5 };
+  const ativos = (lista || []).filter(p => p.role !== 'bloqueado');
+  const bloqueados = (lista || []).filter(p => p.role === 'bloqueado');
+
+  const Linha = ({ p }) => {
+    const eu = p.id === user?.id;
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 220px', gap: 12, alignItems: 'center', padding: '11px 18px', borderTop: '1px solid var(--line-2)', opacity: p.role === 'bloqueado' ? 0.6 : 1 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ font: '600 13.5px var(--f-sans)', color: 'var(--ink)' }}>{p.name || '—'}{eu ? ' (você)' : ''}</div>
+          <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.email}</div>
+        </div>
+        {eu
+          ? <span style={{ font: '600 12.5px var(--f-sans)', color: 'var(--ink-2)', textAlign: 'right' }}>{opTipoLabel(p.role)}</span>
+          : <select value={['admin', 'editor', 'diretoria', 'bloqueado'].includes(p.role) ? p.role : ''} disabled={mudando === p.id}
+              onChange={(e) => mudar(p, e.target.value)} style={{ ...inp, height: 34 }}>
+              {!['admin', 'editor', 'diretoria', 'bloqueado'].includes(p.role) && <option value="">{opTipoLabel(p.role)} — escolha…</option>}
+              {OP_TIPOS.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}
+              <option value="bloqueado">Bloqueado</option>
+            </select>}
+      </div>
+    );
+  };
+
+  return (
+    <div className="anim-fade">
+      <Band title="Acessos" subtitle="Quem entra no sistema e o que cada pessoa pode fazer"
+        metricLabel="Pessoas com acesso" metric={lista ? String(ativos.length) : '—'}
+        stats={OP_TIPOS.map(t => ({ label: t.l, value: lista ? String(ativos.filter(p => p.role === t.v).length) : '—' }))} />
+      <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {msg && <Card padding={12} style={{ font: '500 13px var(--f-sans)', color: /^erro/i.test(msg) ? 'var(--c-neg)' : 'var(--ink)', userSelect: 'text' }}>{msg}</Card>}
+
+        <Card padding={18}>
+          <div style={{ font: '700 14.5px var(--f-sans)', color: 'var(--ink)', marginBottom: 12 }}>Criar acesso</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+            <div><label style={lbl}>Nome</label><input value={form.nome} onChange={(e) => setForm(f => ({ ...f, nome: e.target.value }))} style={inp} placeholder="Michele Marques" /></div>
+            <div><label style={lbl}>E-mail</label><input value={form.email} onChange={(e) => setForm(f => ({ ...f, email: e.target.value }))} style={inp} placeholder="nome@email.com" /></div>
+            <div><label style={lbl}>Senha provisória</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input value={form.senha} onChange={(e) => setForm(f => ({ ...f, senha: e.target.value }))} style={inp} placeholder="mín. 6 caracteres" />
+                <Btn variant="secondary" size="sm" onClick={gerarSenha}>Gerar</Btn>
+              </div></div>
+            <div><label style={lbl}>Tipo de acesso</label>
+              <select value={form.role} onChange={(e) => setForm(f => ({ ...f, role: e.target.value }))} style={inp}>
+                {OP_TIPOS.map(t => <option key={t.v} value={t.v}>{t.l} — {t.d}</option>)}
+              </select></div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+            <Btn variant="primary" icon="plus" onClick={criar} disabled={salvando}>{salvando ? 'Criando…' : 'Criar acesso'}</Btn>
+          </div>
+        </Card>
+
+        <Card padding={0} style={{ overflow: 'hidden' }}>
+          <div style={{ padding: '13px 18px', font: '700 14.5px var(--f-sans)', color: 'var(--ink)' }}>Quem tem acesso</div>
+          {!lista && <div style={{ padding: '0 18px 16px', color: 'var(--ink-3)' }}>Carregando…</div>}
+          {ativos.map(p => <Linha key={p.id} p={p} />)}
+          {bloqueados.length > 0 && <div style={{ padding: '12px 18px 4px', font: '600 12px var(--f-sans)', color: 'var(--ink-3)', borderTop: '1px solid var(--line)' }}>Bloqueados</div>}
+          {bloqueados.map(p => <Linha key={p.id} p={p} />)}
+        </Card>
+
+        <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', lineHeight: 1.6 }}>
+          <b>Administrador</b>: tudo, inclusive esta tela. <b>Financeiro</b>: opera o dia a dia (abre na visão operacional). <b>Diretoria</b>: vê todas as telas e números, mas o sistema não deixa alterar nada.
+          Bloquear corta o acesso na hora e mantém o histórico de quem lançou o quê.
+        </div>
+      </div>
+    </div>
+  );
+};
+
+Object.assign(window, { HojePage, PagamentosEquipePage, AcessosPage, enviarFolhaParaPagamentos, sincronizarPagamentosMes });
