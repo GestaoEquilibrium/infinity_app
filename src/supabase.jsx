@@ -467,12 +467,14 @@ async function deleteEvento(id) {
 // ---- Favorecidos (CPF mascarado do Sicoob → pessoa) ----
 async function fetchFavorecidos() {
   // Lê das duas empresas do grupo (a regra de acesso do banco filtra o que o usuário pode ver)
-  return sbRest(`/favorecidos?${coFilter('GRUPO')}&select=cpf_meio,nome,papel`);
+  return sbRest(`/favorecidos?${coFilter('GRUPO')}&select=cpf_meio,nome,papel,categoria`);
 }
-async function salvarFavorecido(cpfMeio, nome, companyId) {
+async function salvarFavorecido(cpfMeio, nome, companyId, categoria) {
+  const body = { company_id: realCompany(companyId), cpf_meio: cpfMeio, nome };
+  if (categoria) body.categoria = categoria; // sem categoria → não mexe na que já existe
   return sbRest('/favorecidos?on_conflict=company_id,cpf_meio', {
     method: 'POST',
-    body: JSON.stringify({ company_id: realCompany(companyId), cpf_meio: cpfMeio, nome }),
+    body: JSON.stringify(body),
     prefer: 'resolution=merge-duplicates,return=minimal',
   });
 }
