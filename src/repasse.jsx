@@ -1,3 +1,6 @@
+// Modo Grupo: aceita 'GRUPO' (lê das duas empresas; grava na empresa de origem)
+const __cfRP = (cid) => (window.coFilter ? window.coFilter(cid) : `company_id=eq.${cid}`);
+const __rcRP = (cid) => (window.realCompany ? window.realCompany(cid) : cid);
 // ═══════════════════════════════════════════════════════════════════════════
 // Infinity — Módulo Caixa (particular) + Repasse
 //
@@ -33,7 +36,7 @@ const sbR = (path, opts) => window.__sbRest ? window.__sbRest(path, opts) : (asy
 
 // ---- Caixa ----
 async function fetchCaixa(companyId, dataIni, dataFim) {
-  let q = `/caixa_lancamentos?company_id=eq.${companyId}&select=*&order=data.desc,created_at.desc&limit=2000`;
+  let q = `/caixa_lancamentos?${__cfRP(companyId)}&select=*&order=data.desc,created_at.desc&limit=2000`;
   if (dataIni) q += `&data=gte.${dataIni}`;
   if (dataFim) q += `&data=lte.${dataFim}`;
   return sbR(q);
@@ -41,7 +44,7 @@ async function fetchCaixa(companyId, dataIni, dataFim) {
 async function createCaixa(l, companyId, userId) {
   return sbR('/caixa_lancamentos', {
     method: 'POST', prefer: 'return=representation',
-    body: JSON.stringify({ ...l, company_id: companyId, created_by: userId }),
+    body: JSON.stringify({ ...l, company_id: __rcRP(companyId), created_by: userId }),
   });
 }
 async function deleteCaixa(id) {
@@ -50,16 +53,16 @@ async function deleteCaixa(id) {
 
 // ---- Regras / Tarifas / Fechamentos ----
 async function fetchRegras(companyId) {
-  return sbR(`/repasse_regras?company_id=eq.${companyId}&select=*,colaboradores(nome,cargo,regime)&limit=500`);
+  return sbR(`/repasse_regras?${__cfRP(companyId)}&select=*,colaboradores(nome,cargo,regime)&limit=500`);
 }
 async function upsertRegra(r, companyId) {
   return sbR('/repasse_regras', {
     method: 'POST', prefer: 'resolution=merge-duplicates,return=representation',
-    body: JSON.stringify({ ...r, company_id: companyId }),
+    body: JSON.stringify({ ...r, company_id: __rcRP(companyId) }),
   });
 }
 async function fetchTarifas(companyId) {
-  return sbR(`/repasse_tarifas?company_id=eq.${companyId}&select=*&order=convenio.asc&limit=500`);
+  return sbR(`/repasse_tarifas?${__cfRP(companyId)}&select=*&order=convenio.asc&limit=500`);
 }
 async function updateTarifa(id, patch) {
   return sbR(`/repasse_tarifas?id=eq.${id}`, {
@@ -70,34 +73,34 @@ async function updateTarifa(id, patch) {
 async function createTarifa(t, companyId) {
   return sbR('/repasse_tarifas', {
     method: 'POST', prefer: 'return=representation',
-    body: JSON.stringify({ ...t, company_id: companyId }),
+    body: JSON.stringify({ ...t, company_id: __rcRP(companyId) }),
   });
 }
 async function deleteTarifa(id) {
   return sbR(`/repasse_tarifas?id=eq.${id}`, { method: 'DELETE' });
 }
 async function fetchFechamentos(companyId, competencia) {
-  let q = `/repasse_fechamentos?company_id=eq.${companyId}&select=*&order=liquido.desc&limit=500`;
+  let q = `/repasse_fechamentos?${__cfRP(companyId)}&select=*&order=liquido.desc&limit=500`;
   if (competencia) q += `&competencia=eq.${competencia}`;
   return sbR(q);
 }
 async function createFechamento(f, companyId, userId) {
   return sbR('/repasse_fechamentos', {
     method: 'POST', prefer: 'return=representation',
-    body: JSON.stringify({ ...f, company_id: companyId, created_by: userId }),
+    body: JSON.stringify({ ...f, company_id: __rcRP(companyId), created_by: userId }),
   });
 }
 
 // ---- Pagamentos (folha 5º dia + repasse Dia 20) ----
 async function fetchPagamentos(companyId, competencia) {
-  let q = `/pagamentos?company_id=eq.${companyId}&select=*&order=grupo.asc,nome.asc&limit=1000`;
+  let q = `/pagamentos?${__cfRP(companyId)}&select=*&order=grupo.asc,nome.asc&limit=1000`;
   if (competencia) q += `&competencia=eq.${competencia}`;
   return sbR(q);
 }
 async function createPagamento(p, companyId, userId) {
   return sbR('/pagamentos', {
     method: 'POST', prefer: 'return=representation',
-    body: JSON.stringify({ ...p, company_id: companyId, created_by: userId }),
+    body: JSON.stringify({ ...p, company_id: __rcRP(companyId), created_by: userId }),
   });
 }
 async function updatePagamento(id, patch) {
@@ -111,15 +114,15 @@ async function deletePagamento(id) {
 }
 // remove os lançamentos vindos do repasse de uma competência (antes de regerar)
 async function deletePagamentosRepasse(companyId, competencia) {
-  return sbR(`/pagamentos?company_id=eq.${companyId}&competencia=eq.${competencia}&origem=eq.repasse`, { method: 'DELETE' });
+  return sbR(`/pagamentos?${__cfRP(companyId)}&competencia=eq.${competencia}&origem=eq.repasse`, { method: 'DELETE' });
 }
 // remove os lançamentos de folha de uma competência (antes de regerar a folha)
 async function deletePagamentosFolha(companyId, competencia) {
-  return sbR(`/pagamentos?company_id=eq.${companyId}&competencia=eq.${competencia}&origem=eq.folha`, { method: 'DELETE' });
+  return sbR(`/pagamentos?${__cfRP(companyId)}&competencia=eq.${competencia}&origem=eq.folha`, { method: 'DELETE' });
 }
 // verifica se já existe pagamento de um colaborador num mês/grupo (para o auto-add não duplicar)
 async function pagamentoExiste(companyId, competencia, grupo, colaboradorId) {
-  const r = await sbR(`/pagamentos?company_id=eq.${companyId}&competencia=eq.${competencia}&grupo=eq.${grupo}&colaborador_id=eq.${colaboradorId}&select=id&limit=1`);
+  const r = await sbR(`/pagamentos?${__cfRP(companyId)}&competencia=eq.${competencia}&grupo=eq.${grupo}&colaborador_id=eq.${colaboradorId}&select=id&limit=1`);
   return Array.isArray(r) && r.length > 0;
 }
 
