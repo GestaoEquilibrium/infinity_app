@@ -612,9 +612,18 @@ async function hydrateFromSupabase(companyId) {
     window.COMPRAS = COMPRAS;
     // publica as categorias para os formulários de conta/compra lerem
     const cats = Array.isArray(categorias) ? categorias : [];
+    // No modo Grupo vêm as categorias das duas empresas (mesmos nomes) → mostra cada nome uma vez só
+    const semRepetir = (lista) => {
+      const vistos = new Set();
+      return lista.filter(c => {
+        const k = String(c.name || '').trim().toLowerCase();
+        if (!k || vistos.has(k)) return false;
+        vistos.add(k); return true;
+      });
+    };
     window.APP_CATEGORIES = {
-      entrada: cats.filter(c => c.type === 'entrada'),
-      saida:   cats.filter(c => c.type === 'saida'),
+      entrada: semRepetir(cats.filter(c => c.type === 'entrada')),
+      saida:   semRepetir(cats.filter(c => c.type === 'saida')),
     };
     carregarFavorecidos();
     window.dispatchEvent(new CustomEvent('sb-data-hydrated'));
