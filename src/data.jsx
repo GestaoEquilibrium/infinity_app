@@ -393,6 +393,27 @@ async function addCompras(rows) {
   } catch (e) { console.warn('addCompras sync', e); }
 }
 
+// ─── Anti-duplicata no import ───
+// Ignora lançamentos que JÁ estão no sistema (extrato semanal sobreposto, arquivo repetido).
+// Conta por chave: se o arquivo tem 2 "TAR PIX 8,50" no mesmo dia e o sistema já tem 1, entra só 1.
+function chaveConta(c) {
+  return [c.vencimento, c.tipo, Number(c.previsto || 0).toFixed(2),
+          String(c.description || '').trim().toLowerCase(), c.conta || ''].join('|');
+}
+function removerJaImportados(novos) {
+  const existentes = {};
+  (window.CONTAS || []).forEach(c => { const k = chaveConta(c); existentes[k] = (existentes[k] || 0) + 1; });
+  const out = [];
+  novos.forEach(r => {
+    const k = chaveConta(r);
+    if (existentes[k] > 0) existentes[k]--; else out.push(r);
+  });
+  if (novos.length && !out.length) {
+    throw new Error(`Os ${novos.length} lançamentos deste arquivo já estão no sistema — nada novo pra importar.`);
+  }
+  return out;
+}
+
 // Parse Excel como CONTAS (previsto × realizado)
 // Colunas aceitas: Vencimento/Data, Tipo (pagar|receber|entrada|saida), Descrição, Categoria, Previsto/Valor, Realizado(opcional), Pago(opcional)
 async function parseExcelContas(file) {
@@ -403,7 +424,7 @@ async function parseExcelContas(file) {
   const wb = window.XLSX.read(buf, { type: 'array', raw: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = window.XLSX.utils.sheet_to_json(ws, { raw: false, defval: '' });
-  return rows.map((r, i) => {
+  const lidos = rows.map((r, i) => {
     const row = {};
     Object.keys(r).forEach(k => { row[k.toLowerCase().trim()] = r[k]; });
     const dateRaw = row['vencimento'] || row['data'] || row['date'];
@@ -443,6 +464,7 @@ async function parseExcelContas(file) {
       pagoEm: pago ? date : null,
     };
   }).filter(r => r.previsto > 0);
+  return removerJaImportados(lidos);
 }
 
 async function updateContaLocal(id, patch) {
@@ -469,18 +491,35 @@ async function deleteContaLocal(id) {
 }
 
 async function addContas(rows) {
+  // Trava contra clique duplo no "Confirmar": se esses lançamentos já foram adicionados, não regrava.
+  const jaTem = new Set((window.CONTAS || CONTAS).map(c => c.id));
+  rows = (rows || []).filter(r => !jaTem.has(r.id));
+  if (!rows.length) return;
   CONTAS = [...rows, ...CONTAS];
   window.CONTAS = CONTAS;
+  window.dispatchEvent(new CustomEvent('sb-data-hydrated')); // lista e saldos já mostram na hora
   try {
     const s = window.getSession?.();
     const me = s ? await window.getMe?.() : null;
     const prof = me ? await window.getProfile?.(me.id) : null;
     if (prof?.company_id) {
+      // Cada lançamento vai pra empresa em que o SEU banco (coluna "conta") está cadastrado.
+      // Assim dá pra importar extratos de empresas diferentes de uma vez, sem trocar o seletor.
+      const empresaDoBanco = {};
+      try {
+        const bancos = await window.fetchContasBancarias?.('GRUPO');
+        (bancos || []).forEach(b => { if (b.nome && b.company_id) empresaDoBanco[b.nome] = b.company_id; });
+      } catch (e) { console.warn('mapa banco→empresa', e); }
       for (const r of rows) {
-        try { await window.createConta(r, prof.company_id, me.id); } catch (e) { console.warn('createConta', e); }
+        const cid = (r.conta && empresaDoBanco[r.conta]) || prof.company_id;
+        try { await window.createConta(r, cid, me.id); } catch (e) { console.warn('createConta', e); }
       }
     }
   } catch (e) { console.warn('addContas sync', e); }
+  // Recarrega do banco pra tela refletir exatamente o que foi gravado.
+  try {
+    if (window.ACTIVE_COMPANY_ID) await hydrateFromSupabase(window.ACTIVE_COMPANY_ID);
+  } catch (e) { console.warn('addContas rehydrate', e); }
 }
 
 // Hidrata CONTAS/COMPRAS com dados reais do Supabase (chamado pelo AuthProvider após login)
