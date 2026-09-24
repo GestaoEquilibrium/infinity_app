@@ -499,6 +499,17 @@ const PagamentosTab = ({ companyId, userId, colabs, D }) => {
   };
   const [grupoView, setGrupoView] = useStateRP('5dia');
   const gerarFolhaMes = async () => {
+    // Nova regra (operacional.jsx): líquido do ponto p/ CLT e estágio + fixos do cadastro,
+    // sem apagar nada e sem mexer em quem já foi pago.
+    if (window.enviarFolhaParaPagamentos) {
+      setGerandoFolha(true); setMsg('Trazendo a folha do ponto...');
+      try {
+        const r = await window.enviarFolhaParaPagamentos(competencia);
+        setMsg(`Folha de ${competenciaExtenso(competencia)}: ${r.criados} novo(s), ${r.atualizados} atualizado(s), ${r.jaPagos} já pago(s).`);
+      } catch (e) { setMsg('Erro ao gerar a folha: ' + e.message); }
+      setGerandoFolha(false); carregar();
+      return;
+    }
     const folha = (colabs || []).filter(c => c.folha_fixa && (!c.status || c.status === 'Ativo'));
     if (!folha.length) { setMsg('Nenhum colaborador marcado como "folha recorrente" no cadastro.'); return; }
     setGerandoFolha(true); setMsg('Gerando folha do mês...');
