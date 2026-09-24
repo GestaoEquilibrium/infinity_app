@@ -399,11 +399,30 @@ const RE_CPF_MASC = /(?:CPF\s*)?\*\*\*\.(\d{3}\.\d{3})(?:-\*\*)?/i;
 async function carregarFavorecidos() {
   try {
     const rows = await window.fetchFavorecidos?.();
-    const m = {};
-    (rows || []).forEach(r => { if (r.cpf_meio && r.nome) m[r.cpf_meio] = r.nome; });
-    window.FAVORECIDOS = m;
+    const m = {}, cat = {}, porNome = {};
+    (rows || []).forEach(r => {
+      if (!r.cpf_meio || !r.nome) return;
+      m[r.cpf_meio] = r.nome;
+      if (r.categoria) cat[r.cpf_meio] = r.categoria;
+      porNome[r.nome.toLowerCase()] = r.cpf_meio;
+    });
+    window.FAVORECIDOS = m;       // cpf → nome
+    window.FAV_CATEGORIA = cat;   // cpf → categoria
+    window.FAV_POR_NOME = porNome; // nome → cpf
   } catch (e) { console.warn('favorecidos', e); window.FAVORECIDOS = window.FAVORECIDOS || {}; }
   return window.FAVORECIDOS;
+}
+// cpf do favorecido a partir da descrição (mascarado "***.873.206" ou já com o nome)
+function cpfDaDescricao(desc) {
+  const d = String(desc || '');
+  const m = d.match(RE_CPF_MASC);
+  if (m) return m[1];
+  const nome = d.split('|').pop().trim().toLowerCase();
+  return (window.FAV_POR_NOME || {})[nome] || null;
+}
+function categoriaDoFavorecido(desc) {
+  const cpf = cpfDaDescricao(desc);
+  return cpf ? (window.FAV_CATEGORIA || {})[cpf] || null : null;
 }
 function nomearPorCpf(desc) {
   const d = String(desc || '');
@@ -450,8 +469,15 @@ async function parseExcelContas(file) {
     const dateRaw = row['vencimento'] || row['data'] || row['date'];
     const tipoRaw = (row['tipo'] || row['type'] || '').toString().toLowerCase();
     const tipo = (tipoRaw.includes('receb') || tipoRaw.includes('entra')) ? 'receber' : 'pagar';
-    const category = row['categoria'] || row['category'] || (tipo === 'receber' ? 'Outras' : 'Outras Despesas');
-    const description = nomearPorCpf(row['descrição'] || row['descricao'] || row['description'] || '—');
+    const descRaw = row['descrição'] || row['descricao'] || row['description'] || '—';
+    const description = nomearPorCpf(descRaw);
+    const catCsv = row['categoria'] || row['category'] || '';
+    const catFav = tipo === 'pagar' ? categoriaDoFavorecido(descRaw) : null;
+    // A categoria do favorecido só entra no lugar de "A Classificar"/vazio — nunca sobrescreve
+    // uma categoria escolhida (ex.: "Transferência Interna").
+    const category = (catFav && (!catCsv || /a classificar/i.test(catCsv)))
+      ? catFav
+      : (catCsv || (tipo === 'receber' ? 'Outras' : 'Outras Despesas'));
     const prevRaw = row['previsto'] || row['valor'] || row['amount'] || row['value'] || 0;
     const realRaw = row['realizado'] || row['pago_valor'] || 0;
     const pagoRaw = (row['pago'] || row['status'] || '').toString().toLowerCase();
@@ -497,7 +523,22 @@ async function updateContaLocal(id, patch) {
       try {
         await window.salvarFavorecido(mAntes[1], nome, window.ACTIVE_COMPANY_ID);
         window.FAVORECIDOS = { ...(window.FAVORECIDOS || {}), [mAntes[1]]: nome };
+        window.FAV_POR_NOME = { ...(window.FAV_POR_NOME || {}), [nome.toLowerCase()]: mAntes[1] };
       } catch (e) { console.warn('salvarFavorecido', e); }
+    }
+  }
+  // Aprende a categoria: você tirou do "A Classificar" um pagamento de alguém do dicionário.
+  if (antes && patch && patch.category && antes.tipo === 'pagar'
+      && /a classificar/i.test(antes.category || '') && !/a classificar|transfer/i.test(patch.category)) {
+    const desc = patch.description || antes.description;
+    const cpf = cpfDaDescricao(antes.description) || cpfDaDescricao(desc);
+    const nome = cpf && (window.FAVORECIDOS || {})[cpf];
+    if (nome && (window.FAV_CATEGORIA || {})[cpf] !== patch.category
+        && window.confirm(`Sempre classificar pagamentos para "${nome}" como "${patch.category}"?`)) {
+      try {
+        await window.salvarFavorecido(cpf, nome, window.ACTIVE_COMPANY_ID, patch.category);
+        window.FAV_CATEGORIA = { ...(window.FAV_CATEGORIA || {}), [cpf]: patch.category };
+      } catch (e) { console.warn('salvarFavorecido categoria', e); }
     }
   }
   CONTAS = CONTAS.map(c => c.id === id ? { ...c, ...patch } : c);
