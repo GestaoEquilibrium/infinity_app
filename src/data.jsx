@@ -504,6 +504,9 @@ async function parseExcelContas(file) {
       tipo, category, description,
       vencimento: date,
       conta,
+      // Tem coluna "conta" = extrato bancário → origem banco (entra na conciliação/baixa).
+      // Sem conta = planilha de contas a pagar → lançamento do sistema.
+      ...(conta ? { origem: 'banco' } : {}),
       previsto,
       realizado: pago ? (realizado || previsto) : 0,
       pago,
