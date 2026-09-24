@@ -479,8 +479,20 @@ async function salvarFavorecido(cpfMeio, nome, companyId, categoria) {
   });
 }
 
+// ---- Regras de categoria por texto (aplicadas pelo banco em todo lançamento novo) ----
+async function salvarRegra(padrao, tipo, categoria, companyId) {
+  return sbRest('/regras_categoria?on_conflict=company_id,padrao,tipo', {
+    method: 'POST',
+    body: JSON.stringify({ company_id: realCompany(companyId), padrao, tipo, categoria, prioridade: 25 }),
+    prefer: 'resolution=merge-duplicates,return=minimal',
+  });
+}
+async function reclassificarPendentes() {
+  return sbRest('/rpc/reclassificar_pendentes', { method: 'POST', body: '{}' });
+}
+
 Object.assign(window, {
-  fetchFavorecidos, salvarFavorecido,
+  fetchFavorecidos, salvarFavorecido, salvarRegra, reclassificarPendentes,
   fetchEventos, createEvento, deleteEvento,
   SUPABASE_URL, SUPABASE_ANON_KEY,
   __sbRest: sbRest, refreshSession,
