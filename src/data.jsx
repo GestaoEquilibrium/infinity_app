@@ -611,6 +611,9 @@ async function addContas(rows) {
       }
     }
   } catch (e) { console.warn('addContas sync', e); }
+  // Depois de importar: o banco reconfere o que está "A Classificar" — inclusive
+  // transferências do Mercado Pago cuja outra perna só chegou agora, com este extrato.
+  try { await window.reclassificarPendentes?.(); } catch (e) { console.warn('reclassificar', e); }
   // Recarrega do banco pra tela refletir exatamente o que foi gravado.
   try {
     if (window.ACTIVE_COMPANY_ID) await hydrateFromSupabase(window.ACTIVE_COMPANY_ID);
