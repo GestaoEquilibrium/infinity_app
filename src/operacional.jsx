@@ -98,7 +98,10 @@ function opAcharNoBanco(p, venc, contas, usados) {
     .sort((a, b) => opValor(b) - opValor(a));
   if (!cands.length) return null;
   const v = Number(p.valor_liquido) || 0;
-  const tol = Math.max(1, v * 0.03);
+  // Folha: o cadastro costuma ter o salário bruto e o Pix sai com o líquido (INSS, faltas),
+  // então o nome é o que identifica — aceita diferença maior. Repasse: o valor tem que bater.
+  const ehFolha = p.origem === 'folha' || /clt|estag/i.test(p.regime || '');
+  const tol = Math.max(1, v * (ehFolha ? 0.30 : 0.03));
   if (v <= 0) return [cands[0]];
   const unico = cands.find(c => Math.abs(opValor(c) - v) <= tol);
   if (unico) return [unico];
@@ -124,6 +127,19 @@ async function sincronizarPagamentosMes(pagComp) {
         const dp = tx.pagoEm || tx.vencimento;
         await D.updatePagamento(p.id, { status: 'pago', data_pagamento: dp });
         Object.assign(p, { status: 'pago', data_pagamento: dp }); mudou++;
+        continue;
+      }
+      // a conta a pagar prevista ainda está aberta, mas o Pix já está no extrato → fica só o Pix
+      if (tx && !tx.pago && (tx.origem || 'sistema') === 'sistema' && p.status !== 'pago') {
+        const achou = opAcharNoBanco(p, venc, contas, usados);
+        if (achou) {
+          achou.forEach(c => usados.add(c.id));
+          try { await window.deleteContaLocal(tx.id); } catch (e) { console.warn('remover conta prevista', e); }
+          const principal = achou[0];
+          await D.updatePagamento(p.id, { status: 'pago', transaction_id: principal.id, data_pagamento: principal.vencimento });
+          Object.assign(p, { status: 'pago', transaction_id: principal.id, data_pagamento: principal.vencimento });
+          mudou++;
+        }
       }
       continue;
     }
@@ -137,7 +153,7 @@ async function sincronizarPagamentosMes(pagComp) {
       mudou++;
       continue;
     }
-    if (pagComp >= mesAtual) {                                   // mês aberto: vira conta a pagar
+    if (pagComp >= mesAtual && venc >= opHoje()) {               // só o que ainda vai vencer vira conta a pagar
       try {
         const res = await window.createConta({
           tipo: 'pagar', category: opCategoriaPagamento(p),
@@ -156,15 +172,17 @@ async function sincronizarPagamentosMes(pagComp) {
 }
 
 // ═══════════════ Tela: Pagamentos da equipe ═══════════════
+// Uma lista só, separada pela data de pagamento (5º dia útil e dia 20).
+// O valor é editável direto na linha enquanto o pagamento está pendente.
 const PagamentosEquipePage = () => {
   const { Band, Card, Btn, Money, MonthNav, EmptyState } = window;
   const hoje = opHoje();
   const [comp, setComp] = React.useState(hoje.slice(0, 7));
-  const [aba, setAba] = React.useState('prof');
   const [lista, setLista] = React.useState(null);
   const [msg, setMsg] = React.useState('');
   const [trazendo, setTrazendo] = React.useState(false);
   const [registrando, setRegistrando] = React.useState(null);
+  const [salvandoId, setSalvandoId] = React.useState(null);
 
   const carregar = React.useCallback(async () => {
     setLista(null); setMsg('');
@@ -183,45 +201,52 @@ const PagamentosEquipePage = () => {
     setTrazendo(false);
   };
 
+  // grava o valor novo (e acompanha a conta a pagar prevista, se ainda estiver aberta)
+  const salvarValor = async (p, texto) => {
+    const v = Number(String(texto).replace(/[^\d,.-]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+    if (!isFinite(v) || v < 0 || Math.abs(v - (Number(p.valor_liquido) || 0)) < 0.005) return;
+    setSalvandoId(p.id);
+    try {
+      await window.__repasseData.updatePagamento(p.id, { valor_liquido: v });
+      const tx = p.transaction_id && (window.CONTAS || []).find(c => c.id === p.transaction_id);
+      if (tx && !tx.pago && (tx.origem || 'sistema') === 'sistema') {
+        await window.updateContaLocal(tx.id, { previsto: v });
+      }
+      setLista(l => l.map(x => x.id === p.id ? { ...x, valor_liquido: v } : x));
+    } catch (e) { setMsg('Não consegui salvar o valor: ' + e.message); }
+    setSalvandoId(null);
+  };
+
   const D = window.__repasseData;
-  const itens = (lista || []).map(p => ({ ...p, _venc: p._venc || D.vencimentoDoGrupo(comp, p.grupo), _tab: opGrupoTab(p) }));
-  const daAba = itens.filter(p => p._tab === aba);
+  const itens = (lista || []).map(p => ({ ...p, _venc: p._venc || D.vencimentoDoGrupo(comp, p.grupo) }));
   const pend = itens.filter(p => p.status !== 'pago');
   const faltaPagar = pend.reduce((s, p) => s + (Number(p.valor_liquido) || 0), 0);
   const nPagos = itens.length - pend.length;
   const atrasados = pend.filter(p => p._venc < hoje).length;
-  const conta = (t) => itens.filter(p => p._tab === t);
+
+  const ordena = (a, b) => (a.status === 'pago') - (b.status === 'pago') || String(a.nome).localeCompare(String(b.nome));
+  const grupos = [
+    { k: '5dia', titulo: '5º dia útil', itens: itens.filter(p => p.grupo !== 'dia20').sort(ordena) },
+    { k: 'dia20', titulo: 'Dia 20', itens: itens.filter(p => p.grupo === 'dia20').sort(ordena) },
+  ].filter(g => g.itens.length);
+
+  const tipoDe = (p) => /clt/i.test(p.regime || '') ? 'CLT' : /estag/i.test(p.regime || '') ? 'Estagiário' : 'Profissional';
 
   const Situacao = ({ p }) => {
     const base = { font: '600 11.5px var(--f-sans)', padding: '3px 10px', borderRadius: 999, whiteSpace: 'nowrap' };
     if (p.status === 'pago') return <span style={{ ...base, background: 'var(--c-pos-bg, #E4F3E9)', color: 'var(--c-pos)' }}>Pago {p.data_pagamento ? window.fmtDate(p.data_pagamento).slice(0, 5) : ''}</span>;
     if (p._venc < hoje) return <span style={{ ...base, background: 'var(--c-neg-bg, #FBE9E7)', color: 'var(--c-neg)' }}>Atrasado</span>;
-    return <span style={{ ...base, background: 'var(--surface-2, #EEF1F4)', color: 'var(--ink-2)' }}>Vence {window.fmtDate(p._venc).slice(0, 5)}</span>;
+    return <span style={{ ...base, background: 'var(--surface-2, #EEF1F4)', color: 'var(--ink-2)' }}>Pendente</span>;
   };
 
-  const Aba = ({ k, children }) => {
-    const on = aba === k; const n = conta(k); const pn = n.filter(p => p.status !== 'pago').length;
-    return (
-      <button onClick={() => setAba(k)} style={{ padding: '11px 16px', background: 'none', border: 'none', cursor: 'pointer',
-        borderBottom: `2px solid ${on ? 'var(--accent)' : 'transparent'}`, marginBottom: -1, display: 'flex', gap: 8, alignItems: 'center',
-        font: `${on ? 600 : 500} 13.5px var(--f-sans)`, color: on ? 'var(--accent)' : 'var(--ink-2)' }}>
-        {children}
-        <span style={{ font: '500 11.5px var(--f-sans)', color: 'var(--ink-3)' }}>{n.length - pn}/{n.length} pagos</span>
-      </button>
-    );
-  };
-
-  const vazio = {
-    prof: ['Nenhum profissional neste mês', 'Os valores entram quando o fechamento do Repasse é salvo (Repasse → Fechamento).'],
-    clt: ['Folha CLT ainda não trazida', 'Clique em "Trazer folha do ponto" — o líquido é calculado pelo ponto do Cortex.'],
-    est: ['Folha de estagiários ainda não trazida', 'Clique em "Trazer folha do ponto" — a bolsa é calculada pelo ponto do Cortex.'],
-  }[aba];
+  const inpValor = { width: '100%', boxSizing: 'border-box', textAlign: 'right', border: '1px solid var(--line-strong)', borderRadius: 'var(--r-md)',
+    background: 'var(--field)', padding: '6px 10px', font: '600 13px var(--f-mono)', color: 'var(--ink)', outline: 'none' };
 
   return (
     <div className="anim-fade">
       <Band
         title="Pagamentos da equipe"
-        subtitle="Profissionais no dia 20 · CLT e estagiários no 5º dia útil"
+        subtitle="Profissionais, CLT e estagiários · separados pela data de pagamento"
         right={
           <>
             <MonthNav label={opMesLabel(comp)} onPrev={() => setComp(c => opShiftComp(c, -1))} onNext={() => setComp(c => opShiftComp(c, 1))} />
@@ -237,34 +262,54 @@ const PagamentosEquipePage = () => {
         ]}
       />
       <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {msg && <Card padding={12} style={{ font: '500 13px var(--f-sans)', color: /erro/i.test(msg) ? 'var(--c-neg)' : 'var(--ink)' }}>{msg}</Card>}
+        {msg && <Card padding={12} style={{ font: '500 13px var(--f-sans)', color: /erro|não consegui/i.test(msg) ? 'var(--c-neg)' : 'var(--ink)' }}>{msg}</Card>}
 
-        <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)' }}>
-          <Aba k="prof">Profissionais</Aba>
-          <Aba k="clt">CLT</Aba>
-          <Aba k="est">Estagiários</Aba>
-        </div>
+        {!lista && <Card padding={24} style={{ color: 'var(--ink-3)', font: '500 13px var(--f-sans)' }}>Conferindo pagamentos com o extrato…</Card>}
+        {lista && !itens.length && (
+          <Card><div style={{ padding: 24 }}><EmptyState icon="users" title="Nenhum pagamento neste mês"
+            hint='Profissionais entram quando o fechamento do Repasse é salvo. CLT e estagiários: clique em "Trazer folha do ponto".' /></div></Card>
+        )}
 
-        <Card padding={0} style={{ overflow: 'hidden' }}>
-          {!lista && <div style={{ padding: 30, color: 'var(--ink-3)', font: '500 13px var(--f-sans)' }}>Conferindo pagamentos com o extrato…</div>}
-          {lista && !daAba.length && <div style={{ padding: 36 }}><EmptyState icon="users" title={vazio[0]} hint={vazio[1]} /></div>}
-          {lista && daAba.map(p => (
-            <div key={p.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 120px 120px 110px', gap: 12, alignItems: 'center', padding: '11px 18px', borderTop: '1px solid var(--line-2)' }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ font: '600 13.5px var(--f-sans)', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nome}</div>
-                <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)' }}>{[p.cargo, p.observacao].filter(Boolean).join(' · ')}</div>
+        {grupos.map(g => {
+          const venc = g.itens[0]._venc;
+          const pendG = g.itens.filter(p => p.status !== 'pago');
+          return (
+            <Card key={g.k} padding={0} style={{ overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '13px 18px', background: 'var(--surface-2, #F6F8FA)', borderBottom: '1px solid var(--line)' }}>
+                <span style={{ font: '700 14.5px var(--f-sans)', color: 'var(--ink)' }}>{g.titulo}</span>
+                <span style={{ font: '500 12.5px var(--f-sans)', color: 'var(--ink-3)' }}>vence {window.fmtDate(venc)} · {g.itens.length - pendG.length} de {g.itens.length} pagos</span>
+                <span style={{ marginLeft: 'auto', font: '500 12.5px var(--f-sans)', color: 'var(--ink-3)' }}>falta</span>
+                <Money value={pendG.reduce((s, p) => s + (Number(p.valor_liquido) || 0), 0)} size="table" style={{ fontWeight: 700, color: pendG.length ? 'var(--ink)' : 'var(--ink-3)' }} />
               </div>
-              <Money value={Number(p.valor_liquido) || 0} size="table" style={{ fontWeight: 700, color: 'var(--ink)', textAlign: 'right' }} />
-              <div style={{ textAlign: 'center' }}><Situacao p={p} /></div>
-              <div style={{ textAlign: 'right' }}>
-                {p.status !== 'pago' && <Btn variant="secondary" size="sm" icon="check" onClick={() => setRegistrando(p)}>Registrar</Btn>}
-              </div>
-            </div>
-          ))}
-        </Card>
+              {g.itens.map(p => {
+                const pago = p.status === 'pago';
+                return (
+                  <div key={p.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 96px 140px 110px 110px', gap: 12, alignItems: 'center', padding: '10px 18px', borderTop: '1px solid var(--line-2)' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ font: '600 13.5px var(--f-sans)', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nome}</div>
+                      <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.cargo || '—'}</div>
+                    </div>
+                    <span style={{ font: '500 11.5px var(--f-sans)', color: 'var(--ink-2)', background: 'var(--surface-2, #EEF1F4)', padding: '3px 9px', borderRadius: 999, justifySelf: 'start' }}>{tipoDe(p)}</span>
+                    {pago
+                      ? <Money value={Number(p.valor_liquido) || 0} size="table" style={{ fontWeight: 700, color: 'var(--ink-2)', textAlign: 'right' }} />
+                      : <input key={p.id + '|' + p.valor_liquido} defaultValue={window.fmt(Number(p.valor_liquido) || 0)} title="Clique para ajustar o valor"
+                          disabled={salvandoId === p.id} style={inpValor}
+                          onFocus={(e) => e.target.select()}
+                          onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                          onBlur={(e) => salvarValor(p, e.target.value)} />}
+                    <div style={{ textAlign: 'center' }}><Situacao p={p} /></div>
+                    <div style={{ textAlign: 'right' }}>
+                      {!pago && <Btn variant="secondary" size="sm" icon="check" onClick={() => setRegistrando(p)}>Registrar</Btn>}
+                    </div>
+                  </div>
+                );
+              })}
+            </Card>
+          );
+        })}
 
         <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)' }}>
-          A situação se atualiza sozinha: quando o Pix da pessoa aparece no extrato, ela passa para "Pago".
+          Clique no valor para ajustar antes de pagar. A situação se atualiza sozinha: quando o Pix da pessoa aparece no extrato, ela passa para "Pago".
           "Registrar" é para quando você pagou e o extrato ainda não foi importado.
         </div>
       </div>
