@@ -109,8 +109,11 @@
   @keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
   @keyframes popIn { from { transform:scale(0.96); } to { transform:none; } }
   @keyframes spin { to { transform:rotate(360deg); } }
-  .anim-slide { animation:slideUp .5s var(--ease) both; }
-  .anim-fade { animation:fadeIn .4s var(--ease) both; }
+  /* 'backwards' (e não 'both'): a animação de entrada não fica "presa" na tela depois que termina.
+     Com 'both', o Chrome passa a posicionar as janelas (modais) em relação à página inteira,
+     e elas abriam mais pra baixo quanto maior/rolada a página. */
+  .anim-slide { animation:slideUp .5s var(--ease) backwards; }
+  .anim-fade { animation:fadeIn .4s var(--ease) backwards; }
 </style>
 </head>
 <body data-theme="light">
