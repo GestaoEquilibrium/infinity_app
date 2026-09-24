@@ -1,3 +1,6 @@
+// Modo Grupo: aceita 'GRUPO' (lê das duas empresas; grava na empresa de origem)
+const __cfRH = (cid) => (window.coFilter ? window.coFilter(cid) : `company_id=eq.${cid}`);
+const __rcRH = (cid) => (window.realCompany ? window.realCompany(cid) : cid);
 // ═══════════════════════════════════════════════════════════════════════
 // RH — Aba completa de gestão de pessoas
 // Segue a estética do Infinity: OKLCH, Space Grotesk, TiltCard, Pill, Btn
@@ -29,9 +32,9 @@ const sbRH = async (path, opts = {}) => {
 };
 
 // CRUD genérico por tabela
-const rhListColab = (cid) => sbRH(`/colaboradores?company_id=eq.${cid}&select=*&order=nome.asc&limit=500`);
+const rhListColab = (cid) => sbRH(`/colaboradores?${__cfRH(cid)}&select=*&order=nome.asc&limit=500`);
 const rhCreateColab = (c, cid, uid) => sbRH('/colaboradores', { method: 'POST', prefer: 'return=representation',
-  body: JSON.stringify({ ...c, company_id: cid, created_by: uid }) });
+  body: JSON.stringify({ ...c, company_id: __rcRH(cid), created_by: uid }) });
 const rhUpdateColab = (id, patch) => sbRH(`/colaboradores?id=eq.${id}`, { method: 'PATCH', prefer: 'return=representation',
   body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }) });
 const rhDeleteColab = (id) => sbRH(`/colaboradores?id=eq.${id}`, { method: 'DELETE' });
@@ -61,35 +64,35 @@ async function autoAddPagamento(created, form, profile) {
   } catch (e) { /* silencioso: pagamento é complementar ao cadastro */ }
 }
 
-const rhListFaltas = (cid) => sbRH(`/faltas?company_id=eq.${cid}&select=*&order=data.desc&limit=1000`);
+const rhListFaltas = (cid) => sbRH(`/faltas?${__cfRH(cid)}&select=*&order=data.desc&limit=1000`);
 const rhCreateFalta = (f, cid, uid) => sbRH('/faltas', { method: 'POST', prefer: 'return=representation',
-  body: JSON.stringify({ ...f, company_id: cid, created_by: uid }) });
+  body: JSON.stringify({ ...f, company_id: __rcRH(cid), created_by: uid }) });
 const rhDeleteFalta = (id) => sbRH(`/faltas?id=eq.${id}`, { method: 'DELETE' });
 
-const rhListAtestados = (cid) => sbRH(`/atestados?company_id=eq.${cid}&select=*&order=data_inicio.desc&limit=500`);
+const rhListAtestados = (cid) => sbRH(`/atestados?${__cfRH(cid)}&select=*&order=data_inicio.desc&limit=500`);
 const rhCreateAtestado = (a, cid, uid) => sbRH('/atestados', { method: 'POST', prefer: 'return=representation',
-  body: JSON.stringify({ ...a, company_id: cid, created_by: uid }) });
+  body: JSON.stringify({ ...a, company_id: __rcRH(cid), created_by: uid }) });
 const rhUpdateAtestado = (id, patch) => sbRH(`/atestados?id=eq.${id}`, { method: 'PATCH', prefer: 'return=representation',
   body: JSON.stringify(patch) });
 const rhDeleteAtestado = (id) => sbRH(`/atestados?id=eq.${id}`, { method: 'DELETE' });
 
-const rhListAlertas = (cid) => sbRH(`/alertas_legais?company_id=eq.${cid}&select=*&order=created_at.desc&limit=200`);
+const rhListAlertas = (cid) => sbRH(`/alertas_legais?${__cfRH(cid)}&select=*&order=created_at.desc&limit=200`);
 const rhCreateAlerta = (a, cid, uid) => sbRH('/alertas_legais', { method: 'POST', prefer: 'return=representation',
-  body: JSON.stringify({ ...a, company_id: cid, created_by: uid }) });
+  body: JSON.stringify({ ...a, company_id: __rcRH(cid), created_by: uid }) });
 const rhUpdateAlerta = (id, patch) => sbRH(`/alertas_legais?id=eq.${id}`, { method: 'PATCH', prefer: 'return=representation',
   body: JSON.stringify(patch) });
 const rhDeleteAlerta = (id) => sbRH(`/alertas_legais?id=eq.${id}`, { method: 'DELETE' });
 
-const rhListPend = (cid) => sbRH(`/rh_pendencias?company_id=eq.${cid}&select=*&order=created_at.desc&limit=200`);
+const rhListPend = (cid) => sbRH(`/rh_pendencias?${__cfRH(cid)}&select=*&order=created_at.desc&limit=200`);
 const rhCreatePend = (p, cid, uid) => sbRH('/rh_pendencias', { method: 'POST', prefer: 'return=representation',
-  body: JSON.stringify({ ...p, company_id: cid, created_by: uid }) });
+  body: JSON.stringify({ ...p, company_id: __rcRH(cid), created_by: uid }) });
 const rhUpdatePend = (id, patch) => sbRH(`/rh_pendencias?id=eq.${id}`, { method: 'PATCH', prefer: 'return=representation',
   body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }) });
 const rhDeletePend = (id) => sbRH(`/rh_pendencias?id=eq.${id}`, { method: 'DELETE' });
 
-const rhListRescisoes = (cid) => sbRH(`/rescisoes?company_id=eq.${cid}&select=*&order=data_rescisao.desc&limit=200`);
+const rhListRescisoes = (cid) => sbRH(`/rescisoes?${__cfRH(cid)}&select=*&order=data_rescisao.desc&limit=200`);
 const rhCreateRescisao = (r, cid, uid) => sbRH('/rescisoes', { method: 'POST', prefer: 'return=representation',
-  body: JSON.stringify({ ...r, company_id: cid, created_by: uid }) });
+  body: JSON.stringify({ ...r, company_id: __rcRH(cid), created_by: uid }) });
 
 // Upload atestado para Storage
 const rhUploadAtestado = async (file, colaboradorId, atestadoId) => {
