@@ -541,6 +541,28 @@ async function updateContaLocal(id, patch) {
       } catch (e) { console.warn('salvarFavorecido categoria', e); }
     }
   }
+  // Aprende regra por texto: tirou do "A Classificar" algo que NÃO é pessoa do dicionário
+  // (tarifa, fornecedor, maquininha…). O banco passa a classificar sozinho daí em diante.
+  if (antes && patch && patch.category && /a classificar/i.test(antes.category || '')
+      && !/a classificar/i.test(patch.category) && !cpfDaDescricao(antes.description)) {
+    const semAcento = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const sugestao = semAcento(antes.description)
+      .replace(/^\[[^\]]*\]\s*/, '')                 // tira "[Conta] "
+      .replace(/\(taxa[^)]*\)/g, '')                   // tira "(taxa R$1.09)"
+      .replace(/\b\d{5,}\b/g, '')                      // tira números longos (ids, contas)
+      .replace(/\s+/g, ' ').trim();
+    const txt = window.prompt(
+      `Classificar SEMPRE como "${patch.category}" os lançamentos que contêm o texto abaixo?\n` +
+      `Pode encurtar (ex.: deixar só "tar pix"). Deixe em branco ou cancele pra não criar regra.`, sugestao);
+    const padrao = semAcento(txt).trim();
+    if (padrao.length >= 3) {
+      try {
+        await window.salvarRegra(padrao, antes.tipo === 'receber' ? 'entrada' : 'saida', patch.category, window.ACTIVE_COMPANY_ID);
+        const n = await window.reclassificarPendentes?.();
+        if (Number(n) > 0) setTimeout(() => window.ACTIVE_COMPANY_ID && hydrateFromSupabase(window.ACTIVE_COMPANY_ID), 300);
+      } catch (e) { console.warn('salvarRegra', e); }
+    }
+  }
   CONTAS = CONTAS.map(c => c.id === id ? { ...c, ...patch } : c);
   window.CONTAS = CONTAS;
   try {
@@ -711,8 +733,9 @@ const DRE_MAP = {
   repasses:         ['Repasses', 'Profissionais / Prestadores'],
   folha:            ['Folha/RH', 'Salários CLT'],
   ocupacao:         ['Aluguel', 'Ocupação / Infraestrutura'],
-  impostos:         ['Impostos', 'Impostos e Tributos'],
-  outras_desp:      ['Outras Despesas', 'Materiais Clínicos', 'Marketing e Comercial'],
+  impostos:         ['Impostos', 'Impostos e Tributos', 'IRPJ', 'CSLL', 'PIS', 'COFINS', 'ISS', 'DAS', 'INSS', 'FGTS'],
+  outras_desp:      ['Outras Despesas', 'Materiais Clínicos', 'Marketing e Comercial', 'Serviços', 'Insumos/Material',
+                     'Tarifas bancárias', 'Tarifas Bancárias'],
   dividas:          ['Dívidas/Financiamentos', 'Dívidas', 'Financiamentos', 'Empréstimos'],
 };
 function _linhaDre(cat) {
