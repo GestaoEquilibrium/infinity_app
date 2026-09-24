@@ -1,3 +1,6 @@
+// Modo Grupo: aceita 'GRUPO' (lê das duas empresas; grava na empresa de origem)
+const __cfSL = (cid) => (window.coFilter ? window.coFilter(cid) : `company_id=eq.${cid}`);
+const __rcSL = (cid) => (window.realCompany ? window.realCompany(cid) : cid);
 // ═══════════════════════════════════════════════════════════════════════════
 // SALAS — Módulo de gestão de escalas, ocupação e disponibilidade
 // Sub-aba do RH. Segue a estética do Infinity (OKLCH, Space Grotesk, TiltCard).
@@ -32,14 +35,14 @@ const sbSalas = async (path, opts = {}) => {
 };
 
 // ─── CRUD por tabela ───
-const sListUnidades   = (cid) => sbSalas(`/salas_unidades?company_id=eq.${cid}&select=*&order=ordem_exibicao.asc`);
-const sListCategorias = (cid) => sbSalas(`/salas_categorias?select=*,salas_unidades!inner(company_id)&salas_unidades.company_id=eq.${cid}&order=ordem_exibicao.asc`);
-const sListSalas      = (cid) => sbSalas(`/salas_fisicas?select=*,salas_unidades!inner(company_id,codigo)&salas_unidades.company_id=eq.${cid}&order=numero.asc`);
-const sListEscalas    = (cid) => sbSalas(`/salas_escalas?company_id=eq.${cid}&select=*&order=dia_semana.asc,hora_inicio.asc&limit=1000`);
-const sListFechamentos= (cid) => sbSalas(`/salas_fechamentos?select=*,salas_escalas!inner(company_id)&salas_escalas.company_id=eq.${cid}&limit=500`);
+const sListUnidades   = (cid) => sbSalas(`/salas_unidades?${__cfSL(cid)}&select=*&order=ordem_exibicao.asc`);
+const sListCategorias = (cid) => sbSalas(`/salas_categorias?select=*,salas_unidades!inner(company_id)&${__cfSL(cid).replace(/^company_id/, "salas_unidades.company_id")}&order=ordem_exibicao.asc`);
+const sListSalas      = (cid) => sbSalas(`/salas_fisicas?select=*,salas_unidades!inner(company_id,codigo)&${__cfSL(cid).replace(/^company_id/, "salas_unidades.company_id")}&order=numero.asc`);
+const sListEscalas    = (cid) => sbSalas(`/salas_escalas?${__cfSL(cid)}&select=*&order=dia_semana.asc,hora_inicio.asc&limit=1000`);
+const sListFechamentos= (cid) => sbSalas(`/salas_fechamentos?select=*,salas_escalas!inner(company_id)&${__cfSL(cid).replace(/^company_id/, "salas_escalas.company_id")}&limit=500`);
 
 const sCreateEscala = (e, cid, uid) => sbSalas('/salas_escalas', { method: 'POST', prefer: 'return=representation',
-  body: JSON.stringify({ ...e, company_id: cid, created_by: uid, updated_by: uid }) });
+  body: JSON.stringify({ ...e, company_id: __rcSL(cid), created_by: uid, updated_by: uid }) });
 const sUpdateEscala = (id, patch, uid) => sbSalas(`/salas_escalas?id=eq.${id}`, { method: 'PATCH', prefer: 'return=representation',
   body: JSON.stringify({ ...patch, updated_by: uid, updated_at: new Date().toISOString() }) });
 const sDeleteEscala = (id) => sbSalas(`/salas_escalas?id=eq.${id}`, { method: 'DELETE' });
