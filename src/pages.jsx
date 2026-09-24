@@ -147,21 +147,34 @@ const ExcelImporter = ({ onImport, target = 'compras' }) => {
   const [state, setState] = React.useState('idle'); // idle | loading | preview | done | error
   const [rows, setRows] = React.useState([]);
   const [error, setError] = React.useState('');
+  const [avisos, setAvisos] = React.useState([]);
   const inputRef = React.useRef();
 
+  // Aceita VÁRIOS arquivos de uma vez (ex.: os extratos da semana de todas as contas).
+  // Um arquivo com problema não trava os outros: vira aviso no topo do preview.
   const handleFile = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    e.target.value = ''; // permite escolher o mesmo arquivo de novo depois
+    if (!files.length) return;
     setState('loading');
-    try {
-      const parsed = target === 'contas' ? await window.parseExcelContas(file) : await window.parseExcel(file);
-      if (!parsed.length) throw new Error('Nenhum lançamento válido encontrado.');
-      setRows(parsed);
-      setState('preview');
-    } catch (err) {
-      setError(err.message || 'Falha ao importar');
-      setState('error');
+    const todos = []; const msgs = [];
+    for (const file of files) {
+      try {
+        const parsed = target === 'contas' ? await window.parseExcelContas(file) : await window.parseExcel(file);
+        if (!parsed.length) msgs.push(`${file.name}: nenhum lançamento válido.`);
+        else todos.push(...parsed);
+      } catch (err) {
+        msgs.push(`${file.name}: ${err.message || 'falha ao ler'}`);
+      }
     }
+    setAvisos(msgs);
+    if (!todos.length) {
+      setError(msgs.join(' · ') || 'Nenhum lançamento válido encontrado.');
+      setState('error');
+      return;
+    }
+    setRows(todos);
+    setState('preview');
   };
 
   const confirm = () => {
@@ -174,7 +187,7 @@ const ExcelImporter = ({ onImport, target = 'compras' }) => {
 
   return (
     <>
-      <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} style={{ display: 'none' }} />
+      <input ref={inputRef} type="file" multiple accept=".xlsx,.xls,.csv" onChange={handleFile} style={{ display: 'none' }} />
       <Btn variant="secondary" icon="file" onClick={() => inputRef.current?.click()}>Importar Excel</Btn>
 
       {state === 'loading' && <div style={{ fontSize: 12, color: 'var(--ink-mute)' }}>Lendo planilha…</div>}
@@ -200,6 +213,15 @@ const ExcelImporter = ({ onImport, target = 'compras' }) => {
                 <p style={{ fontSize: 13, color: 'var(--ink-mute)', marginTop: 4 }}>
                   {rows.length} lançamentos detectados · serão adicionados como {target === 'contas' ? 'CONTAS' : 'COMPRAS'}
                 </p>
+                {target === 'contas' && rows.some(r => r.conta) && (
+                  <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>
+                    {Object.entries(rows.reduce((a, r) => { const k = r.conta || 'sem conta'; a[k] = (a[k] || 0) + 1; return a; }, {}))
+                      .map(([k, n]) => `${k}: ${n}`).join(' · ')}
+                  </p>
+                )}
+                {avisos.length > 0 && (
+                  <p style={{ fontSize: 12, color: 'var(--c-warn, #B5731A)', marginTop: 4 }}>⚠ {avisos.join(' · ')}</p>
+                )}
               </div>
               <button onClick={() => setState('idle')} style={{ ...navBtn, width: 36, height: 36 }}>
                 <Icon name="x" size={16} stroke={2.4} />
@@ -210,7 +232,7 @@ const ExcelImporter = ({ onImport, target = 'compras' }) => {
                 <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-alt)', zIndex: 1 }}>
                   <tr>
                     {(target === 'contas'
-                      ? ['Vencimento','Tipo','Descrição','Categoria','Previsto','Realizado']
+                      ? ['Vencimento','Conta','Tipo','Descrição','Categoria','Previsto','Realizado']
                       : ['Data','Tipo','Descrição','Categoria','Valor']
                     ).map(h => (
                       <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--ink-mute)' }}>{h}</th>
@@ -218,9 +240,10 @@ const ExcelImporter = ({ onImport, target = 'compras' }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.slice(0, 200).map((r, i) => target === 'contas' ? (
+                  {rows.slice(0, 500).map((r, i) => target === 'contas' ? (
                     <tr key={i} style={{ borderTop: '1px solid var(--line)' }}>
                       <td style={{ padding: '9px 14px', color: 'var(--ink-soft)' }} className="mono">{window.fmtDate(r.vencimento)}</td>
+                      <td style={{ padding: '9px 14px', color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{r.conta || '—'}</td>
                       <td style={{ padding: '9px 14px' }}>
                         <Pill color={r.tipo === 'receber' ? 'var(--c-pos)' : 'var(--c-neg)'} size="sm">{r.tipo === 'receber' ? 'A receber' : 'A pagar'}</Pill>
                       </td>
