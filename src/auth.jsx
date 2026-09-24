@@ -1,108 +1,182 @@
 // Auth, Perfil, Equipe pages — conectadas ao Supabase real
 
 // ─── TELA DE LOGIN ─────────────────────────────────────────────
+const LOGIN_CSS = `
+.eqlg { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(380px, 1fr); background: var(--bg); }
+.eqlg-arte { position: relative; overflow: hidden; color: #fff; padding: 48px 56px; display: flex; flex-direction: column;
+  background: radial-gradient(120% 90% at 0% 0%, #1B7BD0 0%, #0E5A9E 38%, #0A3563 75%, #07264A 100%); }
+.eqlg-arte svg.eqlg-ondas { position: absolute; right: -140px; bottom: -160px; width: 760px; height: 760px; opacity: .9; pointer-events: none; }
+.eqlg-form { display: flex; align-items: center; justify-content: center; padding: 40px 28px; }
+.eqlg-in { width: 100%; height: 48px; padding: 0 44px 0 44px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--surface);
+  font: 500 14.5px var(--f-sans); color: var(--ink); outline: none; transition: border-color .15s, box-shadow .15s; box-sizing: border-box; }
+.eqlg-in:focus { border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in oklch, var(--accent) 16%, transparent); }
+.eqlg-btn { width: 100%; height: 50px; border: 0; border-radius: 12px; background: var(--accent); color: var(--accent-ink, #fff);
+  font: 700 15px var(--f-sans); letter-spacing: .2px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
+  box-shadow: 0 10px 24px color-mix(in oklch, var(--accent) 35%, transparent); transition: transform .12s, box-shadow .12s, opacity .12s; }
+.eqlg-btn:hover { transform: translateY(-1px); box-shadow: 0 14px 30px color-mix(in oklch, var(--accent) 42%, transparent); }
+.eqlg-btn:disabled { opacity: .7; cursor: wait; transform: none; }
+.eqlg-pill { display: inline-flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.14); backdrop-filter: blur(6px); font: 500 13.5px var(--f-sans); color: rgba(255,255,255,.92); }
+@keyframes eqlgSobe { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes eqlgGira { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.eqlg-anim { animation: eqlgSobe .6s cubic-bezier(.22,1,.36,1) both; }
+@media (max-width: 900px) {
+  .eqlg { grid-template-columns: 1fr; }
+  .eqlg-arte { padding: 28px 24px 34px; min-height: 0; }
+  .eqlg-arte .eqlg-grande, .eqlg-arte .eqlg-pills, .eqlg-arte .eqlg-rodape { display: none !important; }
+  .eqlg-arte svg.eqlg-ondas { width: 420px; height: 420px; right: -160px; bottom: -220px; }
+}
+`;
+
+const EqLogoMarca = ({ size = 44 }) => (
+  <div style={{ width: size, height: size, borderRadius: size * 0.3, background: 'rgba(255,255,255,.14)', border: '1px solid rgba(255,255,255,.25)',
+    display: 'grid', placeItems: 'center', backdropFilter: 'blur(6px)' }}>
+    {/* balança em equilíbrio */}
+    <svg width={size * 0.58} height={size * 0.58} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v18M7 21h10M5 7h14" />
+      <path d="M5 7l-3 6a3 3 0 0 0 6 0L5 7zM19 7l-3 6a3 3 0 0 0 6 0l-3-6z" />
+      <circle cx="12" cy="4" r="1.2" fill="#fff" stroke="none" />
+    </svg>
+  </div>
+);
+
 const LoginScreen = ({ onSuccess }) => {
-  const [mode, setMode] = React.useState('signin'); // signin | signup
-  const [email, setEmail] = React.useState('');
+  const [email, setEmail] = React.useState(() => { try { return localStorage.getItem('eq-ultimo-email') || ''; } catch { return ''; } });
   const [password, setPassword] = React.useState('');
-  const [name, setName] = React.useState('');
+  const [verSenha, setVerSenha] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
+
+  const h = new Date().getHours();
+  const saudacao = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
 
   const submit = async (e) => {
     e.preventDefault();
     setLoading(true); setError('');
     try {
-      if (mode === 'signin') await window.signIn(email, password);
-      else await window.signUp(email, password, { name });
+      await window.signIn(email.trim(), password);
+      try { localStorage.setItem('eq-ultimo-email', email.trim()); } catch {}
       onSuccess?.();
     } catch (err) {
-      setError(err.message || 'Falha ao autenticar');
-    } finally {
-      setLoading(false);
-    }
+      const m = String(err.message || '');
+      setError(/invalid|credenciais|credentials/i.test(m) ? 'E-mail ou senha incorretos.'
+        : /confirm/i.test(m) ? 'Confirme seu e-mail pelo link que recebeu antes de entrar.'
+        : (m || 'Não foi possível entrar.'));
+    } finally { setLoading(false); }
   };
 
+  const icone = (d) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+      style={{ position: 'absolute', left: 15, top: 15, color: 'var(--ink-mute)', pointerEvents: 'none' }}>{d}</svg>
+  );
+
   return (
-    <div style={{
-      minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24,
-      background: 'radial-gradient(ellipse at 30% 20%, oklch(1 0 0 / 0.75), transparent 55%), radial-gradient(ellipse at 100% 100%, oklch(0 0 0 / 0.12), transparent 50%)',
-    }}>
-      <div className="glass" style={{
-        width: 'min(440px, 100%)', padding: 36, borderRadius: 'var(--r-lg)',
-        boxShadow: 'var(--shadow-lg)',
-        animation: 'popIn 0.5s cubic-bezier(.22,1,.36,1) both',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28 }}>
-          <div style={{
-            width: 48, height: 48, borderRadius: 16,
-            background: 'var(--accent)',
-            display: 'grid', placeItems: 'center', color: 'var(--accent-ink)',
-            boxShadow: '0 6px 20px oklch(0 0 0 / 0.28)',
-          }}>
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
-              <path d="m24 23a1 1 0 0 1 -1 1h-22a1 1 0 0 1 0-2h22a1 1 0 0 1 1 1zm-23.709-14.448a2.443 2.443 0 0 1 .153-2.566 4.716 4.716 0 0 1 1.668-1.5l7.501-3.904a5.174 5.174 0 0 1 4.774 0l7.5 3.907a4.716 4.716 0 0 1 1.668 1.5 2.443 2.443 0 0 1 .153 2.566 2.713 2.713 0 0 1 -2.416 1.445h-.292v8h1a1 1 0 0 1 0 2h-20a1 1 0 0 1 0-2h1v-8h-.292a2.713 2.713 0 0 1 -2.417-1.448zm4.709 9.448h3v-8h-3zm5-8v8h4v-8zm9 0h-3v8h3zm-16.937-2.375a.717.717 0 0 0 .645.375h18.584a.717.717 0 0 0 .645-.375.452.452 0 0 0 -.024-.5 2.7 2.7 0 0 0 -.949-.864l-7.5-3.907a3.176 3.176 0 0 0 -2.926 0l-7.5 3.907a2.712 2.712 0 0 0 -.949.865.452.452 0 0 0 -.026.499z"/>
-            </svg>
-          </div>
+    <div className="eqlg">
+      <style>{LOGIN_CSS}</style>
+
+      {/* ── lado da marca ── */}
+      <aside className="eqlg-arte">
+        <svg className="eqlg-ondas" viewBox="0 0 760 760" aria-hidden="true">
+          <defs>
+            <linearGradient id="eqlgG" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor="#7CC4FF" stopOpacity=".55" />
+              <stop offset="1" stopColor="#7CC4FF" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <g style={{ transformOrigin: '380px 380px', animation: 'eqlgGira 120s linear infinite' }}>
+            {[340, 290, 240, 190, 140, 90].map((r, i) => (
+              <circle key={r} cx="380" cy="380" r={r} fill="none" stroke="url(#eqlgG)" strokeWidth={i % 2 ? 1 : 1.6} strokeDasharray={i % 2 ? '2 10' : '0'} />
+            ))}
+            <circle cx="720" cy="380" r="6" fill="#9ED3FF" />
+            <circle cx="380" cy="90" r="4" fill="#9ED3FF" opacity=".8" />
+            <circle cx="190" cy="380" r="3" fill="#fff" opacity=".7" />
+          </g>
+        </svg>
+
+        <div className="eqlg-anim" style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
+          <EqLogoMarca />
           <div>
-            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.8, color: 'var(--ink)' }}>EqFinances</div>
-            <div style={{ fontSize: 12, color: 'var(--ink-mute)', fontWeight: 500 }}>Gestão financeira clínica</div>
+            <div style={{ font: '700 20px var(--f-display, var(--f-sans))', letterSpacing: '-.02em' }}>EqFinances</div>
+            <div style={{ font: '500 11.5px var(--f-sans)', letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>Grupo Equilibrium</div>
           </div>
         </div>
 
-        <h2 style={{ fontSize: 24, fontWeight: 700, letterSpacing: -0.8, marginBottom: 6 }}>
-          {mode === 'signin' ? 'Entrar' : 'Criar conta'}
-        </h2>
-        <p style={{ fontSize: 13, color: 'var(--ink-mute)', marginBottom: 24 }}>
-          {mode === 'signin' ? 'Acesse sua clínica para continuar.' : 'Cadastre-se para começar.'}
-        </p>
+        <div className="eqlg-grande eqlg-anim" style={{ marginTop: 'auto', marginBottom: 'auto', maxWidth: 620, position: 'relative', animationDelay: '.08s', paddingTop: 40 }}>
+          <div style={{ font: '700 44px/1.08 var(--f-display, var(--f-sans))', letterSpacing: '-.03em' }}>
+            O financeiro da clínica,<br /><span style={{ color: '#9ED3FF' }}>em equilíbrio.</span>
+          </div>
+          <p style={{ font: '400 16px/1.6 var(--f-sans)', color: 'rgba(255,255,255,.78)', marginTop: 18, maxWidth: 440 }}>
+            Contas, repasses, folha da equipe e conciliação bancária das duas empresas — num lugar só, com a mesma regra para todo mundo.
+          </p>
+          <div className="eqlg-pills" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 28 }}>
+            <span className="eqlg-pill">◷ Pagamentos no 5º dia útil e dia 20</span>
+            <span className="eqlg-pill">⇄ Extrato conciliado</span>
+            <span className="eqlg-pill">☰ POP sempre à mão</span>
+          </div>
+        </div>
 
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {mode === 'signup' && (
-            <FormField label="Nome">
-              <input value={name} onChange={(e) => setName(e.target.value)} required
-                placeholder="Seu nome completo" style={authInputStyle} />
-            </FormField>
-          )}
-          <FormField label="E-mail">
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
-              placeholder="voce@clinica.com" style={authInputStyle} autoComplete="email" />
-          </FormField>
-          <FormField label="Senha">
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required
-              placeholder="••••••••" style={authInputStyle} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} />
-          </FormField>
+        <div className="eqlg-rodape" style={{ position: 'relative', font: '400 12px var(--f-sans)', color: 'rgba(255,255,255,.6)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <span>Equilibrium Med Center</span><span>·</span><span>Equilibrium Talentos</span><span>·</span><span>Uberlândia/MG</span>
+        </div>
+      </aside>
 
-          {error && (
-            <div style={{
-              padding: '10px 14px', borderRadius: 10, fontSize: 13, fontWeight: 500,
-              background: 'var(--c-neg-soft)',
-              color: 'var(--c-neg)', border: '1px solid color-mix(in oklch, var(--c-neg) 30%, transparent)',
-            }}>⚠ {error}</div>
-          )}
+      {/* ── lado do formulário ── */}
+      <main className="eqlg-form">
+        <div className="eqlg-anim" style={{ width: 'min(400px, 100%)', animationDelay: '.12s' }}>
+          <div style={{ font: '600 13px var(--f-sans)', color: 'var(--accent)', marginBottom: 6 }}>{saudacao} 👋</div>
+          <h1 style={{ font: '700 30px/1.15 var(--f-display, var(--f-sans))', letterSpacing: '-.025em', color: 'var(--ink)', margin: 0 }}>Entre na sua conta</h1>
+          <p style={{ font: '400 14px var(--f-sans)', color: 'var(--ink-mute)', margin: '8px 0 28px' }}>Use o e-mail e a senha que o administrador cadastrou para você.</p>
 
-          <button type="submit" disabled={loading} style={{
-            marginTop: 8, padding: '14px 22px', borderRadius: 'var(--r-sm)',
-            background: 'var(--accent)',
-            color: 'var(--accent-ink)', fontSize: 14, fontWeight: 700, letterSpacing: 0.3,
-            boxShadow: '0 8px 24px oklch(0 0 0 / 0.25)',
-            cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.7 : 1,
-            transition: 'all 0.2s',
-          }}>
-            {loading ? 'Processando...' : (mode === 'signin' ? 'Entrar' : 'Criar conta')}
-          </button>
+          <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              <span style={{ font: '600 12.5px var(--f-sans)', color: 'var(--ink-soft, var(--ink))' }}>E-mail</span>
+              <div style={{ position: 'relative' }}>
+                {icone(<><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></>)}
+                <input className="eqlg-in" type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email"
+                  placeholder="voce@clinica.com" autoFocus={!email} />
+              </div>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              <span style={{ font: '600 12.5px var(--f-sans)', color: 'var(--ink-soft, var(--ink))' }}>Senha</span>
+              <div style={{ position: 'relative' }}>
+                {icone(<><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></>)}
+                <input className="eqlg-in" type={verSenha ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} required
+                  autoComplete="current-password" placeholder="••••••••" autoFocus={!!email} />
+                <button type="button" onClick={() => setVerSenha(v => !v)} title={verSenha ? 'Esconder senha' : 'Mostrar senha'}
+                  style={{ position: 'absolute', right: 8, top: 8, width: 32, height: 32, border: 0, background: 'none', cursor: 'pointer', color: 'var(--ink-mute)', display: 'grid', placeItems: 'center' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    {verSenha
+                      ? <><path d="M3 3l18 18" /><path d="M10.6 5.1A9.8 9.8 0 0 1 12 5c5 0 9 4.5 10 7-.4 1-1.2 2.3-2.4 3.5M6.3 6.3C4.2 7.7 2.7 9.8 2 12c1 2.5 5 7 10 7 1.9 0 3.6-.6 5-1.5" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /></>
+                      : <><path d="M2 12c1-2.5 5-7 10-7s9 4.5 10 7c-1 2.5-5 7-10 7S3 14.5 2 12z" /><circle cx="12" cy="12" r="3" /></>}
+                  </svg>
+                </button>
+              </div>
+            </label>
 
-          <div style={{ textAlign: 'center', marginTop: 8, fontSize: 12, color: 'var(--ink-mute)' }}>
-            Não tem acesso? Peça ao administrador para criar a sua conta.
+            {error && (
+              <div role="alert" style={{ padding: '11px 14px', borderRadius: 10, font: '500 13px var(--f-sans)',
+                background: 'var(--c-neg-soft, #FDECEC)', color: 'var(--c-neg)', border: '1px solid color-mix(in oklch, var(--c-neg) 25%, transparent)' }}>
+                {error}
+              </div>
+            )}
+
+            <button type="submit" className="eqlg-btn" disabled={loading} style={{ marginTop: 6 }}>
+              {loading ? 'Entrando…' : <>Entrar <span aria-hidden="true">→</span></>}
+            </button>
+          </form>
+
+          <div style={{ marginTop: 22, padding: '12px 14px', borderRadius: 12, background: 'var(--bg-alt, var(--surface-2))', font: '400 12.5px/1.5 var(--f-sans)', color: 'var(--ink-mute)' }}>
+            Não tem acesso ou esqueceu a senha? Fale com o administrador do sistema.
           </div>
 
-          <button type="button" onClick={() => onSuccess?.({ demo: true })} style={{
-            marginTop: 4, padding: '10px', fontSize: 12, color: 'var(--ink-mute)', fontWeight: 500,
-          }}>
-            Continuar em modo demonstração →
-          </button>
-        </form>
-      </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 28, font: '400 11.5px var(--f-sans)', color: 'var(--ink-mute)' }}>
+            <span>🔒 Uso interno · acesso restrito</span>
+            <button type="button" onClick={() => onSuccess?.({ demo: true })} style={{ border: 0, background: 'none', cursor: 'pointer', font: '500 11.5px var(--f-sans)', color: 'var(--ink-mute)', textDecoration: 'underline' }}>
+              Ver demonstração
+            </button>
+          </div>
+        </div>
+      </main>
     </div>
   );
 };
