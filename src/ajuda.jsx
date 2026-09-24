@@ -167,29 +167,84 @@ const AJUDA = {
     quemUsa: 'RH / administrativo.',
     cenario: 'Entrou uma profissional nova e ela precisa aparecer no Caixa e no Repasse.',
     passos: [
-      { t: 'Abra RH → "Recursos Humanos". Use as abas: Colaboradores, Faltas, Atestados, Rescisões.', obs: '' },
+      { t: 'No menu Equipe, abra Colaboradores. Use as abas: Colaboradores, Faltas, Atestados, Rescisões.', obs: '' },
       { t: 'Na aba Colaboradores, cadastre a pessoa (nome, cargo) e deixe o status como Ativo.', obs: 'É daqui que o Caixa e o Repasse puxam a lista de profissionais.' },
       { t: 'Faltas e Atestados: registre as ocorrências da equipe. Rescisões: quando alguém sai.', obs: '' },
     ],
-    erros: [
-      { msg: 'Tela avisa sobre migration 002', causa: 'A migration 002_rbac_fix_and_rh.sql precisa estar aplicada no Supabase para o RH funcionar.' },
-    ],
-    dicas: ['Profissional só aparece no Caixa/Repasse se estiver aqui como Ativo. Não apareceu? Confira o cadastro.'],
+    erros: [],
+    dicas: ['Profissional só aparece no Caixa/Repasse se estiver aqui como Ativo. Não apareceu? Confira o cadastro.', 'Cadastro repetido faz a pessoa aparecer duas vezes na folha: mantenha um só e marque o outro como Desligado.'],
     cuidado: [],
   },
 
   equipe: {
-    resumo: 'Os usuários que acessam o sistema e o papel (nível de acesso) de cada um.',
-    quemUsa: 'Só admin.',
-    cenario: 'A recepcionista nova vai começar e precisa de um login que só veja o Caixa.',
+    resumo: 'Quem entra no sistema e o que cada pessoa pode fazer: Administrador, Financeiro ou Diretoria.',
+    quemUsa: 'Só o Administrador.',
+    cenario: 'A auxiliar nova começa segunda e precisa entrar no sistema para lançar e conferir pagamentos.',
     passos: [
-      { t: 'Clique em Convidar (aparece só para admin).', obs: '' },
-      { t: 'Informe o e-mail dela e escolha o Cargo — cada cargo mostra a descrição do que pode ver.', obs: 'Recepção (viewer) só vê Caixa, Agenda e Dashboard.' },
-      { t: 'Enviar convite. Na lista de Membros você pode trocar o cargo de alguém ou Remover.', obs: 'A "Atividade recente" mostra a auditoria de ações.' },
+      { t: 'No rodapé do menu, clique em Acessos.', obs: 'Só aparece para Administrador.' },
+      { t: 'Em "Criar acesso", preencha Nome e E-mail. Clique em Gerar para criar uma senha provisória (ou digite uma).', obs: '' },
+      { t: 'Escolha o Tipo de acesso: Administrador (tudo), Financeiro (lança e edita; abre na visão do dia a dia) ou Diretoria (vê tudo, não altera nada).', obs: '' },
+      { t: 'Clique em Criar acesso. Aparece uma mensagem com o e-mail e a senha provisória — mande para a pessoa.', obs: 'Se o Supabase pedir confirmação de e-mail, ela precisa clicar no link que recebe antes do primeiro login.' },
+      { t: 'Para mudar o tipo de alguém, troque na lista "Quem tem acesso". Para tirar o acesso, escolha Bloqueado.', obs: 'Bloquear corta na hora e mantém o histórico do que a pessoa lançou.' },
+      { t: 'Alguém esqueceu a senha? Clique em Redefinir senha na linha da pessoa.', obs: 'Ela recebe um e-mail com um link para criar a senha nova. Você não fica sabendo a senha. A própria pessoa também pode pedir em "Esqueci minha senha" na tela de login.' },
+    ],
+    erros: [
+      { msg: '"Só administrador pode alterar acessos."', causa: 'Você não está como Administrador.' },
+      { msg: '"Você não pode tirar o seu próprio acesso de administrador."', causa: 'Proteção para o sistema nunca ficar sem administrador. Peça a outro administrador.' },
+      { msg: '"Muitos pedidos seguidos"', causa: 'O Supabase limita e-mails por hora. Espere alguns minutos e tente de novo.' },
+    ],
+    dicas: ['Ninguém consegue se cadastrar sozinho: toda conta nasce sem acesso até um administrador liberar aqui.'],
+    cuidado: ['Excluir a conta de vez só pelo painel do Supabase. No dia a dia, prefira Bloquear: dá para desfazer e mantém o histórico.'],
+  },
+
+  hoje: {
+    resumo: 'A tela de abertura do dia na visão operacional: o que vence, o que entrou e saiu e os atalhos mais usados.',
+    quemUsa: 'Financeiro (auxiliar), todo dia de manhã.',
+    cenario: 'Segunda de manhã: você quer saber o que precisa pagar nesta semana e se algo ficou para trás.',
+    passos: [
+      { t: 'No topo: caixa de hoje (particular lançado pela recepção), contas atrasadas e o que vence nos próximos 7 dias.', obs: '' },
+      { t: '"Pagar esta semana" lista primeiro as atrasadas (em vermelho) e depois as da semana. "Ver tudo" abre Contas.', obs: '' },
+      { t: '"Movimento dos últimos 7 dias" mostra quanto entrou e saiu e quantos lançamentos estão sem categoria.', obs: 'Tem lançamento sem categoria? Clique em "arrumar →" e classifique — é o que deixa o DRE certo.' },
+      { t: 'Os atalhos levam direto para Caixa, Pagamentos da equipe e cadastro de colaborador.', obs: '' },
     ],
     erros: [],
-    dicas: ['A tabela "Permissões por cargo" mostra exatamente o que cada nível enxerga.'],
-    cuidado: ['Esconder a tela no menu é só visual. A trava de verdade é no banco (RLS). Antes de dar login a quem não pode ver o financeiro, confirme que a RLS está fechada.'],
+    dicas: ['A visão operacional (menu enxuto) e a completa se alternam pelo botão no rodapé do menu.'],
+    cuidado: [],
+  },
+
+  equipe_pag: {
+    resumo: 'Todos os pagamentos da equipe no mês — CLT, estagiários e profissionais — separados por data: 5º dia útil e dia 20.',
+    quemUsa: 'Financeiro e Administrador.',
+    cenario: 'Dia 20: você quer ver quem da produção ainda não recebeu e ajustar um valor antes de pagar.',
+    passos: [
+      { t: 'Escolha o mês no topo. O número grande é o que falta pagar; ao lado, pagos, atrasados e o total do mês.', obs: '' },
+      { t: 'Modo Lista: cada pessoa com tipo, valor e situação (Pendente, Atrasado ou Pago). Clique no valor para ajustar antes de pagar.', obs: 'A situação vira "Pago" sozinha quando o Pix da pessoa aparece no extrato importado.' },
+      { t: 'Pagou e o extrato ainda não entrou? Clique em Registrar, informe valor e data.', obs: '' },
+      { t: 'O lápis abre a edição completa: nome, cargo, tipo, data de pagamento (5º dia útil ou dia 20), valor, excluir e "voltar para pendente".', obs: 'Ao excluir um repetido, marque "desativar este cadastro" para ele não voltar na próxima folha.' },
+      { t: 'Modo Planilha: as mesmas colunas da planilha de pagamentos (dias, bruto, descontos, bonificações, INSS, VT, holding, líquido, pago). Clique na célula, digite, Enter.', obs: '5º dia útil: bruto ÷ 30 × dias − descontos − INSS − VT + bonificações. Dia 20: bruto + bonificações − desconto − desconto holding. Faltas no dia 20 calculam o desconto sozinhas.' },
+      { t: '"+ Pessoa" acrescenta alguém no grupo. O topo de cada grupo mostra A pagar, Pago e a Diferença (como o K1/L1/M1 da planilha).', obs: '' },
+      { t: '"Trazer folha do ponto" puxa CLT e estagiários da Folha do mês (ponto do Cortex).', obs: 'Se o mês já foi lançado pela planilha, não use — pode trazer gente repetida.' },
+    ],
+    erros: [
+      { msg: 'Etiqueta vermelha "repetido?"', causa: 'Há dois lançamentos com nome parecido no mês. Confira e exclua o que sobra (marcando "desativar cadastro").' },
+    ],
+    dicas: ['Profissionais do dia 20 entram quando o fechamento do Repasse é salvo.', 'Pela busca do topo (Ctrl+K) dá para achar um pagamento pelo nome ou pelo valor.'],
+    cuidado: ['Diferença entre "a pagar" e "pago" no topo do grupo quase sempre é desconto de holding esquecido. Confira antes de fechar o mês.'],
+  },
+
+  provisoes: {
+    resumo: 'O cálculo da folha de CLT e estagiários do mês, a partir do ponto do Cortex, com encargos e provisões.',
+    quemUsa: 'Financeiro e Administrador, no fechamento da folha.',
+    cenario: 'Início do mês: fechar a folha do mês anterior para pagar no 5º dia útil.',
+    passos: [
+      { t: 'Escolha o mês e confira os dias úteis.', obs: 'As horas vêm do ponto do Cortex, casado pelo CPF de cada colaborador.' },
+      { t: 'Confira as duas tabelas: CLT e Estágio. Ajuste gratificações direto na linha, se houver.', obs: 'Linha marcada "manual" é quem não veio do ponto — confira os valores.' },
+      { t: '"Pagamentos da equipe" manda os líquidos para a tela de pagamentos, no 5º dia útil do mês seguinte.', obs: '' },
+      { t: '"Gerar Excel" baixa a folha para mandar à contabilidade.', obs: '' },
+    ],
+    erros: [],
+    dicas: ['Colaborador não apareceu? Ele precisa estar Ativo em Colaboradores, com CPF e regime (CLT ou estágio) preenchidos.'],
+    cuidado: ['CLT: a contabilidade fecha a folha oficial (INSS, FGTS, IRRF, VT). Estagiários: a clínica fecha e paga direto. (POP, Parte IV)'],
   },
 
   perfil: {
@@ -237,6 +292,7 @@ const AJUDA_TITULOS = {
   dashboard: 'Dashboard', caixa: 'Caixa — Particular', contas: 'Contas', projecao: 'Projeção de Caixa',
   impostos: 'Impostos', repasse: 'Repasse', compras: 'Compras', agenda: 'Agenda',
   relatorios: 'Relatórios', rh: 'Colaboradores', equipe: 'Acessos', perfil: 'Meu perfil', config: 'Configurações',
+  hoje: 'Hoje (visão operacional)', equipe_pag: 'Pagamentos da equipe', provisoes: 'Folha do mês',
 };
 
 // ─── estilos base ──────────────────────────────────────────────────────────
@@ -588,7 +644,7 @@ const AjudaPage = () => {
   const [aba, setAba] = React.useState(null);
   const [alvo, setAlvo] = React.useState(null);
   const [termoMarca, setTermoMarca] = React.useState('');
-  const ordem = ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'rh', 'equipe', 'perfil', 'config'];
+  const ordem = ['hoje', 'dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'compras', 'equipe_pag', 'repasse', 'provisoes', 'rh', 'relatorios', 'agenda', 'equipe', 'perfil', 'config'];
 
   React.useEffect(() => { ajCarregarDocs(true).then(d => setDocs(d || [])); }, []);
   const pop = (docs || [])[0];

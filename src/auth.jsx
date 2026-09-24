@@ -45,7 +45,16 @@ const LoginScreen = ({ onSuccess }) => {
   const [password, setPassword] = React.useState('');
   const [verSenha, setVerSenha] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState('');
+  const [error, setError] = React.useState(() => window.__EQ_LINK_ERRO ? 'O link do e-mail expirou ou já foi usado. Peça um novo em "Esqueci minha senha".' : '');
+  const [aviso, setAviso] = React.useState('');
+
+  const esqueci = async () => {
+    setError(''); setAviso('');
+    const e = email.trim();
+    if (!/^\S+@\S+\.\S+$/.test(e)) { setError('Digite seu e-mail no campo acima e clique de novo em "Esqueci minha senha".'); return; }
+    try { await window.enviarRedefinicaoSenha(e); setAviso(`Se ${e} tiver acesso, chega em instantes um e-mail com o link para criar uma senha nova. Confira também o spam.`); }
+    catch (err) { setError(err.message); }
+  };
 
   const h = new Date().getHours();
   const saudacao = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
@@ -137,7 +146,10 @@ const LoginScreen = ({ onSuccess }) => {
               </div>
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-              <span style={{ font: '600 12.5px var(--f-sans)', color: 'var(--ink-soft, var(--ink))' }}>Senha</span>
+              <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ font: '600 12.5px var(--f-sans)', color: 'var(--ink-soft, var(--ink))' }}>Senha</span>
+                <button type="button" onClick={esqueci} style={{ border: 0, background: 'none', cursor: 'pointer', font: '600 12px var(--f-sans)', color: 'var(--accent)', padding: 0 }}>Esqueci minha senha</button>
+              </span>
               <div style={{ position: 'relative' }}>
                 {icone(<><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></>)}
                 <input className="eqlg-in" type={verSenha ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} required
@@ -153,6 +165,12 @@ const LoginScreen = ({ onSuccess }) => {
               </div>
             </label>
 
+            {aviso && (
+              <div role="status" style={{ padding: '11px 14px', borderRadius: 10, font: '500 13px/1.5 var(--f-sans)',
+                background: 'var(--c-pos-soft, #E8F5EC)', color: 'var(--c-pos, #1E7B45)', border: '1px solid color-mix(in oklch, var(--c-pos, #1E7B45) 25%, transparent)' }}>
+                {aviso}
+              </div>
+            )}
             {error && (
               <div role="alert" style={{ padding: '11px 14px', borderRadius: 10, font: '500 13px var(--f-sans)',
                 background: 'var(--c-neg-soft, #FDECEC)', color: 'var(--c-neg)', border: '1px solid color-mix(in oklch, var(--c-neg) 25%, transparent)' }}>
@@ -166,7 +184,7 @@ const LoginScreen = ({ onSuccess }) => {
           </form>
 
           <div style={{ marginTop: 22, padding: '12px 14px', borderRadius: 12, background: 'var(--bg-alt, var(--surface-2))', font: '400 12.5px/1.5 var(--f-sans)', color: 'var(--ink-mute)' }}>
-            Não tem acesso ou esqueceu a senha? Fale com o administrador do sistema.
+            Ainda não tem acesso? Peça ao administrador do sistema para criar a sua conta.
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 28, font: '400 11.5px var(--f-sans)', color: 'var(--ink-mute)' }}>
@@ -180,6 +198,47 @@ const LoginScreen = ({ onSuccess }) => {
     </div>
   );
 };
+// ─── Criar senha nova (abre ao clicar no link do e-mail de redefinição) ───
+const NovaSenhaScreen = ({ onPronto }) => {
+  const [s1, setS1] = React.useState('');
+  const [s2, setS2] = React.useState('');
+  const [ver, setVer] = React.useState(false);
+  const [salvando, setSalvando] = React.useState(false);
+  const [erro, setErro] = React.useState('');
+  const salvar = async (e) => {
+    e.preventDefault(); setErro('');
+    if (s1.length < 8) { setErro('Use pelo menos 8 caracteres.'); return; }
+    if (s1 !== s2) { setErro('As duas senhas não estão iguais.'); return; }
+    setSalvando(true);
+    try { await window.updatePassword(s1); window.__EQ_RECUPERACAO = false; onPronto?.(); }
+    catch (err) { setErro('Não consegui salvar: o link pode ter expirado. Peça outro em "Esqueci minha senha".'); setSalvando(false); }
+  };
+  return (
+    <div className="eqlg" style={{ gridTemplateColumns: '1fr' }}>
+      <style>{LOGIN_CSS}</style>
+      <main className="eqlg-form" style={{ minHeight: '100vh' }}>
+        <div className="eqlg-anim" style={{ width: 'min(400px, 100%)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 26 }}>
+            <div style={{ background: 'radial-gradient(120% 90% at 0% 0%, #1B7BD0 0%, #0A3563 100%)', borderRadius: 14 }}><EqLogoMarca /></div>
+            <div style={{ font: '700 18px var(--f-display, var(--f-sans))', color: 'var(--ink)' }}>EqFinances</div>
+          </div>
+          <h1 style={{ font: '700 28px/1.15 var(--f-display, var(--f-sans))', letterSpacing: '-.025em', color: 'var(--ink)', margin: 0 }}>Crie sua senha nova</h1>
+          <p style={{ font: '400 14px var(--f-sans)', color: 'var(--ink-mute)', margin: '8px 0 24px' }}>Mínimo de 8 caracteres. Depois de salvar, você entra direto no sistema.</p>
+          <form onSubmit={salvar} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <input className="eqlg-in" style={{ paddingLeft: 16 }} type={ver ? 'text' : 'password'} value={s1} onChange={e => setS1(e.target.value)} placeholder="Senha nova" autoFocus autoComplete="new-password" />
+            <input className="eqlg-in" style={{ paddingLeft: 16 }} type={ver ? 'text' : 'password'} value={s2} onChange={e => setS2(e.target.value)} placeholder="Repita a senha nova" autoComplete="new-password" />
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', font: '400 13px var(--f-sans)', color: 'var(--ink-mute)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={ver} onChange={e => setVer(e.target.checked)} /> Mostrar senha
+            </label>
+            {erro && <div role="alert" style={{ padding: '11px 14px', borderRadius: 10, font: '500 13px var(--f-sans)', background: 'var(--c-neg-soft, #FDECEC)', color: 'var(--c-neg)' }}>{erro}</div>}
+            <button type="submit" className="eqlg-btn" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar e entrar'}</button>
+          </form>
+        </div>
+      </main>
+    </div>
+  );
+};
+
 const authInputStyle = {
   width: '100%', padding: '12px 16px', borderRadius: 12,
   border: '1.5px solid var(--line)', background: 'var(--bg-alt)',
@@ -702,4 +761,4 @@ const EquipePage = () => {
   );
 };
 
-Object.assign(window, { LoginScreen, PerfilPage, EquipePage, FormField, Toggle, roleLabel, ROLES });
+Object.assign(window, { NovaSenhaScreen, LoginScreen, PerfilPage, EquipePage, FormField, Toggle, roleLabel, ROLES });

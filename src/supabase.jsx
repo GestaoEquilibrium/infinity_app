@@ -31,6 +31,42 @@ function setSession(s) {
   else localStorage.removeItem(SB_SESSION_KEY);
   window.dispatchEvent(new CustomEvent('sb-session-changed', { detail: s }));
 }
+// Link que chega por e-mail (redefinir senha / confirmar conta): o Supabase volta
+// para o site com a sessão no endereço (#access_token=...&type=recovery). Guarda a
+// sessão, limpa o endereço e, se for redefinição, marca para pedir a senha nova.
+(function lerLinkDoEmail() {
+  try {
+    const h = new URLSearchParams(String(window.location.hash || '').replace(/^#/, ''));
+    if (h.get('error_description')) { window.__EQ_LINK_ERRO = h.get('error_description').replace(/\+/g, ' '); }
+    const tk = h.get('access_token');
+    if (tk) {
+      localStorage.setItem('sb-session-v1', JSON.stringify({
+        access_token: tk, refresh_token: h.get('refresh_token'), token_type: h.get('token_type') || 'bearer',
+        expires_in: Number(h.get('expires_in')) || 3600, expires_at: Number(h.get('expires_at')) || undefined,
+      }));
+      if (h.get('type') === 'recovery') window.__EQ_RECUPERACAO = true;
+    }
+    if (tk || h.get('error_description')) history.replaceState(null, '', window.location.pathname + window.location.search);
+  } catch (e) { /* segue */ }
+})();
+
+// Envia o e-mail com o link para criar uma senha nova
+async function enviarRedefinicaoSenha(email) {
+  const volta = window.location.origin + window.location.pathname;
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/recover?redirect_to=${encodeURIComponent(volta)}`, {
+    method: 'POST',
+    headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: String(email).trim().toLowerCase() }),
+  });
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    const m = j.msg || j.error_description || j.error || ('erro ' + res.status);
+    if (/rate|seconds|limit/i.test(m)) throw new Error('Muitos pedidos seguidos. Espere alguns minutos e tente de novo.');
+    throw new Error(m);
+  }
+  return true;
+}
+
 function authHeaders(extra = {}) {
   const s = getSession();
   return {
@@ -542,7 +578,7 @@ async function reclassificarPendentes() {
 }
 
 Object.assign(window, {
-  coFilter, realCompany, criarContaUsuario, definirAcesso, listarAcessos,
+  coFilter, realCompany, criarContaUsuario, definirAcesso, listarAcessos, enviarRedefinicaoSenha,
   fetchFavorecidos, salvarFavorecido, salvarRegra, reclassificarPendentes, fetchTodas,
   fetchEventos, createEvento, deleteEvento,
   SUPABASE_URL, SUPABASE_ANON_KEY,

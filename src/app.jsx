@@ -1037,9 +1037,11 @@ const RelContas = ({ dados, mes }) => {
 
 // ─── App bootstrap ───
 const AppInner = () => {
-  const { ready, user, demo, enterDemo, profile, homeCompanyId, logout } = useAuth();
+  const { ready, user, demo, enterDemo, profile, homeCompanyId, logout, refresh } = useAuth();
   if (!ready) return <div style={{ display: 'grid', placeItems: 'center', height: '100vh', color: 'var(--ink-3)', font: '500 13px var(--f-sans)' }}>Carregando…</div>;
   if (!user && !demo) return <LoginScreen onSuccess={(res) => { if (res?.demo) enterDemo(); }} />;
+  // Veio pelo link "redefinir senha" do e-mail: pede a senha nova antes de tudo
+  if (user && window.__EQ_RECUPERACAO) return <window.NovaSenhaScreen onPronto={() => { refresh(); }} />;
   // Conta sem acesso liberado (nova, pendente ou bloqueada): não entra no sistema.
   const papel = profile?.role;
   if (!demo && (!homeCompanyId || !papel || papel === 'pendente' || papel === 'bloqueado')) {

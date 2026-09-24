@@ -844,6 +844,14 @@ const AcessosPage = () => {
     setMudando(null);
   };
 
+  const redefinir = async (p) => {
+    if (!window.confirm(`Enviar para ${p.email} um e-mail com o link para criar uma senha nova?`)) return;
+    setMudando(p.id); setMsg('');
+    try { await window.enviarRedefinicaoSenha(p.email); setMsg(`✓ E-mail de redefinição enviado para ${p.email}. O link vale por 1 hora — peça para conferir o spam.`); }
+    catch (e) { setMsg('Erro: ' + e.message); }
+    setMudando(null);
+  };
+
   const inp = { width: '100%', boxSizing: 'border-box', height: 38, padding: '0 12px', border: '1px solid var(--line-strong)', borderRadius: 'var(--r-md)', background: 'var(--field)', font: '500 13.5px var(--f-sans)', color: 'var(--ink)' };
   const lbl = { font: '600 12px var(--f-sans)', color: 'var(--ink-2)', display: 'block', marginBottom: 5 };
   const ativos = (lista || []).filter(p => p.role !== 'bloqueado');
@@ -852,10 +860,13 @@ const AcessosPage = () => {
   const Linha = ({ p }) => {
     const eu = p.id === user?.id;
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 220px', gap: 12, alignItems: 'center', padding: '11px 18px', borderTop: '1px solid var(--line-2)', opacity: p.role === 'bloqueado' ? 0.6 : 1 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 140px 220px', gap: 12, alignItems: 'center', padding: '11px 18px', borderTop: '1px solid var(--line-2)', opacity: p.role === 'bloqueado' ? 0.6 : 1 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ font: '600 13.5px var(--f-sans)', color: 'var(--ink)' }}>{p.name || '—'}{eu ? ' (você)' : ''}</div>
           <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.email}</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          {p.role !== 'bloqueado' && p.email && <Btn variant="ghost" size="sm" onClick={() => redefinir(p)} disabled={mudando === p.id}>Redefinir senha</Btn>}
         </div>
         {eu
           ? <span style={{ font: '600 12.5px var(--f-sans)', color: 'var(--ink-2)', textAlign: 'right' }}>{opTipoLabel(p.role)}</span>
@@ -908,6 +919,7 @@ const AcessosPage = () => {
         <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', lineHeight: 1.6 }}>
           <b>Administrador</b>: tudo, inclusive esta tela. <b>Financeiro</b>: opera o dia a dia (abre na visão operacional). <b>Diretoria</b>: vê todas as telas e números, mas o sistema não deixa alterar nada.
           Bloquear corta o acesso na hora e mantém o histórico de quem lançou o quê.
+          <b> Redefinir senha</b> manda à pessoa um e-mail com um link para ela mesma criar uma senha nova — você não fica sabendo a senha.
         </div>
       </div>
     </div>
