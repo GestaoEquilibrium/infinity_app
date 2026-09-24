@@ -393,6 +393,25 @@ async function addCompras(rows) {
   } catch (e) { console.warn('addCompras sync', e); }
 }
 
+// ─── Favorecidos: o Sicoob mostra só ***.873.206-** no Pix enviado ───
+// window.FAVORECIDOS = { '873.206': 'Luan Souza Vieira', ... } (carregado do Supabase)
+const RE_CPF_MASC = /(?:CPF\s*)?\*\*\*\.(\d{3}\.\d{3})(?:-\*\*)?/i;
+async function carregarFavorecidos() {
+  try {
+    const rows = await window.fetchFavorecidos?.();
+    const m = {};
+    (rows || []).forEach(r => { if (r.cpf_meio && r.nome) m[r.cpf_meio] = r.nome; });
+    window.FAVORECIDOS = m;
+  } catch (e) { console.warn('favorecidos', e); window.FAVORECIDOS = window.FAVORECIDOS || {}; }
+  return window.FAVORECIDOS;
+}
+function nomearPorCpf(desc) {
+  const d = String(desc || '');
+  const m = d.match(RE_CPF_MASC);
+  const nome = m && (window.FAVORECIDOS || {})[m[1]];
+  return nome ? d.replace(RE_CPF_MASC, nome) : d;
+}
+
 // ─── Anti-duplicata no import ───
 // Ignora lançamentos que JÁ estão no sistema (extrato semanal sobreposto, arquivo repetido).
 // Conta por chave: se o arquivo tem 2 "TAR PIX 8,50" no mesmo dia e o sistema já tem 1, entra só 1.
@@ -421,6 +440,7 @@ async function parseExcelContas(file) {
   const buf = await file.arrayBuffer();
   // raw: true → em CSV, NÃO converte '10/09/2026' em data americana (mês/dia); mantém o texto
   // e deixa o parser abaixo ler como DD/MM/AAAA. Não afeta arquivos .xlsx.
+  if (!window.FAVORECIDOS) await carregarFavorecidos();
   const wb = window.XLSX.read(buf, { type: 'array', raw: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = window.XLSX.utils.sheet_to_json(ws, { raw: false, defval: '' });
@@ -431,7 +451,7 @@ async function parseExcelContas(file) {
     const tipoRaw = (row['tipo'] || row['type'] || '').toString().toLowerCase();
     const tipo = (tipoRaw.includes('receb') || tipoRaw.includes('entra')) ? 'receber' : 'pagar';
     const category = row['categoria'] || row['category'] || (tipo === 'receber' ? 'Outras' : 'Outras Despesas');
-    const description = row['descrição'] || row['descricao'] || row['description'] || '—';
+    const description = nomearPorCpf(row['descrição'] || row['descricao'] || row['description'] || '—');
     const prevRaw = row['previsto'] || row['valor'] || row['amount'] || row['value'] || 0;
     const realRaw = row['realizado'] || row['pago_valor'] || 0;
     const pagoRaw = (row['pago'] || row['status'] || '').toString().toLowerCase();
@@ -468,6 +488,18 @@ async function parseExcelContas(file) {
 }
 
 async function updateContaLocal(id, patch) {
+  // Aprende: se a descrição antiga tinha CPF mascarado e você trocou por um nome, oferece lembrar.
+  const antes = CONTAS.find(c => c.id === id);
+  const mAntes = antes && String(antes.description || '').match(RE_CPF_MASC);
+  if (mAntes && patch && patch.description && !RE_CPF_MASC.test(patch.description)) {
+    const nome = String(patch.description).split('|').pop().trim();
+    if (nome && window.confirm(`Lembrar ***.${mAntes[1]} como "${nome}"?\nOs próximos extratos já vêm com esse nome.`)) {
+      try {
+        await window.salvarFavorecido(mAntes[1], nome, window.ACTIVE_COMPANY_ID);
+        window.FAVORECIDOS = { ...(window.FAVORECIDOS || {}), [mAntes[1]]: nome };
+      } catch (e) { console.warn('salvarFavorecido', e); }
+    }
+  }
   CONTAS = CONTAS.map(c => c.id === id ? { ...c, ...patch } : c);
   window.CONTAS = CONTAS;
   try {
@@ -543,6 +575,7 @@ async function hydrateFromSupabase(companyId) {
       entrada: cats.filter(c => c.type === 'entrada'),
       saida:   cats.filter(c => c.type === 'saida'),
     };
+    carregarFavorecidos();
     window.dispatchEvent(new CustomEvent('sb-data-hydrated'));
   } catch (e) {
     console.warn('hydrateFromSupabase', e);
@@ -781,6 +814,6 @@ Object.assign(window, {
   gerarDRE,
   filterCompras, filterContas, monthlyAggregates, saldoAnterior, ehTransferenciaInterna,
   parseExcel, addCompras, parseExcelContas, addContas, catColor,
-  hydrateFromSupabase,
+  hydrateFromSupabase, carregarFavorecidos, nomearPorCpf,
   updateCompraLocal, deleteCompraLocal, updateContaLocal, deleteContaLocal,
 });
