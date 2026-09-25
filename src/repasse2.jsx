@@ -13,6 +13,20 @@ const STATUS_SEM_EVOLUCAO = ['Em Espera (Recepção)', 'Em Atendimento', 'Aguard
 const STATUS_FALTA = ['Falta', 'Faltou', 'Cancelado (Paciente)'];
 const STATUS_AUSENTE = ['Profissional Ausente', 'Cancelado (Profissional)'];
 const STATUS_PENDENTE = ['Agendado', 'Confirmado'];
+// O export novo do Mais Equilibrium traz "Concluído / Realizado" e a coluna "Prontuário Evoluído?".
+const stNorm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const stCancelado = (s) => /cancel|falt|ausente/.test(stNorm(s));
+const stComputa = (s) => !stCancelado(s) && (STATUS_COMPUTA.includes(s) || /conclu|realizad/.test(stNorm(s)));
+const stSemEvolucao = (s) => !stCancelado(s) && (STATUS_SEM_EVOLUCAO.includes(s) || /espera|em atendimento|aguardando/.test(stNorm(s)));
+const campoRP = (r, ...ks) => { for (const k of ks) if (r[k] != null && r[k] !== '') return r[k]; return ''; };
+// situação de um atendimento para o repasse: 'paga' | 'sem_evolucao' | 'fora'
+function situacaoAtend(r) {
+  const st = r['Status'] || '';
+  const evol = stNorm(campoRP(r, 'Prontuário Evoluído?', 'Prontuario Evoluido?', 'Evoluído'));
+  if (stComputa(st)) return evol === 'nao' ? 'sem_evolucao' : 'paga';
+  if (stSemEvolucao(st)) return 'sem_evolucao';
+  return 'fora';
+}
 const IMPOSTO_RP = 0.1333;
 
 // Normaliza nome para comparar RH x relatório do Mais Equilibrium:
@@ -56,11 +70,9 @@ function parseCSV_RP(text) {
   });
 }
 
-// motor: aplica regras sobre os atendimentos + particular do caixa
-function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
+function criarBuscaTarifa(tarifas) {
   const norm = (s) => String(s || '').trim().toUpperCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // remove acentos p/ casar
-
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   // Mapa: procedimento do relatório -> tipo_servico da tarifa (normalizados)
   const PROC_MAP = {
     'CONSULTA PSIQUIATRIA': 'CONSULTA PSIQUIATRIA',
@@ -83,7 +95,9 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
   // Busca a tarifa certa por convênio + procedimento
   const buscarTarifa = (convenio, procedimento) => {
     const c = norm(convenio.replace(/ \/ Não Informado$/, ''));
-    const procServ = PROC_MAP[norm(procedimento)] || norm(procedimento);
+    let procServ = PROC_MAP[norm(procedimento)] || norm(procedimento);
+    // "Consulta Psiquiatria - 1º Consulta" usa a tarifa da consulta
+    if (/^CONSULTA PSIQUIATRIA/.test(procServ) && tarifaMap[`${c}|${procServ}`] == null) procServ = 'CONSULTA PSIQUIATRIA';
     // 1) match exato convênio + serviço
     if (tarifaMap[`${c}|${procServ}`] != null) return tarifaMap[`${c}|${procServ}`];
     // 2) Particular: tenta "PARTICULAR|serviço" e depois "PARTICULAR"
@@ -104,6 +118,16 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
     if (cands.length) return cands[0].valor;
     return null; // sem match — vira pendência
   };
+
+  return buscarTarifa;
+}
+
+// motor: aplica regras sobre os atendimentos + particular do caixa
+function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
+  const norm = (s) => String(s || '').trim().toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // remove acentos p/ casar
+
+  const buscarTarifa = criarBuscaTarifa(tarifas);
 
   const nomeToColab = {};
   colabs.forEach(c => { nomeToColab[normalizarNome(c.nome)] = c; });
@@ -138,10 +162,11 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
       const status = a['Status'] || '';
       const conv = a['Convênio'] || '';
       const proc = a['Procedimento'] || '';
-      const dia = a['Dia'] || '';
+      const dia = a['Dia'] || a['Data'] || '';
+      const sit = situacaoAtend(a);
       if (dia) {
         const di = (diaInfo[dia] = diaInfo[dia] || { realizado: false, ausente: false });
-        if (STATUS_COMPUTA.includes(status)) di.realizado = true;
+        if (sit === 'paga') di.realizado = true;
         if (status === 'Profissional Ausente') di.ausente = true;
       }
       if (status === 'Profissional Ausente') ausenteProprio++;
@@ -152,7 +177,7 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
       const ehRetorno = /retorno/i.test(proc);
 
       // atendido mas sem evolução: fica fora agora; calcula quanto receberia se evoluir
-      if (STATUS_SEM_EVOLUCAO.includes(status)) {
+      if (sit === 'sem_evolucao') {
         if (!ehRetorno && !/^particular/i.test(convBase)) {
           semEvolucao++;
           const t = buscarTarifa(conv, proc) || 0;
@@ -162,7 +187,7 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
         }
         continue;
       }
-      if (!STATUS_COMPUTA.includes(status)) continue;
+      if (sit !== 'paga') continue;
 
       // Particular NÃO entra no demonstrativo (pago por outra via). Pula
       // completamente: não conta sessão, não soma receita nem repasse.
@@ -676,13 +701,525 @@ const PagamentosTab = ({ companyId, userId, colabs, D }) => {
   );
 };
 
+
+// ═══════════════════════════════════════════════════════════════════
+// PRODUÇÃO EM PLANILHA — lê o relatório "Atendimentos por data com
+// prontuário" (Mais Equilibrium) e monta, por profissional, a planilha
+// editável do demonstrativo (convênio + particular + total a repassar).
+// O texto da evolução NÃO é guardado — só se foi evoluído (Sim/Não).
+// ═══════════════════════════════════════════════════════════════════
+const prSb = (path, opts) => window.__sbRest(path, opts);
+const prCF = (cid) => (window.coFilter ? window.coFilter(cid) : `company_id=eq.${cid}`);
+const prRC = (cid) => (window.realCompany ? window.realCompany(cid) : cid);
+const prR2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const prNum = (v) => { if (v === '' || v == null) return null; const n = Number(String(v).replace(/[^\d,.-]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')); return isFinite(n) ? n : null; };
+const prDataISO = (d) => { const m = String(d || '').match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : (String(d || '').match(/^\d{4}-\d{2}-\d{2}/) ? String(d).slice(0, 10) : null); };
+const prDataBR = (iso) => iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '';
+const prMais = (comp, n) => { let c = comp; for (let i = 0; i < n; i++) c = proximaCompetencia(c); return c; };
+
+async function prFetchMes(companyId, comp) {
+  return await prSb(`/repasse_atendimentos?${prCF(companyId)}&competencia=eq.${comp}&select=*&order=profissional.asc,data.asc,hora.asc&limit=5000`) || [];
+}
+
+// Modelo de repasse do profissional em uma frase (vai no demonstrativo)
+function prModelo(regra) {
+  if (!regra) return 'Sem regra de repasse cadastrada';
+  const brl = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+  if (regra.fixo_mensal) return `Fixo mensal ${brl(regra.valor_base_mensal)}`;
+  if (regra.tipo === 'fixo') return `Convênio ${brl(regra.valor_fixo)}/sessão` + (regra.valor_fixo_aba ? ` · ABA ${brl(regra.valor_fixo_aba)}` : '');
+  return `${Math.round((regra.pct_convenio || 0) * 100)}% após imposto (13,33%)` + (regra.pct_particular != null ? ` · particular ${Math.round(regra.pct_particular * 100)}%` : '');
+}
+
+// Valor de repasse padrão de um atendimento, pela regra do profissional (POP Parte III)
+function prValorPadrao({ tipo, sit, ehRetorno, proc, conv, regra, buscarTarifa, recebido }) {
+  if (sit === 'fora') return { valor: 0, incluir: false, motivo: 'não realizado' };
+  if (ehRetorno) return { valor: 0, incluir: false, motivo: 'retorno (não paga)' };
+  if (!regra) return { valor: 0, incluir: false, motivo: 'profissional sem regra de repasse' };
+  if (regra.fixo_mensal) return { valor: 0, incluir: false, motivo: 'fixo mensal (não paga por sessão)' };
+  let valor = 0, obs = null;
+  if (tipo === 'particular') {
+    if (recebido == null) return { valor: 0, incluir: false, motivo: 'não achado no caixa', obs: 'Particular só entra se estiver no caixa (paciente + data).' };
+    valor = regra.tipo === 'percentual'
+      ? recebido * (1 - IMPOSTO_RP) * Number(regra.pct_particular ?? regra.pct_convenio ?? 0)
+      : recebido * Number(regra.pct_particular ?? 0.5);
+    obs = `Recebido no caixa: R$ ${Number(recebido).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+  } else if (regra.tipo === 'fixo') {
+    valor = (/aba/i.test(proc) && regra.valor_fixo_aba) ? Number(regra.valor_fixo_aba) : Number(regra.valor_fixo || 0);
+  } else {
+    const t = buscarTarifa(conv, proc);
+    if (t == null) obs = 'Convênio sem tarifa cadastrada';
+    valor = (t || 0) * (1 - IMPOSTO_RP) * Number(regra.pct_convenio || 0);
+  }
+  valor = prR2(valor);
+  if (sit === 'sem_evolucao') return { valor, incluir: false, motivo: 'sem evolução (paga se evoluir em 3 dias)', obs };
+  return { valor, incluir: true, motivo: null, obs };
+}
+
+// Lê um ou mais arquivos e grava (ou atualiza) os atendimentos
+async function prImportar(files, { companyId, userId, colabs, regrasByColab, tarifas, D }) {
+  let linhas = [];
+  for (const file of files) {
+    const nome = (file.name || '').toLowerCase();
+    let parsed = [];
+    if (nome.endsWith('.csv')) parsed = parseCSV_RP(await file.text());
+    else if (window.XLSX) {
+      const wb = window.XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      parsed = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { raw: false, defval: '' })
+        .map(r => { const o = {}; Object.keys(r).forEach(k => o[k.trim()] = r[k]); return o; });
+    }
+    linhas = linhas.concat(parsed);
+  }
+  linhas = linhas.filter(r => campoRP(r, 'Profissional') && prDataISO(campoRP(r, 'Data', 'Dia')));
+  if (!linhas.length) throw new Error('Não achei atendimentos no arquivo. Use o relatório "Atendimentos por data com prontuário" (CSV).');
+
+  const cid = prRC(companyId);
+  const buscarTarifa = criarBuscaTarifa(tarifas || []);
+  const porNome = {}; (colabs || []).forEach(c => { porNome[normalizarNome(c.nome)] = c; });
+
+  // caixa (particular) dos meses envolvidos: casa por profissional + paciente + data
+  const meses = [...new Set(linhas.map(r => prDataISO(campoRP(r, 'Data', 'Dia')).slice(0, 7)))];
+  const caixa = {};
+  for (const m of meses) {
+    try {
+      const cx = await D.fetchCaixa(companyId, `${m}-01`, `${m}-31`) || [];
+      cx.forEach(l => {
+        const k = `${l.colaborador_id}|${normalizarNome(l.paciente)}|${String(l.data).slice(0, 10)}`;
+        caixa[k] = (caixa[k] || 0) + Number(l.valor || 0);
+      });
+    } catch (e) { /* sem caixa: particulares ficam para conferir */ }
+  }
+
+  // o que já existe (para não sobrescrever o que foi editado à mão)
+  const ids = [...new Set(linhas.map(r => String(campoRP(r, 'ID Agendamento', 'Id Agendamento', 'ID')).trim()).filter(Boolean))];
+  const existentes = {};
+  for (let i = 0; i < ids.length; i += 150) {
+    const lote = ids.slice(i, i + 150).map(x => `"${x.replace(/"/g, '')}"`).join(',');
+    const ex = await prSb(`/repasse_atendimentos?${prCF(companyId)}&agendamento_id=in.(${encodeURIComponent(lote)})&select=id,agendamento_id,editado,company_id`) || [];
+    ex.forEach(e => { existentes[e.agendamento_id] = e; });
+  }
+
+  const novos = [], editadosPatch = [];
+  const semRegra = new Set();
+  for (const r of linhas) {
+    const dataISO = prDataISO(campoRP(r, 'Data', 'Dia'));
+    const prof = String(campoRP(r, 'Profissional')).trim();
+    const colab = porNome[normalizarNome(prof)];
+    const regra = colab && regrasByColab[colab.id];
+    if (!regra) semRegra.add(prof);
+    const conv = String(campoRP(r, 'Convênio', 'Convenio')).trim();
+    const proc = String(campoRP(r, 'Procedimento')).trim();
+    const tipo = /^particular/i.test(conv) ? 'particular' : 'convenio';
+    const sit = situacaoAtend(r);
+    const paciente = String(campoRP(r, 'Paciente', 'Cliente')).trim();
+    const recebido = colab ? caixa[`${colab.id}|${normalizarNome(paciente)}|${dataISO}`] : undefined;
+    const v = prValorPadrao({ tipo, sit, ehRetorno: /retorno/i.test(proc), proc, conv, regra, buscarTarifa, recebido });
+    const evol = stNorm(campoRP(r, 'Prontuário Evoluído?', 'Prontuario Evoluido?'));
+    const agId = String(campoRP(r, 'ID Agendamento', 'Id Agendamento', 'ID')).trim() || null;
+    const rec = {
+      company_id: cid, competencia: dataISO.slice(0, 7), agendamento_id: agId, data: dataISO,
+      hora: String(campoRP(r, 'Horário', 'Horario', 'Hora')).trim() || null, paciente: paciente || null,
+      profissional: prof, colaborador_id: colab ? colab.id : null, procedimento: proc || null, convenio: conv || null,
+      status: String(campoRP(r, 'Status')).trim() || null, evoluido: evol ? evol === 'sim' : null,
+      tipo, valor: v.valor, incluir: v.incluir, motivo: v.motivo, observacao: v.obs || null,
+      origem: 'importado', created_by: userId || null, updated_at: new Date().toISOString(),
+    };
+    const ex = agId && existentes[agId];
+    if (ex && ex.editado) editadosPatch.push({ id: ex.id, patch: { status: rec.status, evoluido: rec.evoluido, updated_at: rec.updated_at } });
+    else novos.push({ ...rec, editado: false, ...(ex ? { company_id: ex.company_id } : {}) });
+  }
+  // grava em lotes (novos + os não editados à mão)
+  for (let i = 0; i < novos.length; i += 200) {
+    await prSb('/repasse_atendimentos?on_conflict=company_id,agendamento_id', {
+      method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', body: JSON.stringify(novos.slice(i, i + 200)),
+    });
+  }
+  for (const e of editadosPatch) {
+    await prSb(`/repasse_atendimentos?id=eq.${e.id}`, { method: 'PATCH', body: JSON.stringify(e.patch) });
+  }
+  const contMes = {}; linhas.forEach(r => { const m = prDataISO(campoRP(r, 'Data', 'Dia')).slice(0, 7); contMes[m] = (contMes[m] || 0) + 1; });
+  const mesPrincipal = Object.entries(contMes).sort((a, b) => b[1] - a[1])[0][0];
+  return { total: linhas.length, preservados: editadosPatch.length, mesPrincipal, semRegra: [...semRegra],
+    profissionais: [...new Set(linhas.map(r => String(campoRP(r, 'Profissional')).trim()))] };
+}
+
+// ── PDF no formato do demonstrativo (planilha) ──
+function gerarDemonstrativoPlanilhaPDF({ nome, funcao, modelo, comp, conv, part, holding, ajuste }) {
+  const J = window.jspdf && window.jspdf.jsPDF;
+  if (!J) { alert('Biblioteca de PDF não carregada. Dê um Ctrl+Shift+R e tente de novo.'); return; }
+  const brl = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const doc = new J({ unit: 'mm', format: 'a4' });
+  const W = 210, H = 297, M = 16;
+  const navy = [7, 38, 84], blue = [37, 99, 158], ink = [28, 32, 40], soft = [92, 102, 116], line = [226, 230, 236], zebra = [246, 248, 251];
+  const grad = (y, h) => { const N = 70; for (let i = 0; i < N; i++) { const t = i / (N - 1); doc.setFillColor(navy[0] + (blue[0] - navy[0]) * t, navy[1] + (blue[1] - navy[1]) * t, navy[2] + (blue[2] - navy[2]) * t); doc.rect((W / N) * i, y, W / N + 0.4, h, 'F'); } };
+  const tot = (xs) => xs.reduce((s, r) => s + (Number(r.valor) || 0), 0);
+  const tConv = tot(conv), tPart = tot(part), hold = Number(holding) || 0, aj = Number(ajuste) || 0;
+  const total = tConv + tPart - hold + aj;
+
+  grad(0, 44);
+  try { const lw = 20, lh = 20 / 1.3974; doc.addImage(LOGO_EQUILIBRIUM_B64, 'PNG', W - M - lw, 9, lw, lh, undefined, 'FAST'); } catch (e) {}
+  doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.text('GRUPO EQUILIBRIUM', M, 13);
+  doc.setFontSize(19); doc.text('Demonstrativo de Repasse', M, 23);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(214, 224, 238);
+  doc.text(`${nome}${funcao ? ' · ' + funcao : ''}`, M, 30.5);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(255, 255, 255);
+  doc.text(`COMPETÊNCIA ${competenciaExtenso(comp).toUpperCase()}`, M, 38);
+
+  // ficha
+  let y = 54;
+  const ficha = [['PROFISSIONAL', nome], ['FUNÇÃO', funcao || '—'], ['MODELO', modelo], ['COMPETÊNCIA', competenciaExtenso(comp).toLowerCase()]];
+  doc.setFontSize(8);
+  ficha.forEach(([k, v], i) => {
+    doc.setFont('helvetica', 'bold'); doc.setTextColor(soft[0], soft[1], soft[2]); doc.text(k, M, y + i * 6);
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(ink[0], ink[1], ink[2]); doc.text(String(v), M + 34, y + i * 6);
+  });
+  y += 30;
+
+  // três caixas
+  const bw = (W - 2 * M - 8) / 3;
+  [[`CONVÊNIO: ${conv.length}`, brl(tConv), false], [`PARTICULAR: ${part.length}`, brl(tPart), false], ['TOTAL A REPASSAR', brl(total), true]].forEach(([t, v, forte], i) => {
+    const x = M + i * (bw + 4);
+    if (forte) { doc.setFillColor(navy[0], navy[1], navy[2]); doc.roundedRect(x, y, bw, 20, 3, 3, 'F'); }
+    else { doc.setFillColor(255, 255, 255); doc.setDrawColor(line[0], line[1], line[2]); doc.roundedRect(x, y, bw, 20, 3, 3, 'FD'); }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...(forte ? [200, 215, 235] : soft)); doc.text(t, x + 5, y + 7);
+    doc.setFontSize(13); doc.setTextColor(...(forte ? [255, 255, 255] : ink)); doc.text(v, x + 5, y + 15.5);
+  });
+  y += 30;
+
+  const rodape = () => {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(soft[0], soft[1], soft[2]);
+    doc.text('Grupo Equilibrium · Uberlândia/MG · Demonstrativo gerado pelo EqFinances', W / 2, H - 9, { align: 'center' });
+  };
+  const novaPagina = () => { rodape(); doc.addPage(); y = 18; };
+  const cols = [{ t: '#', w: 9 }, { t: 'DATA', w: 27 }, { t: 'PACIENTE', w: 53 }, { t: 'PROCEDIMENTO', w: 44 }, { t: 'CONVÊNIO', w: 26 }, { t: 'VALOR', w: 16, dir: true }];
+  const tabela = (titulo, linhas, subtotalTxt) => {
+    if (y > H - 50) novaPagina();
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(navy[0], navy[1], navy[2]);
+    doc.text(titulo, M, y); y += 4;
+    const cab = () => {
+      doc.setFillColor(navy[0], navy[1], navy[2]); doc.rect(M, y, W - 2 * M, 7, 'F');
+      doc.setFontSize(7); doc.setTextColor(255, 255, 255);
+      let x = M + 2; cols.forEach(c => { doc.text(c.t, c.dir ? x + c.w - 2 : x, y + 4.7, { align: c.dir ? 'right' : 'left' }); x += c.w; });
+      y += 7;
+    };
+    cab();
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+    if (!linhas.length) { doc.setTextColor(soft[0], soft[1], soft[2]); doc.text('Nenhum atendimento.', M + 2, y + 5); y += 8; }
+    linhas.forEach((r, i) => {
+      if (y > H - 22) { novaPagina(); cab(); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); }
+      if (i % 2) { doc.setFillColor(zebra[0], zebra[1], zebra[2]); doc.rect(M, y, W - 2 * M, 6, 'F'); }
+      doc.setTextColor(ink[0], ink[1], ink[2]);
+      const vals = [String(i + 1), `${prDataBR(r.data)} ${r.hora || ''}`.trim(), r.paciente || '', r.procedimento || '', (r.convenio || '').replace(/ \/ Não Informado$/, ''), brl(r.valor)];
+      let x = M + 2;
+      cols.forEach((c, k) => {
+        let t = String(vals[k] || '');
+        while (t.length > 1 && doc.getTextWidth(t) > c.w - 3) t = t.slice(0, -2) + '…';
+        doc.text(t, c.dir ? x + c.w - 2 : x, y + 4.2, { align: c.dir ? 'right' : 'left' }); x += c.w;
+      });
+      y += 6;
+    });
+    doc.setDrawColor(line[0], line[1], line[2]); doc.line(M, y, W - M, y); y += 5;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(ink[0], ink[1], ink[2]);
+    doc.text(subtotalTxt[0], M, y); doc.text(subtotalTxt[1], W - M, y, { align: 'right' }); y += 10;
+  };
+  tabela(`ATENDIMENTOS DE CONVÊNIO (${conv.length})`, conv, [`Subtotal convênio — ${conv.length} atendimento(s)`, brl(tConv)]);
+  tabela(`ATENDIMENTOS PARTICULARES (${part.length})`, part, ['Subtotal particular', brl(tPart)]);
+
+  if (y > H - 55) novaPagina();
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(ink[0], ink[1], ink[2]);
+  if (hold) { doc.text('Desconto holding', M, y); doc.text('- ' + brl(hold), W - M, y, { align: 'right' }); y += 6; }
+  if (aj) { doc.text('Ajuste', M, y); doc.text((aj < 0 ? '- ' : '') + brl(Math.abs(aj)), W - M, y, { align: 'right' }); y += 6; }
+  doc.setFillColor(navy[0], navy[1], navy[2]); doc.roundedRect(M, y, W - 2 * M, 12, 2.5, 2.5, 'F');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 255, 255);
+  doc.text('TOTAL A REPASSAR', M + 5, y + 7.8); doc.text(brl(total), W - M - 5, y + 7.8, { align: 'right' });
+  y += 20;
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(7.8); doc.setTextColor(soft[0], soft[1], soft[2]);
+  doc.text(`Modelo: ${String(modelo).replace(/ · /g, ', ')}. Só entram atendimentos concluídos e evoluídos; retorno não paga (POP Financeiro, Parte III).`, M, y, { maxWidth: W - 2 * M });
+  y += 18;
+  if (y > H - 30) novaPagina();
+  doc.setDrawColor(soft[0], soft[1], soft[2]); doc.line(W / 2 - 35, y, W / 2 + 35, y);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(ink[0], ink[1], ink[2]); doc.text('Guilherme Marques', W / 2, y + 5, { align: 'center' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(soft[0], soft[1], soft[2]); doc.text('Gestor Administrativo', W / 2, y + 9.5, { align: 'center' });
+  rodape();
+  const slug = String(nome).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_');
+  doc.save(`Demonstrativo_${slug}_${comp}.pdf`);
+}
+
+const ProducaoTab = ({ companyId, userId, colabs, regrasByColab, tarifas, D }) => {
+  const hoje = new Date();
+  const [comp, setComp] = useStateRP(() => { const d = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; });
+  const [linhas, setLinhas] = useStateRP(null);
+  const [sel, setSel] = useStateRP(null);
+  const [msg, setMsg] = useStateRP('');
+  const [importando, setImportando] = useStateRP(false);
+  const [verFora, setVerFora] = useStateRP(false);
+  const [holding, setHolding] = useStateRP({});
+  const [ajuste, setAjuste] = useStateRP({});
+  const [lancando, setLancando] = useStateRP(false);
+
+  const carregar = React.useCallback(async () => {
+    if (!companyId) return;
+    setLinhas(null);
+    try { setLinhas(await prFetchMes(companyId, comp)); }
+    catch (e) {
+      setLinhas([]);
+      setMsg(/repasse_atendimentos/.test(e.message) ? 'Falta criar a tabela: rode o SQL "1_producao_planilha.sql" no Supabase.' : 'Erro ao carregar: ' + e.message);
+    }
+  }, [companyId, comp]);
+  useEffectRP(() => { carregar(); }, [carregar]);
+
+  const colabDe = (nome) => (colabs || []).find(c => normalizarNome(c.nome) === normalizarNome(nome));
+  const regraDe = (nome) => { const c = colabDe(nome); return c && regrasByColab[c.id]; };
+
+  const importar = async (files) => {
+    if (!files || !files.length) return;
+    setImportando(true); setMsg('Lendo o relatório…');
+    try {
+      const r = await prImportar([...files], { companyId, userId, colabs, regrasByColab, tarifas, D });
+      setMsg(`✓ ${r.total} atendimento(s) de ${r.profissionais.join(', ')} importado(s).` +
+        (r.preservados ? ` ${r.preservados} linha(s) que você tinha editado foram mantidas.` : '') +
+        (r.semRegra.length ? ` ⚠ Sem regra de repasse: ${r.semRegra.join(', ')} — cadastre em Repasse › Regras e importe de novo.` : '') +
+        ' O texto das evoluções não é guardado.');
+      if (r.mesPrincipal !== comp) setComp(r.mesPrincipal); else await carregar();
+      if (r.profissionais.length === 1) setSel(r.profissionais[0]);
+    } catch (e) { setMsg('Erro: ' + e.message); }
+    setImportando(false);
+  };
+
+  const salvar = async (row, patch) => {
+    setLinhas(ls => ls.map(x => x.id === row.id ? { ...x, ...patch } : x));
+    try { await prSb(`/repasse_atendimentos?id=eq.${row.id}`, { method: 'PATCH', body: JSON.stringify({ ...patch, editado: true, updated_at: new Date().toISOString() }) }); }
+    catch (e) { setMsg('Não consegui salvar: ' + e.message); carregar(); }
+  };
+  const remover = async (row) => {
+    if (!window.confirm('Excluir esta linha da planilha?')) return;
+    setLinhas(ls => ls.filter(x => x.id !== row.id));
+    try { await prSb(`/repasse_atendimentos?id=eq.${row.id}`, { method: 'DELETE' }); } catch (e) { setMsg('Não consegui excluir: ' + e.message); carregar(); }
+  };
+  const novaLinha = async (tipo) => {
+    const c = colabDe(sel);
+    try {
+      await prSb('/repasse_atendimentos', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify({
+        company_id: prRC(companyId), competencia: comp, data: `${comp}-01`, profissional: sel, colaborador_id: c ? c.id : null,
+        tipo, convenio: tipo === 'particular' ? 'Particular' : '', procedimento: '', paciente: '', valor: 0, incluir: true,
+        origem: 'manual', editado: true, created_by: userId || null }) });
+      await carregar();
+    } catch (e) { setMsg('Não consegui adicionar: ' + e.message); }
+  };
+
+  const doProf = (nome) => (linhas || []).filter(l => l.profissional === nome);
+  const soma = (xs) => xs.reduce((s, r) => s + (Number(r.valor) || 0), 0);
+  const profs = [...new Set((linhas || []).map(l => l.profissional))].sort((a, b) => a.localeCompare(b));
+  const brl = D.brlR;
+
+  // Lança no Pagamentos da equipe: convênio deste mês (X) + particular do mês seguinte (X+1), pago no dia 20 de X+2
+  const lancar = async () => {
+    const c = colabDe(sel); const regra = regraDe(sel);
+    const compPart = prMais(comp, 1), compPag = prMais(comp, 2);
+    setLancando(true); setMsg('');
+    try {
+      const conv = doProf(sel).filter(l => l.tipo === 'convenio' && l.incluir);
+      let partRows = [];
+      try { partRows = (await prFetchMes(companyId, compPart)).filter(l => l.profissional === sel && l.tipo === 'particular' && l.incluir); } catch (e) {}
+      const tConv = prR2(soma(conv)), tPart = prR2(soma(partRows));
+      const hold = Number(holding[sel] ?? regra?.holding_mensal ?? 0) || 0, aj = Number(ajuste[sel] || 0);
+      const liquido = prR2(tConv + tPart - hold + aj);
+      const grupo = /M-1/.test(regra?.grupo_ciclo || '') ? '5dia' : 'dia20';
+      const filtro = c ? `colaborador_id=eq.${c.id}` : `nome=eq.${encodeURIComponent(sel)}`;
+      const ex = await prSb(`/pagamentos?${prCF(companyId)}&competencia=eq.${compPag}&${filtro}&select=id,status&limit=1`) || [];
+      const obs = `Convênio ${competenciaExtenso(comp)} (${conv.length}) + particular ${competenciaExtenso(compPart)} (${partRows.length}) — planilha de produção`;
+      const dados = { valor_bruto: prR2(tConv + tPart), desconto_holding: hold, valor_liquido: liquido, observacao: obs, origem: 'repasse' };
+      if (ex[0] && ex[0].status === 'pago') { setMsg(`${sel} já está como PAGO em ${competenciaExtenso(compPag)} — não alterei. Ajuste em Pagamentos da equipe se precisar.`); setLancando(false); return; }
+      if (ex[0]) await D.updatePagamento(ex[0].id, dados);
+      else await D.createPagamento({ competencia: compPag, grupo, colaborador_id: c ? c.id : null, nome: sel, cargo: c?.cargo || null, regime: c?.regime || null, status: 'pendente', ...dados }, companyId, userId);
+      setMsg(`✓ ${sel}: ${brl(liquido)} lançado em Pagamentos da equipe (${grupo === 'dia20' ? 'dia 20' : '5º dia útil'} de ${competenciaExtenso(compPag)}).` +
+        (partRows.length ? '' : ` Particular de ${competenciaExtenso(compPart)} ainda não importado — quando importar, lance de novo que o valor se atualiza.`));
+    } catch (e) { setMsg('Erro ao lançar: ' + e.message); }
+    setLancando(false);
+  };
+
+  const card = { background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-lg)', overflow: 'hidden' };
+  const th = { padding: '8px 10px', font: '700 10.5px var(--f-sans)', textTransform: 'uppercase', letterSpacing: '.03em', color: 'var(--ink-3)', background: 'var(--surface-2, #F6F8FA)', borderBottom: '1px solid var(--line)', textAlign: 'left', whiteSpace: 'nowrap' };
+  const td = { padding: 0, borderBottom: '1px solid var(--line-2, var(--line))', font: '500 12.5px var(--f-sans)', color: 'var(--ink)' };
+  const cellInp = (dir) => ({ width: '100%', boxSizing: 'border-box', border: 0, background: 'transparent', padding: '7px 10px', outline: 'none', font: dir ? '600 12.5px var(--f-mono)' : '500 12.5px var(--f-sans)', textAlign: dir ? 'right' : 'left', color: 'var(--ink)' });
+  const Tag = ({ r }) => {
+    const base = { font: '600 10.5px var(--f-sans)', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' };
+    if (r.incluir) return <span style={{ ...base, background: 'var(--c-pos-bg, #E4F3E9)', color: 'var(--c-pos)' }}>{r.origem === 'manual' ? 'manual' : 'entra'}</span>;
+    return <span title={r.observacao || ''} style={{ ...base, background: 'var(--c-warning-bg, #FFF4D6)', color: 'var(--c-warning, #9A6700)' }}>{r.motivo || 'fora'}</span>;
+  };
+
+  const Tabela = ({ titulo, rows, tipo }) => {
+    const ent = rows.filter(r => r.incluir);
+    return (
+      <div style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ font: '700 13.5px var(--f-sans)', color: 'var(--ink)' }}>{titulo} ({ent.length})</span>
+          <span style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)' }}>{rows.length - ent.length ? `${rows.length - ent.length} fora do total` : ''}</span>
+          <span style={{ marginLeft: 'auto', font: '500 12px var(--f-sans)', color: 'var(--ink-3)' }}>Subtotal</span>
+          <span className="mono" style={{ font: '700 13px var(--f-mono)', color: 'var(--ink)' }}>{brl(soma(ent))}</span>
+          <window.Btn variant="secondary" size="sm" icon="plus" onClick={() => novaLinha(tipo)}>Linha</window.Btn>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+            <thead><tr>
+              <th style={{ ...th, width: 34, textAlign: 'center' }}>✓</th><th style={{ ...th, width: 36 }}>#</th><th style={{ ...th, width: 118 }}>Data</th>
+              <th style={th}>Paciente</th><th style={th}>Procedimento</th><th style={{ ...th, width: 140 }}>Convênio</th>
+              <th style={{ ...th, width: 130 }}>Situação</th><th style={{ ...th, width: 110, textAlign: 'right' }}>Valor</th><th style={{ ...th, width: 34 }} />
+            </tr></thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={r.id} style={{ opacity: r.incluir ? 1 : 0.55 }}>
+                  <td style={{ ...td, textAlign: 'center' }}><input type="checkbox" checked={!!r.incluir} title="Entra no total"
+                    onChange={e => salvar(r, { incluir: e.target.checked, motivo: e.target.checked ? null : (r.motivo || 'retirado à mão') })} /></td>
+                  <td style={{ ...td, padding: '7px 10px', color: 'var(--ink-3)' }}>{i + 1}</td>
+                  <td style={{ ...td, padding: '7px 10px', whiteSpace: 'nowrap' }}>{prDataBR(r.data)} <span style={{ color: 'var(--ink-3)' }}>{r.hora || ''}</span></td>
+                  <td style={td}><input key={r.id + (r.paciente || '')} defaultValue={r.paciente || ''} onBlur={e => e.target.value !== (r.paciente || '') && salvar(r, { paciente: e.target.value })} style={cellInp(false)} /></td>
+                  <td style={td}><input key={r.id + (r.procedimento || '')} defaultValue={r.procedimento || ''} onBlur={e => e.target.value !== (r.procedimento || '') && salvar(r, { procedimento: e.target.value })} style={cellInp(false)} /></td>
+                  <td style={td}><input key={r.id + (r.convenio || '')} defaultValue={(r.convenio || '').replace(/ \/ Não Informado$/, '')} onBlur={e => e.target.value !== (r.convenio || '').replace(/ \/ Não Informado$/, '') && salvar(r, { convenio: e.target.value })} style={cellInp(false)} /></td>
+                  <td style={{ ...td, padding: '7px 10px' }}><Tag r={r} /></td>
+                  <td style={td}><input key={r.id + String(r.valor)} defaultValue={window.fmt ? window.fmt(Number(r.valor) || 0) : r.valor} onFocus={e => e.target.select()}
+                    onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                    onBlur={e => { const v = prNum(e.target.value); if (v != null && Math.abs(v - (Number(r.valor) || 0)) > 0.004) salvar(r, { valor: prR2(v) }); }} style={cellInp(true)} /></td>
+                  <td style={{ ...td, textAlign: 'center' }}><button onClick={() => remover(r)} title="Excluir linha" style={{ border: 0, background: 'none', cursor: 'pointer', color: 'var(--ink-3)', fontSize: 15 }}>×</button></td>
+                </tr>
+              ))}
+              {!rows.length && <tr><td colSpan={9} style={{ padding: 16, textAlign: 'center', color: 'var(--ink-3)', font: '400 12.5px var(--f-sans)' }}>Nenhum atendimento.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Planilha de um profissional ──
+  if (sel && linhas) {
+    const todas = doProf(sel);
+    const naoRealizados = todas.filter(r => r.motivo === 'não realizado');
+    const visiveis = todas.filter(r => verFora || r.motivo !== 'não realizado');
+    const conv = visiveis.filter(r => r.tipo === 'convenio'), part = visiveis.filter(r => r.tipo === 'particular');
+    const regra = regraDe(sel), c = colabDe(sel);
+    const hold = Number(holding[sel] ?? regra?.holding_mensal ?? 0) || 0, aj = Number(ajuste[sel] || 0);
+    const tConv = soma(conv.filter(r => r.incluir)), tPart = soma(part.filter(r => r.incluir));
+    const total = tConv + tPart - hold + aj;
+    const semEvol = todas.filter(r => /sem evolução/.test(r.motivo || ''));
+    const Box = ({ rot, val, forte }) => (
+      <div style={{ flex: 1, minWidth: 170, padding: '12px 16px', borderRadius: 'var(--r-lg)', background: forte ? 'var(--accent)' : 'var(--surface)', border: forte ? 0 : '1px solid var(--line)' }}>
+        <div style={{ font: '700 10.5px var(--f-sans)', letterSpacing: '.05em', textTransform: 'uppercase', color: forte ? 'rgba(255,255,255,.8)' : 'var(--ink-3)' }}>{rot}</div>
+        <div className="mono" style={{ font: '700 20px var(--f-mono)', color: forte ? '#fff' : 'var(--ink)', marginTop: 4 }}>{val}</div>
+      </div>
+    );
+    const numInp = { width: 110, height: 32, padding: '0 10px', textAlign: 'right', border: '1px solid var(--line-strong, var(--line))', borderRadius: 'var(--r-md)', background: 'var(--field, var(--surface))', font: '600 12.5px var(--f-mono)', color: 'var(--ink)' };
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <window.Btn variant="ghost" size="sm" onClick={() => setSel(null)}>← Todos os profissionais</window.Btn>
+          <div style={{ flex: 1 }} />
+          <window.Btn variant="secondary" size="sm" icon="file" onClick={() => gerarDemonstrativoPlanilhaPDF({ nome: sel, funcao: c?.cargo, modelo: prModelo(regra), comp,
+            conv: conv.filter(r => r.incluir), part: part.filter(r => r.incluir), holding: hold, ajuste: aj })}>Baixar PDF</window.Btn>
+          <window.Btn variant="primary" size="sm" icon="check" disabled={lancando} onClick={lancar}>{lancando ? 'Lançando…' : `Lançar em Pagamentos (${competenciaExtenso(prMais(comp, 2))})`}</window.Btn>
+        </div>
+        {msg && <div style={{ ...card, padding: 12, font: '500 13px var(--f-sans)', color: /^erro|não consegui|falta criar/i.test(msg) ? 'var(--c-neg)' : 'var(--ink)' }}>{msg}</div>}
+
+        <div style={{ ...card, padding: '14px 18px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px 24px' }}>
+          {[['Profissional', sel], ['Função', c?.cargo || '—'], ['Modelo', prModelo(regra)], ['Competência', competenciaExtenso(comp).toLowerCase()]].map(([k, v]) => (
+            <div key={k}><div style={{ font: '700 10.5px var(--f-sans)', letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>{k}</div>
+              <div style={{ font: '600 13.5px var(--f-sans)', color: regra || k !== 'Modelo' ? 'var(--ink)' : 'var(--c-neg)' }}>{v}</div></div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <Box rot={`Convênio: ${conv.filter(r => r.incluir).length}`} val={brl(tConv)} />
+          <Box rot={`Particular: ${part.filter(r => r.incluir).length}`} val={brl(tPart)} />
+          <Box rot="Total a repassar" val={brl(total)} forte />
+        </div>
+
+        {semEvol.length > 0 && <div style={{ ...card, padding: 12, borderLeft: '3px solid var(--c-warning, #D9A300)', font: '500 12.5px var(--f-sans)', color: 'var(--ink)' }}>
+          {semEvol.length} atendimento(s) sem evolução — fora do total. Se evoluir no prazo de 3 dias, recebe {brl(soma(semEvol))} a mais: reimporte o relatório atualizado (ou marque ✓ na linha).
+        </div>}
+
+        <Tabela titulo="Atendimentos de convênio" rows={conv} tipo="convenio" />
+        <Tabela titulo="Atendimentos particulares" rows={part} tipo="particular" />
+
+        <div style={{ ...card, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, font: '600 12.5px var(--f-sans)', color: 'var(--ink-2)' }}>Desconto holding
+            <input key={'h' + sel + hold} defaultValue={window.fmt ? window.fmt(hold) : hold} onBlur={e => setHolding(h => ({ ...h, [sel]: prNum(e.target.value) || 0 }))} style={numInp} /></label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, font: '600 12.5px var(--f-sans)', color: 'var(--ink-2)' }}>Ajuste (+/−)
+            <input key={'a' + sel + aj} defaultValue={window.fmt ? window.fmt(aj) : aj} onBlur={e => setAjuste(a => ({ ...a, [sel]: prNum(e.target.value) || 0 }))} style={numInp} /></label>
+          <div style={{ marginLeft: 'auto', font: '700 14px var(--f-sans)', color: 'var(--ink)' }}>Total a repassar <span className="mono" style={{ marginLeft: 10 }}>{brl(total)}</span></div>
+        </div>
+
+        <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', lineHeight: 1.6 }}>
+          {naoRealizados.length > 0 && <><button onClick={() => setVerFora(v => !v)} style={{ border: 0, background: 'none', color: 'var(--accent)', cursor: 'pointer', font: '600 12px var(--f-sans)', padding: 0 }}>
+            {verFora ? 'Esconder' : 'Mostrar'} {naoRealizados.length} falta(s)/cancelamento(s)</button> · </>}
+          Clique em qualquer célula para corrigir; o ✓ decide se a linha entra no total. Linhas editadas à mão não são sobrescritas ao reimportar.
+          "Lançar em Pagamentos" soma o convênio de {competenciaExtenso(comp).toLowerCase()} + o particular de {competenciaExtenso(prMais(comp, 1)).toLowerCase()} (POP: convênio M-2, particular M-1).
+        </div>
+      </div>
+    );
+  }
+
+  // ── Visão geral do mês ──
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ ...card, padding: 18, display: 'flex', gap: 18, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <window.Field label="Mês dos atendimentos">
+          <input type="month" value={comp} onChange={e => e.target.value && setComp(e.target.value)} style={window.inputStyle} />
+        </window.Field>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <window.Field label='Relatório "Atendimentos por data com prontuário" (CSV) — pode escolher vários'>
+            <input type="file" multiple accept=".csv,.xlsx" disabled={importando} onChange={e => { importar(e.target.files); e.target.value = ''; }} style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-2)' }} />
+          </window.Field>
+        </div>
+      </div>
+      {msg && <div style={{ ...card, padding: 12, font: '500 13px var(--f-sans)', color: /^erro|não consegui|falta criar/i.test(msg) ? 'var(--c-neg)' : 'var(--ink)' }}>{msg}</div>}
+
+      <div style={card}>
+        <div style={{ padding: '12px 16px', font: '700 14px var(--f-sans)', color: 'var(--ink)', borderBottom: '1px solid var(--line)' }}>Produção de {competenciaExtenso(comp).toLowerCase()}</div>
+        {!linhas && <div style={{ padding: 16, color: 'var(--ink-3)' }}>Carregando…</div>}
+        {linhas && !profs.length && <div style={{ padding: 22, color: 'var(--ink-3)', font: '400 13px var(--f-sans)', lineHeight: 1.6 }}>
+          Nada importado neste mês. No Mais Equilibrium: Relatórios → "Atendimentos por data com prontuário", filtre o mês e o profissional, exporte e escolha o arquivo acima.
+        </div>}
+        {profs.length > 0 && (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr>
+              <th style={th}>Profissional</th><th style={{ ...th, textAlign: 'right' }}>Convênio</th><th style={{ ...th, textAlign: 'right' }}>Particular</th>
+              <th style={{ ...th, textAlign: 'right' }}>Sem evolução</th><th style={{ ...th, textAlign: 'right' }}>A repassar</th><th style={th} />
+            </tr></thead>
+            <tbody>
+              {profs.map(p => {
+                const ls = doProf(p), cv = ls.filter(r => r.tipo === 'convenio' && r.incluir), pt = ls.filter(r => r.tipo === 'particular' && r.incluir);
+                const se = ls.filter(r => /sem evolução/.test(r.motivo || '')).length;
+                const regra = regraDe(p);
+                const hold = Number(holding[p] ?? regra?.holding_mensal ?? 0) || 0;
+                return (
+                  <tr key={p} onClick={() => setSel(p)} style={{ cursor: 'pointer' }}>
+                    <td style={{ ...td, padding: '10px 12px', fontWeight: 600 }}>{p}{!regra && <span style={{ marginLeft: 8, font: '600 10.5px var(--f-sans)', color: 'var(--c-neg)' }}>sem regra</span>}</td>
+                    <td className="mono" style={{ ...td, padding: '10px 12px', textAlign: 'right' }}>{cv.length} · {brl(soma(cv))}</td>
+                    <td className="mono" style={{ ...td, padding: '10px 12px', textAlign: 'right' }}>{pt.length} · {brl(soma(pt))}</td>
+                    <td style={{ ...td, padding: '10px 12px', textAlign: 'right', color: se ? 'var(--c-warning, #9A6700)' : 'var(--ink-3)' }}>{se || '—'}</td>
+                    <td className="mono" style={{ ...td, padding: '10px 12px', textAlign: 'right', fontWeight: 700 }}>{brl(soma(cv) + soma(pt) - hold)}</td>
+                    <td style={{ ...td, padding: '10px 12px', textAlign: 'right', color: 'var(--accent)', fontWeight: 600 }}>Abrir planilha →</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', lineHeight: 1.6 }}>
+        O sistema calcula cada atendimento pela regra do profissional (Regras e Tarifas): só entram os concluídos e evoluídos; retorno não paga;
+        particular só entra se estiver no Caixa (paciente + data). Tudo fica editável na planilha. O texto das evoluções do prontuário não é guardado.
+      </div>
+    </div>
+  );
+};
+
 const RepassePage = () => {
   const { profile } = window.useAuth();
   const companyId = profile?.company_id;
   const userId = profile?.id;
   const D = window.__repasseData;
 
-  const [sub, setSub] = useStateRP('fechamento'); // fechamento | regras | tarifas
+  const [sub, setSub] = useStateRP('producao'); // producao | fechamento | pagamentos | regras | tarifas
   const [rows, setRows] = useStateRP(null);
   const [colabs, setColabs] = useStateRP([]);
   const [regras, setRegras] = useStateRP([]);
@@ -780,7 +1317,7 @@ const RepassePage = () => {
     const cont = {};
     for (const r of parsed) {
       const st = (r['Status'] || '').trim();
-      if (!STATUS_COMPUTA.includes(st)) continue;
+      if (situacaoAtend(r) !== 'paga') continue;
       const cvRaw = (r['Convênio'] || r['Convenio'] || '').toLowerCase();
       let cv = null;
       for (const k in MAPA) if (cvRaw.includes(k)) { cv = MAPA[k]; break; }
@@ -857,7 +1394,7 @@ const RepassePage = () => {
       <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Sub-navegação */}
         <window.Segmented
-          options={[{ value: 'fechamento', label: 'Fechamento' }, { value: 'pagamentos', label: 'Pagamentos' }, { value: 'regras', label: 'Regras' }, { value: 'tarifas', label: 'Tarifas' }]}
+          options={[{ value: 'producao', label: 'Produção (planilha)' }, { value: 'fechamento', label: 'Fechamento' }, { value: 'pagamentos', label: 'Pagamentos' }, { value: 'regras', label: 'Regras' }, { value: 'tarifas', label: 'Tarifas' }]}
           value={sub} onChange={setSub} />
 
         {sub === 'fechamento' && (
@@ -956,6 +1493,7 @@ const RepassePage = () => {
           </>
         )}
 
+        {sub === 'producao' && <ProducaoTab companyId={companyId} userId={userId} colabs={colabs} regrasByColab={regrasByColab} tarifas={tarifas} D={D} />}
         {sub === 'pagamentos' && <PagamentosTab companyId={companyId} userId={userId} colabs={colabs} D={D} />}
         {sub === 'regras' && <RegrasTab companyId={companyId} colabs={colabs} regras={regras} setRegras={setRegras} D={D} />}
         {sub === 'tarifas' && <TarifasTab tarifas={tarifas} setTarifas={setTarifas} companyId={companyId} D={D} />}
