@@ -1597,6 +1597,8 @@ const ContasPage = ({ filter, setFilter }) => {
   }, []);
   const [bancos, setBancos] = React.useState(null);
   const { profile: _prof } = window.useAuth();
+  // Financeiro (auxiliar) não vê saldo de banco
+  const verSaldos = window.veSaldos ? window.veSaldos(_prof?.role || 'viewer') : true;
   React.useEffect(() => {
     if (!_prof?.company_id || !window.fetchContasBancarias) return;
     window.fetchContasBancarias(_prof.company_id)
@@ -1843,12 +1845,15 @@ const ContasPage = ({ filter, setFilter }) => {
             <window.Btn variant="primary" icon="plus" onBand onClick={() => setEditing({ tipo: 'pagar', pago: false, previsto: 0, realizado: 0 })}>Nova conta</window.Btn>
           </>
         }
-        metricLabel="Dinheiro nas contas hoje"
-        metric={bancos ? totalBanco : '—'}
-        stats={[
+        metricLabel={verSaldos ? 'Dinheiro nas contas hoje' : 'Falta pagar'}
+        metric={verSaldos ? (bancos ? totalBanco : '—') : totalAPagar}
+        stats={verSaldos ? [
           { label: 'Entrou no mês', value: tot_real_in, color: 'var(--on-accent-pos)' },
           { label: 'Saiu no mês', value: tot_real_out, color: 'var(--on-accent-neg)' },
           { label: 'Sobrou no mês', value: resultado, color: resultado >= 0 ? 'var(--on-accent-pos)' : 'var(--on-accent-neg)' },
+        ] : [
+          { label: 'Vencidas', value: String(vencidas.length), color: vencidas.length ? 'var(--on-accent-neg)' : undefined },
+          { label: 'Vencem em 7 dias', value: String(proximas.length) },
         ]}
       />
 
@@ -1856,7 +1861,7 @@ const ContasPage = ({ filter, setFilter }) => {
         <window.FilterBar filter={filter} setFilter={setFilter} />
 
         {/* Saldos por banco (clique no valor para ajustar pelo extrato) */}
-        {bancos && bancos.length > 0 && (
+        {verSaldos && bancos && bancos.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(150px, 1fr))`, gap: 1, background: 'var(--line)', border: '1px solid var(--line)', borderRadius: 'var(--r-xl)', overflow: 'hidden' }}>
             {bancos.map(b => (
               <div key={b.id} style={{ background: 'var(--surface)', padding: '11px 16px' }}>

@@ -149,7 +149,7 @@ const Sidebar = ({ page, setPage, modulo, setModulo, visao, trocarVisao }) => {
 
       {/* Rodapé */}
       <div style={{ paddingTop: 10, borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {trocarVisao && (role === 'admin' || role === 'editor') && (
+        {trocarVisao && role === 'admin' && (
           <NavItem item={{ label: operacional ? 'Visão completa' : 'Visão operacional', icon: 'transition' }} active={false}
             onClick={() => trocarVisao(operacional ? 'completa' : 'operacional')} />
         )}
@@ -1098,7 +1098,10 @@ const AppShell = () => {
   // Tela sem permissão para este tipo de acesso → volta para o Dashboard.
   const papelAtual = perfilVisao?.role || 'viewer';
   const podeVer = (k) => k === 'ajuda' || k === 'perfil' || window.canAccess(papelAtual, ACESSO_ALIAS[k] || k);
-  useEffect(() => { if (!podeVer(page)) setPage('dashboard'); }, [page, papelAtual]);
+  const inicio = podeVer('dashboard') ? 'dashboard' : 'hoje';
+  useEffect(() => { if (!podeVer(page)) setPage(inicio); }, [page, papelAtual]);
+  // Financeiro fica sempre na visão operacional
+  useEffect(() => { if (papelAtual === 'editor' && visao !== 'operacional') { setVisao('operacional'); if (!podeVer(page)) setPage('hoje'); } }, [papelAtual, visao]);
   // Diretoria só visualiza: não usa a visão operacional.
   useEffect(() => { if (papelAtual === 'diretoria' && visao === 'operacional') { setVisao('completa'); } }, [papelAtual]);
 

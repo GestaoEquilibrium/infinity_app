@@ -515,13 +515,16 @@ async function logAction(companyId, userId, action, tableName, recordId, newData
 // viewer → só Dashboard e leitura
 const ROLE_ACCESS = {
   admin: ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'conciliacao', 'rh', 'equipe', 'perfil', 'config', 'ajuda', 'hoje', 'equipe_pag'],
-  editor: ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'conciliacao', 'rh', 'perfil', 'ajuda', 'hoje', 'equipe_pag'],
+  // Financeiro (auxiliar): só a visão operacional do dia a dia, sem saldos de banco
+  editor: ['hoje', 'contas', 'caixa', 'equipe_pag', 'repasse', 'rh', 'conciliacao', 'perfil', 'ajuda'],
   // Diretoria: vê tudo, não altera nada (o banco bloqueia gravação)
   diretoria: ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'conciliacao', 'rh', 'perfil', 'ajuda', 'hoje', 'equipe_pag'],
   viewer: ['dashboard', 'caixa', 'agenda', 'perfil', 'ajuda', 'hoje'],
   pendente: ['perfil', 'ajuda'],
   bloqueado: [],
 };
+// Quem vê saldo de banco (dinheiro em conta). Financeiro não vê.
+function veSaldos(role) { return !['editor', 'pendente', 'bloqueado'].includes(role); }
 function canAccess(role, page) {
   return (ROLE_ACCESS[role] || ROLE_ACCESS.viewer).includes(page);
 }
@@ -592,5 +595,5 @@ Object.assign(window, {
   fetchProducaoMensal, upsertProducaoMensal,
   fetchCompras, createCompra, updateCompra, deleteCompra, rowToCompra, compraToRow,
   fetchCategories, createCategory, updateCategory, deleteCategory, fetchAuditLog, logAction,
-  ROLE_ACCESS, canAccess,
+  ROLE_ACCESS, canAccess, veSaldos,
 });
