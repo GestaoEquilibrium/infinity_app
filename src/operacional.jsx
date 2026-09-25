@@ -1063,12 +1063,19 @@ const DocumentosPage = () => {
   const abrir = async (d, baixar) => { try { await docAbrir(d, baixar); } catch (e) { setMsg('Não consegui abrir: ' + e.message); } };
 
   const contaDe = (d) => d.transaction_id && (window.CONTAS || []).find(c => c.id === d.transaction_id);
-  const doMes = (lista || []).filter(d => (d.competencia || (d.created_at || '').slice(0, 7)) === comp);
+  // Um documento aparece no mês em que VENCE (guia), no mês de COMPETÊNCIA e no mês em que foi ENVIADO.
+  // Ex.: o DAS de agosto vence em setembro — aparece nos dois meses.
+  const mesesDoDoc = (d) => new Set([d.vencimento && String(d.vencimento).slice(0, 7), d.competencia, (d.created_at || '').slice(0, 7)].filter(Boolean));
+  const doMes = (lista || []).filter(d => mesesDoDoc(d).has(comp));
+  // "faltando": guia que vence neste mês (ou, sem vencimento, de competência do mês anterior)
+  const compAnterior = opShiftComp(comp, -1);
+  const guiaDoMes = (d) => (d.vencimento ? String(d.vencimento).slice(0, 7) === comp : d.competencia === compAnterior || d.competencia === comp);
   const filtrados = busca.trim()
     ? (lista || []).filter(d => opNorm(`${d.tipo} ${d.descricao || ''} ${d.arquivo_nome || ''} ${docEmpNome(d.company_id)} ${d.competencia || ''}`).includes(opNorm(busca)))
     : doMes;
-  const faltando = DOC_EMP.flatMap(e => (DOC_ESPERADOS[e.id] || []).filter(t => !doMes.some(d => d.company_id === e.id && d.tipo === t)).map(t => ({ emp: e.nome, tipo: t })));
-  const guiasMes = doMes.filter(d => d.valor);
+  const faltando = DOC_EMP.flatMap(e => (DOC_ESPERADOS[e.id] || []).filter(t => !(lista || []).some(d => d.company_id === e.id && d.tipo === t && guiaDoMes(d))).map(t => ({ emp: e.nome, tipo: t })));
+  const guiasMes = (lista || []).filter(d => d.valor && guiaDoMes(d));
+  const recentes = (lista || []).slice(0, 8);
   const totalGuias = guiasMes.reduce((s, d) => s + (Number(d.valor) || 0), 0);
 
   const inp = { width: '100%', boxSizing: 'border-box', height: 34, padding: '0 9px', border: '1px solid var(--line-strong)', borderRadius: 'var(--r-md)', background: 'var(--field)', font: '500 12.5px var(--f-sans)', color: 'var(--ink)' };
@@ -1139,11 +1146,26 @@ const DocumentosPage = () => {
 
         {lista && faltando.length > 0 && !busca && (
           <Card padding={14} style={{ borderLeft: '3px solid var(--c-warning, #D9A300)' }}>
-            <div style={{ font: '700 13px var(--f-sans)', color: 'var(--ink)', marginBottom: 8 }}>Ainda não chegou em {opMesLabel(comp)}</div>
+            <div style={{ font: '700 13px var(--f-sans)', color: 'var(--ink)', marginBottom: 8 }}>Guias que vencem em {opMesLabel(comp)} e ainda não chegaram</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {faltando.map((f, i) => <span key={i} style={{ font: '600 11.5px var(--f-sans)', padding: '4px 10px', borderRadius: 999, background: 'var(--c-warning-bg, #FFF4D6)', color: 'var(--c-warning, #9A6700)' }}>{f.tipo} · {f.emp}</span>)}
             </div>
             <div style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)', marginTop: 8 }}>Guias que costumam vir todo mês (POP, Parte V). IRPJ/CSLL do Med Center é trimestral: jan, abr, jul e out.</div>
+          </Card>
+        )}
+
+        {lista && recentes.length > 0 && !busca && (
+          <Card padding={14}>
+            <div style={{ font: '700 13px var(--f-sans)', color: 'var(--ink)', marginBottom: 8 }}>Enviados por último <span style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)' }}>(de qualquer mês)</span></div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {recentes.map(d => (
+                <button key={d.id} onClick={() => abrir(d, false)} title={`${d.arquivo_nome} · ${docEmpNome(d.company_id)}`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', background: 'var(--surface)', borderRadius: 999, padding: '4px 11px', cursor: 'pointer', font: '500 12px var(--f-sans)', color: 'var(--ink-2)' }}>
+                  <b style={{ color: 'var(--accent)' }}>{d.tipo}</b> {docEmpNome(d.company_id)}
+                  <span style={{ color: 'var(--ink-3)' }}>· {d.competencia ? 'comp. ' + d.competencia.split('-').reverse().join('/') : new Date(d.created_at).toLocaleDateString('pt-BR')}</span>
+                </button>
+              ))}
+            </div>
           </Card>
         )}
 
@@ -1180,10 +1202,12 @@ const DocumentosPage = () => {
                         <td style={td}>{venc ? window.fmtDate(venc) : '—'}</td>
                         <td className="mono" style={{ ...td, textAlign: 'right' }}>{d.valor ? window.fmt(Number(d.valor)) : '—'}</td>
                         <td style={td}>{sit ? <span style={{ font: '600 11px var(--f-sans)', padding: '3px 9px', borderRadius: 999, color: sit[1], background: sit[2] }}>{sit[0]}</span> : '—'}</td>
-                        <td style={{ ...td, whiteSpace: 'nowrap', textAlign: 'right' }}>
-                          <Btn variant="ghost" size="sm" onClick={() => abrir(d, false)}>Abrir</Btn>
-                          <Btn variant="ghost" size="sm" onClick={() => abrir(d, true)}>Baixar</Btn>
-                          {podeEditar && <window.IconBtn name="trash" size={28} danger title="Excluir" onClick={() => excluir(d)} />}
+                        <td style={{ ...td, whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                            <Btn variant="ghost" size="sm" onClick={() => abrir(d, false)}>Abrir</Btn>
+                            <Btn variant="ghost" size="sm" onClick={() => abrir(d, true)}>Baixar</Btn>
+                            {podeEditar && <window.IconBtn name="trash" size={28} danger title="Excluir" onClick={() => excluir(d)} />}
+                          </div>
                         </td>
                       </tr>
                     );
