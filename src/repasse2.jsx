@@ -6,7 +6,10 @@
 
 const { useState: useStateRP, useEffect: useEffectRP, useMemo: useMemoRP } = React;
 
-const STATUS_COMPUTA = ['Realizado', 'Em Espera (Recepção)', 'Concluído', 'Aguardando ser chamado'];
+// POP Parte III: só paga o que foi EVOLUÍDO (Concluído/Realizado).
+const STATUS_COMPUTA = ['Realizado', 'Concluído'];
+// Atendidos mas ainda sem evolução: não pagam agora; pagam se o profissional evoluir no prazo de 3 dias.
+const STATUS_SEM_EVOLUCAO = ['Em Espera (Recepção)', 'Em Atendimento', 'Aguardando ser chamado'];
 const STATUS_FALTA = ['Falta', 'Faltou', 'Cancelado (Paciente)'];
 const STATUS_AUSENTE = ['Profissional Ausente', 'Cancelado (Profissional)'];
 const STATUS_PENDENTE = ['Agendado', 'Confirmado'];
@@ -61,7 +64,7 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
   // Mapa: procedimento do relatório -> tipo_servico da tarifa (normalizados)
   const PROC_MAP = {
     'CONSULTA PSIQUIATRIA': 'CONSULTA PSIQUIATRIA',
-    'RETORNO': 'CONSULTA PSIQUIATRIA',   // retorno de psiquiatria usa a mesma tarifa da consulta
+    // RETORNO não paga repasse (POP Parte III) — é tirado antes, no cálculo.
   };
 
   const tarifaMap = {};        // "CONVENIO|SERVICO" -> valor  (normalizado)
@@ -125,6 +128,7 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
     const holding = Number(regra.holding_mensal || 0);
     let sessoes = 0, receita = 0, repasse = 0, faltas = 0, ausencias = 0, pendentes = 0;
     let particularCount = 0;  // atendimentos particulares (não entram no demonstrativo)
+    let retornos = 0, semEvolucao = 0, repSemEvolucao = 0;  // retorno não paga; sem evolução paga só se evoluir
     const convCount = {};
     const detalhes = [];      // atendimentos de convênio computados (p/ demonstrativo detalhado)
     const diaInfo = {};       // dia -> { realizado, ausente } para saber se faltou o dia inteiro
@@ -144,12 +148,28 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
       if (STATUS_FALTA.includes(status)) faltas++;
       else if (STATUS_AUSENTE.includes(status)) ausencias++;
       else if (STATUS_PENDENTE.includes(status)) pendentes++;
+      const convBase = conv.replace(/ \/ Não Informado$/, '');
+      const ehRetorno = /retorno/i.test(proc);
+
+      // atendido mas sem evolução: fica fora agora; calcula quanto receberia se evoluir
+      if (STATUS_SEM_EVOLUCAO.includes(status)) {
+        if (!ehRetorno && !/^particular/i.test(convBase)) {
+          semEvolucao++;
+          const t = buscarTarifa(conv, proc) || 0;
+          repSemEvolucao += regra.tipo === 'fixo'
+            ? ((/Aba/i.test(proc) && regra.valor_fixo_aba) ? Number(regra.valor_fixo_aba) : Number(regra.valor_fixo || 0))
+            : t * (1 - IMPOSTO_RP) * Number(regra.pct_convenio || 0);
+        }
+        continue;
+      }
       if (!STATUS_COMPUTA.includes(status)) continue;
 
       // Particular NÃO entra no demonstrativo (pago por outra via). Pula
       // completamente: não conta sessão, não soma receita nem repasse.
-      const convBase = conv.replace(/ \/ Não Informado$/, '');
       if (/^particular/i.test(convBase)) { particularCount++; continue; }
+
+      // Retorno não paga — nem convênio nem particular (POP Parte III)
+      if (ehRetorno) { retornos++; continue; }
 
       sessoes++;
       convCount[conv] = (convCount[conv] || 0) + 1;
@@ -202,6 +222,8 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
     const margem = isFixoMensal ? 0 : receitaTotal - imposto - liquido;
     const total = atends.length;
 
+    if (semEvolucao > 0)
+      pendencias.push({ tipo: 'evolucao', msg: `${nome}: ${semEvolucao} atendimento(s) sem evolução — fora do valor agora; recebe ${window.__repasseData.brlR(repSemEvolucao)} a mais se evoluir no prazo de 3 dias.` });
     if (!isFixoMensal && pendentes >= 0.15 * total && total > 5)
       pendencias.push({ tipo: 'pendente', msg: `${nome}: ${pendentes} de ${total} agendamentos com status em aberto.` });
     if (!isFixoMensal && bruto > receitaTotal && receitaTotal > 0)
@@ -217,6 +239,7 @@ function calcularRepasse(rows, regrasByColab, tarifas, caixaByColab, colabs) {
       valor_fixo: Number(regra.valor_fixo || 0),
       sessoes, particular_n: particularCount || cx.n, receita: receitaTotal, bruto, holding, liquido, imposto, margem,
       faltas, ausencias, pendentes, convCount, competencia: regra.competencia_convenio,
+      retornos, sem_evolucao: semEvolucao, rep_sem_evolucao: repSemEvolucao,
       detalhes,
     });
   }
