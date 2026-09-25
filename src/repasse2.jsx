@@ -717,6 +717,30 @@ const prDataISO = (d) => { const m = String(d || '').match(/(\d{2})\/(\d{2})\/(\
 const prDataBR = (iso) => iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '';
 const prMais = (comp, n) => { let c = comp; for (let i = 0; i < n; i++) c = proximaCompetencia(c); return c; };
 
+// prazo de retorno do profissional: 3 dias corridos a partir do envio (POP Parte III)
+const PR_PRAZO_DIAS = 3;
+const prHojeISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const prSomaDias = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const prTextoPrazo = (envioISO) => {
+  const lim = prDataBR(prSomaDias(envioISO, PR_PRAZO_DIAS));
+  return `Você tem ${PR_PRAZO_DIAS} dias corridos, até ${lim}, para evoluir os atendimentos pendentes e apontar qualquer divergência. ` +
+    `Sem retorno até essa data, o pagamento será feito no valor deste demonstrativo. Atendimentos evoluídos ou divergências apontadas depois do prazo ` +
+    `serão analisados e, se procedentes, acertados somente no fechamento do mês seguinte.`;
+};
+// Trecho da notificação de auditoria da Unimed Uberlândia (sem identificar o profissional) — POP, Anexo A
+const PR_UNIMED_EVOLUCAO = '"Ressaltamos que o registro em prontuário é obrigatório e indispensável para a documentação e comprovação da assistência prestada. ' +
+  'Conforme a Resolução CFFa nº 777/2025, os registros devem contemplar, entre outras informações, a data e o horário do atendimento, os procedimentos realizados e a evolução do paciente. ' +
+  'Dessa forma, é imprescindível que a evolução clínica seja registrada de forma completa, fidedigna e vinculada ao respectivo atendimento. (...) ' +
+  'As sessões que constarem como executadas no sistema e não apresentarem o registro de evolução no prontuário serão debitadas."';
+async function prLerTomadores() {
+  try { const r = await prSb('/config_geral?chave=eq.nf_tomadores&select=valor'); return (r && r[0] && r[0].valor) || []; }
+  catch (e) { return []; }
+}
+async function prSalvarTomadores(lista) {
+  await prSb('/config_geral?on_conflict=chave', { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal',
+    body: JSON.stringify({ chave: 'nf_tomadores', valor: lista, atualizado_em: new Date().toISOString() }) });
+}
+
 async function prFetchMes(companyId, comp) {
   return await prSb(`/repasse_atendimentos?${prCF(companyId)}&competencia=eq.${comp}&select=*&order=profissional.asc,data.asc,hora.asc&limit=5000`) || [];
 }
@@ -843,7 +867,7 @@ async function prImportar(files, { companyId, userId, colabs, regrasByColab, tar
 }
 
 // ── PDF no formato do demonstrativo (planilha) ──
-function gerarDemonstrativoPlanilhaPDF({ nome, funcao, modelo, comp, conv, part, holding, ajuste }) {
+function gerarDemonstrativoPlanilhaPDF({ nome, funcao, modelo, comp, conv, part, holding, ajuste, tomador, pendentes, envio }) {
   const J = window.jspdf && window.jspdf.jsPDF;
   if (!J) { alert('Biblioteca de PDF não carregada. Dê um Ctrl+Shift+R e tente de novo.'); return; }
   const brl = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -931,14 +955,63 @@ function gerarDemonstrativoPlanilhaPDF({ nome, funcao, modelo, comp, conv, part,
   doc.setFillColor(navy[0], navy[1], navy[2]); doc.roundedRect(M, y, W - 2 * M, 12, 2.5, 2.5, 'F');
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 255, 255);
   doc.text('TOTAL A REPASSAR', M + 5, y + 7.8); doc.text(brl(total), W - M - 5, y + 7.8, { align: 'right' });
-  y += 20;
+  y += 18;
   doc.setFont('helvetica', 'italic'); doc.setFontSize(7.8); doc.setTextColor(soft[0], soft[1], soft[2]);
   doc.text(`Modelo: ${String(modelo).replace(/ · /g, ', ')}. Só entram atendimentos concluídos e evoluídos; retorno não paga (POP Financeiro, Parte III).`, M, y, { maxWidth: W - 2 * M });
-  y += 18;
+  y += 9;
+
+  // ── Dados para emissão da nota fiscal ──
+  if (tomador && (tomador.razao || tomador.cnpj)) {
+    const linhasNF = [
+      ['Razão social', tomador.razao], ['CNPJ', tomador.cnpj], ['Endereço', tomador.endereco],
+      ['E-mail para envio da nota', tomador.email], ['Valor da nota', brl(total)],
+      ['Descrição sugerida', `Serviços prestados${funcao ? ' (' + funcao + ')' : ''} — competência ${competenciaExtenso(comp).toLowerCase()}`],
+      ...(tomador.obs ? [['Observação', tomador.obs]] : []),
+    ].filter(l => l[1]);
+    const hNF = 12 + linhasNF.length * 5.6;
+    if (y + hNF > H - 20) novaPagina();
+    doc.setFillColor(242, 246, 251); doc.setDrawColor(210, 222, 238); doc.roundedRect(M, y, W - 2 * M, hNF, 2.5, 2.5, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(navy[0], navy[1], navy[2]);
+    doc.text('DADOS PARA EMISSÃO DA NOTA FISCAL', M + 5, y + 7);
+    doc.setFontSize(8.2);
+    linhasNF.forEach(([k, v], i) => {
+      const yy = y + 13 + i * 5.6;
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(soft[0], soft[1], soft[2]); doc.text(k, M + 5, yy);
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(ink[0], ink[1], ink[2]);
+      let t = String(v); while (t.length > 1 && doc.getTextWidth(t) > W - 2 * M - 58) t = t.slice(0, -2) + '…';
+      doc.text(t, M + 52, yy);
+    });
+    y += hNF + 6;
+  }
+
+  // ── Prazo de retorno (3 dias) ──
+  const envioISO = envio || prHojeISO();
+  const pend = pendentes || { n: 0, valor: 0 };
+  let txtPrazo = prTextoPrazo(envioISO);
+  if (pend.n) txtPrazo = `Há ${pend.n} atendimento(s) sem evolução, fora do total acima (${brl(pend.valor)} se evoluídos no prazo). ` + txtPrazo;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.2);
+  const linhasPrazo = doc.splitTextToSize(txtPrazo, W - 2 * M - 10);
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(7.6);
+  const linhasUnimed = doc.splitTextToSize(PR_UNIMED_EVOLUCAO, W - 2 * M - 10);
+  const hP = 12 + linhasPrazo.length * 4.1 + 9 + linhasUnimed.length * 3.7;
+  if (y + hP > H - 20) novaPagina();
+  doc.setFillColor(255, 247, 224); doc.setDrawColor(240, 200, 110); doc.roundedRect(M, y, W - 2 * M, hP, 2.5, 2.5, 'FD');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(140, 90, 0);
+  doc.text(`ATENÇÃO — PRAZO DE RETORNO: ATÉ ${prDataBR(prSomaDias(envioISO, PR_PRAZO_DIAS))}`, M + 5, y + 7);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.2); doc.setTextColor(90, 62, 0);
+  doc.text(linhasPrazo, M + 5, y + 12.5);
+  const yU = y + 12.5 + linhasPrazo.length * 4.1 + 3;
+  doc.setDrawColor(240, 200, 110); doc.line(M + 5, yU - 2.5, W - M - 5, yU - 2.5);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(7.6); doc.setTextColor(140, 90, 0);
+  doc.text('Por que o prazo existe — trecho de notificação de auditoria da Unimed Uberlândia:', M + 5, yU + 1.5);
+  doc.setFont('helvetica', 'italic'); doc.setTextColor(90, 62, 0);
+  doc.text(linhasUnimed, M + 5, yU + 5.6);
+  y += hP + 16;
   if (y > H - 30) novaPagina();
   doc.setDrawColor(soft[0], soft[1], soft[2]); doc.line(W / 2 - 35, y, W / 2 + 35, y);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(ink[0], ink[1], ink[2]); doc.text('Guilherme Marques', W / 2, y + 5, { align: 'center' });
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(soft[0], soft[1], soft[2]); doc.text('Gestor Administrativo', W / 2, y + 9.5, { align: 'center' });
+  doc.setFontSize(7.5); doc.text(`Enviado em ${prDataBR(envioISO)}`, W / 2, y + 14, { align: 'center' });
   rodape();
   const slug = String(nome).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_');
   doc.save(`Demonstrativo_${slug}_${comp}.pdf`);
@@ -955,6 +1028,19 @@ const ProducaoTab = ({ companyId, userId, colabs, regrasByColab, tarifas, D }) =
   const [holding, setHolding] = useStateRP({});
   const [ajuste, setAjuste] = useStateRP({});
   const [lancando, setLancando] = useStateRP(false);
+  const [tomadores, setTomadores] = useStateRP([]);
+  const [tomadorDe, setTomadorDe] = useStateRP(() => { try { return JSON.parse(localStorage.getItem('eq-nf-tomador-prof') || '{}'); } catch { return {}; } });
+  const [editNF, setEditNF] = useStateRP(null);
+  useEffectRP(() => { prLerTomadores().then(setTomadores); }, []);
+  const escolherTomador = (prof, id) => {
+    const n = { ...tomadorDe, [prof]: id }; setTomadorDe(n);
+    try { localStorage.setItem('eq-nf-tomador-prof', JSON.stringify(n)); } catch {}
+  };
+  const salvarNF = async () => {
+    const lista = tomadores.map(t => t.id === editNF.id ? editNF : t);
+    try { await prSalvarTomadores(lista); setTomadores(lista); setEditNF(null); setMsg('✓ Dados da nota fiscal salvos — valem para todos os demonstrativos.'); }
+    catch (e) { setMsg(/config_geral/.test(e.message) ? 'Falta criar a tabela: rode o SQL "2_dados_nota_fiscal.sql" no Supabase.' : 'Não consegui salvar: ' + e.message); }
+  };
 
   const carregar = React.useCallback(async () => {
     if (!companyId) return;
@@ -1101,6 +1187,7 @@ const ProducaoTab = ({ companyId, userId, colabs, regrasByColab, tarifas, D }) =
     const tConv = soma(conv.filter(r => r.incluir)), tPart = soma(part.filter(r => r.incluir));
     const total = tConv + tPart - hold + aj;
     const semEvol = todas.filter(r => /sem evolução/.test(r.motivo || ''));
+    const tomadorAtual = tomadores.find(t => t.id === tomadorDe[sel]) || tomadores[0] || null;
     const Box = ({ rot, val, forte }) => (
       <div style={{ flex: 1, minWidth: 170, padding: '12px 16px', borderRadius: 'var(--r-lg)', background: forte ? 'var(--accent)' : 'var(--surface)', border: forte ? 0 : '1px solid var(--line)' }}>
         <div style={{ font: '700 10.5px var(--f-sans)', letterSpacing: '.05em', textTransform: 'uppercase', color: forte ? 'rgba(255,255,255,.8)' : 'var(--ink-3)' }}>{rot}</div>
@@ -1114,7 +1201,8 @@ const ProducaoTab = ({ companyId, userId, colabs, regrasByColab, tarifas, D }) =
           <window.Btn variant="ghost" size="sm" onClick={() => setSel(null)}>← Todos os profissionais</window.Btn>
           <div style={{ flex: 1 }} />
           <window.Btn variant="secondary" size="sm" icon="file" onClick={() => gerarDemonstrativoPlanilhaPDF({ nome: sel, funcao: c?.cargo, modelo: prModelo(regra), comp,
-            conv: conv.filter(r => r.incluir), part: part.filter(r => r.incluir), holding: hold, ajuste: aj })}>Baixar PDF</window.Btn>
+            conv: conv.filter(r => r.incluir), part: part.filter(r => r.incluir), holding: hold, ajuste: aj,
+            tomador: tomadorAtual, pendentes: { n: semEvol.length, valor: soma(semEvol) }, envio: prHojeISO() })}>Baixar PDF</window.Btn>
           <window.Btn variant="primary" size="sm" icon="check" disabled={lancando} onClick={lancar}>{lancando ? 'Lançando…' : `Lançar em Pagamentos (${competenciaExtenso(prMais(comp, 2))})`}</window.Btn>
         </div>
         {msg && <div style={{ ...card, padding: 12, font: '500 13px var(--f-sans)', color: /^erro|não consegui|falta criar/i.test(msg) ? 'var(--c-neg)' : 'var(--ink)' }}>{msg}</div>}
@@ -1145,6 +1233,49 @@ const ProducaoTab = ({ companyId, userId, colabs, regrasByColab, tarifas, D }) =
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, font: '600 12.5px var(--f-sans)', color: 'var(--ink-2)' }}>Ajuste (+/−)
             <input key={'a' + sel + aj} defaultValue={window.fmt ? window.fmt(aj) : aj} onBlur={e => setAjuste(a => ({ ...a, [sel]: prNum(e.target.value) || 0 }))} style={numInp} /></label>
           <div style={{ marginLeft: 'auto', font: '700 14px var(--f-sans)', color: 'var(--ink)' }}>Total a repassar <span className="mono" style={{ marginLeft: 10 }}>{brl(total)}</span></div>
+        </div>
+
+        <div style={{ ...card, padding: '14px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+            <span style={{ font: '700 13.5px var(--f-sans)', color: 'var(--ink)' }}>Dados para a nota fiscal</span>
+            <span style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)' }}>saem no PDF</span>
+            <div style={{ flex: 1 }} />
+            {tomadores.length > 0 && <select value={tomadorAtual?.id || ''} onChange={e => escolherTomador(sel, e.target.value)}
+              style={{ height: 32, padding: '0 10px', border: '1px solid var(--line-strong, var(--line))', borderRadius: 'var(--r-md)', background: 'var(--field, var(--surface))', color: 'var(--ink)', font: '500 12.5px var(--f-sans)' }}>
+              {tomadores.map(t => <option key={t.id} value={t.id}>Nota para: {t.apelido}</option>)}
+            </select>}
+            {tomadorAtual && <window.Btn variant="ghost" size="sm" onClick={() => setEditNF({ ...tomadorAtual })}>Editar dados</window.Btn>}
+          </div>
+          {!tomadores.length && <div style={{ font: '400 12.5px var(--f-sans)', color: 'var(--c-neg)' }}>Rode o SQL "2_dados_nota_fiscal.sql" no Supabase para cadastrar os dados da clínica.</div>}
+          {tomadorAtual && !editNF && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '4px 20px', font: '400 12.5px var(--f-sans)', color: 'var(--ink-2)' }}>
+              <div><b>{tomadorAtual.razao}</b></div><div>CNPJ {tomadorAtual.cnpj}</div>
+              <div style={{ color: tomadorAtual.endereco ? 'var(--ink-2)' : 'var(--c-neg)' }}>{tomadorAtual.endereco || 'Endereço não preenchido — clique em Editar dados'}</div>
+              <div>{tomadorAtual.email ? 'Enviar nota para ' + tomadorAtual.email : 'E-mail para envio da nota não preenchido'}</div>
+              <div>Valor da nota: <b className="mono">{brl(total)}</b></div>
+            </div>
+          )}
+          {editNF && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
+              {[['razao', 'Razão social'], ['cnpj', 'CNPJ'], ['endereco', 'Endereço completo (com CEP)'], ['email', 'E-mail para envio da nota'], ['obs', 'Observação (opcional — ex.: código do serviço)']].map(([k, l]) => (
+                <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 4, font: '600 11.5px var(--f-sans)', color: 'var(--ink-2)' }}>{l}
+                  <input value={editNF[k] || ''} onChange={e => setEditNF(x => ({ ...x, [k]: e.target.value }))}
+                    style={{ height: 34, padding: '0 10px', border: '1px solid var(--line-strong, var(--line))', borderRadius: 'var(--r-md)', background: 'var(--field, var(--surface))', color: 'var(--ink)', font: '500 13px var(--f-sans)' }} /></label>
+              ))}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                <window.Btn variant="ghost" size="sm" onClick={() => setEditNF(null)}>Cancelar</window.Btn>
+                <window.Btn variant="primary" size="sm" icon="check" onClick={salvarNF}>Salvar</window.Btn>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ ...card, padding: '12px 16px', borderLeft: '3px solid var(--c-warning, #D9A300)', background: 'var(--c-warning-bg, #FFF7E0)', font: '400 12.5px/1.55 var(--f-sans)', color: 'var(--ink)' }}>
+          <b>Prazo de retorno: até {prDataBR(prSomaDias(prHojeISO(), PR_PRAZO_DIAS))}</b> (se enviar hoje). {prTextoPrazo(prHojeISO())}
+          <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid color-mix(in oklch, var(--c-warning, #D9A300) 35%, transparent)', font: 'italic 400 12px/1.5 var(--f-sans)', color: 'var(--ink-2)' }}>
+            <b style={{ fontStyle: 'normal' }}>Por que o prazo existe — trecho de notificação de auditoria da Unimed Uberlândia:</b> {PR_UNIMED_EVOLUCAO}
+          </div>
+          <div style={{ color: 'var(--ink-3)', marginTop: 6 }}>Esse aviso sai no PDF, com a data do dia em que você gerar.</div>
         </div>
 
         <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', lineHeight: 1.6 }}>
