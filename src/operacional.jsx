@@ -926,4 +926,280 @@ const AcessosPage = () => {
   );
 };
 
-Object.assign(window, { HojePage, PagamentosEquipePage, AcessosPage, enviarFolhaParaPagamentos, sincronizarPagamentosMes });
+
+// ═══════════════ Tela: Documentos (guias, impostos, certidões) ═══════════════
+// A contabilidade manda por e-mail → a gente baixa e sobe aqui. Arquivo fica numa
+// pasta PRIVADA do Supabase (só quem tem acesso ao sistema abre). Guia com valor e
+// vencimento pode virar conta em "A pagar" na hora.
+const DOC_EMP = [
+  { id: '7663eaab-3fa3-4067-91f6-71f8c77f8b55', nome: 'Med Center' },
+  { id: '17749e39-3e73-41ab-b731-9463d760887b', nome: 'Talentos' },
+];
+const DOC_TIPOS = [
+  { v: 'DAS', l: 'DAS (Simples)', guia: true }, { v: 'PIS/COFINS', l: 'PIS / COFINS', guia: true }, { v: 'IRPJ/CSLL', l: 'IRPJ / CSLL (trimestral)', guia: true },
+  { v: 'ISS', l: 'ISS', guia: true }, { v: 'INSS', l: 'INSS / GPS / DCTFWeb', guia: true }, { v: 'FGTS', l: 'FGTS', guia: true },
+  { v: 'IRRF', l: 'IRRF', guia: true }, { v: 'Parcelamento', l: 'Parcelamento', guia: true }, { v: 'Outra guia', l: 'Outra guia / boleto', guia: true },
+  { v: 'Folha', l: 'Folha / holerites', guia: false }, { v: 'CND', l: 'Certidão (CND)', guia: false }, { v: 'Relatório', l: 'Relatório contábil / DRE / balancete', guia: false },
+  { v: 'Nota fiscal', l: 'Nota fiscal', guia: false }, { v: 'Contrato', l: 'Contrato / alteração', guia: false }, { v: 'Outro', l: 'Outro documento', guia: false },
+];
+// O que costuma chegar todo mês (POP, Parte V) — para mostrar o que ainda falta
+const DOC_ESPERADOS = {
+  '7663eaab-3fa3-4067-91f6-71f8c77f8b55': ['PIS/COFINS', 'ISS', 'INSS', 'FGTS', 'IRRF'],
+  '17749e39-3e73-41ab-b731-9463d760887b': ['DAS', 'INSS', 'FGTS'],
+};
+const docTipo = (v) => DOC_TIPOS.find(t => t.v === v) || { v, l: v, guia: false };
+const docEmpNome = (id) => (DOC_EMP.find(e => e.id === id) || {}).nome || '—';
+// adivinha tipo/empresa pelo nome do arquivo (ex.: "DAS_TALENTOS_08-2026.pdf")
+function docAdivinhar(nome) {
+  const n = opNorm(nome);
+  const tipo = /\bdas\b|simples/.test(n) ? 'DAS' : /pis|cofins/.test(n) ? 'PIS/COFINS' : /irpj|csll/.test(n) ? 'IRPJ/CSLL'
+    : /\biss\b|issqn/.test(n) ? 'ISS' : /inss|gps|dctf/.test(n) ? 'INSS' : /fgts/.test(n) ? 'FGTS' : /irrf/.test(n) ? 'IRRF'
+    : /parcel/.test(n) ? 'Parcelamento' : /holerit|folha|recibo de pag/.test(n) ? 'Folha' : /cnd|certid/.test(n) ? 'CND'
+    : /dre|balancete|balanco|relatorio/.test(n) ? 'Relatório' : /nota|nfs/.test(n) ? 'Nota fiscal' : /darf|guia|boleto/.test(n) ? 'Outra guia' : 'Outro';
+  const emp = /talent/.test(n) ? DOC_EMP[1].id : DOC_EMP[0].id;
+  const m = String(nome).match(/(0[1-9]|1[0-2])[\.\-_ \/](20\d{2})/) || String(nome).match(/(20\d{2})[\.\-_ \/](0[1-9]|1[0-2])/);
+  let comp = '';
+  if (m) comp = m[1].length === 4 ? `${m[1]}-${m[2]}` : `${m[2]}-${m[1]}`;
+  return { tipo, company_id: emp, competencia: comp };
+}
+
+// ── acesso aos arquivos (Supabase Storage, pasta privada) ──
+async function docFetchStorage(caminho, opts, tentou) {
+  const s = window.getSession?.();
+  const res = await fetch(`${window.SUPABASE_URL}/storage/v1${caminho}`, {
+    ...opts, headers: { apikey: window.SUPABASE_ANON_KEY, Authorization: `Bearer ${s?.access_token || window.SUPABASE_ANON_KEY}`, ...(opts?.headers || {}) },
+  });
+  if (res.status === 401 && !tentou && window.refreshSession) { await window.refreshSession(); return docFetchStorage(caminho, opts, true); }
+  if (!res.ok) {
+    const t = await res.text();
+    if (/bucket not found/i.test(t)) throw new Error('Falta criar a pasta de documentos: rode o SQL "1_documentos.sql" no Supabase.');
+    throw new Error(t || ('erro ' + res.status));
+  }
+  return res;
+}
+const docSlug = (s) => String(s || 'arquivo').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 90);
+async function docSubirArquivo(file, companyId, comp) {
+  const path = `${companyId}/${comp || 'sem-competencia'}/${Date.now()}_${docSlug(file.name)}`;
+  await docFetchStorage(`/object/documentos/${path}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'false' }, body: file });
+  return path;
+}
+async function docAbrir(d, baixar) {
+  const r = await docFetchStorage(`/object/sign/documentos/${d.arquivo_path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 300 }) });
+  const j = await r.json();
+  const url = `${window.SUPABASE_URL}/storage/v1${j.signedURL || j.signedUrl}${baixar ? `&download=${encodeURIComponent(d.arquivo_nome || 'documento')}` : ''}`;
+  window.open(url, '_blank', 'noopener');
+}
+async function docApagarArquivo(path) {
+  await docFetchStorage('/object/documentos', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: [path] }) });
+}
+
+const DocumentosPage = () => {
+  const { Band, Card, Btn, Money, MonthNav } = window;
+  const { profile } = window.useAuth();
+  const podeEditar = ['admin', 'editor'].includes(profile?.role);
+  const [comp, setComp] = React.useState(opHoje().slice(0, 7));
+  const [lista, setLista] = React.useState(null);
+  const [fila, setFila] = React.useState([]);        // arquivos escolhidos, ainda não salvos
+  const [salvando, setSalvando] = React.useState(false);
+  const [msg, setMsg] = React.useState('');
+  const [busca, setBusca] = React.useState('');
+  const [arrastando, setArrastando] = React.useState(false);
+  const [, tick] = React.useReducer(x => x + 1, 0);
+  React.useEffect(() => { const h = () => tick(); window.addEventListener('sb-data-hydrated', h); return () => window.removeEventListener('sb-data-hydrated', h); }, []);
+
+  const carregar = React.useCallback(async () => {
+    setLista(null);
+    try { setLista(await opSb(`/documentos?company_id=in.(${OP_CO.join(',')})&select=*&order=created_at.desc&limit=2000`) || []); }
+    catch (e) { setLista([]); setMsg(/documentos/.test(e.message) ? 'Falta criar a tabela: rode o SQL "1_documentos.sql" no Supabase.' : 'Erro ao carregar: ' + e.message); }
+  }, []);
+  React.useEffect(() => { carregar(); }, [carregar]);
+
+  const escolher = (files) => {
+    const novos = [...(files || [])].filter(f => f.size <= 20 * 1024 * 1024).map((f, i) => {
+      const g = docAdivinhar(f.name);
+      return { key: Date.now() + '_' + i, file: f, tipo: g.tipo, company_id: g.company_id, competencia: g.competencia || comp,
+        vencimento: '', valor: '', descricao: '', lancar: docTipo(g.tipo).guia };
+    });
+    if ([...(files || [])].some(f => f.size > 20 * 1024 * 1024)) setMsg('Algum arquivo passou de 20 MB e ficou de fora.');
+    setFila(q => [...q, ...novos]);
+  };
+  const setItem = (key, campo, v) => setFila(q => q.map(x => x.key === key ? { ...x, [campo]: v, ...(campo === 'tipo' ? { lancar: docTipo(v).guia } : {}) } : x));
+
+  const salvar = async () => {
+    setSalvando(true); setMsg('');
+    let ok = 0, contas = 0; const erros = [];
+    for (const it of fila) {
+      try {
+        const path = await docSubirArquivo(it.file, it.company_id, it.competencia);
+        const valor = opNum(it.valor);
+        let transaction_id = null;
+        if (it.lancar && valor && it.vencimento) {
+          const res = await window.createConta({
+            tipo: 'pagar', category: 'Impostos', description: `${it.tipo} ${docEmpNome(it.company_id)}${it.competencia ? ' — comp. ' + it.competencia.split('-').reverse().join('/') : ''}`,
+            vencimento: it.vencimento, previsto: valor, realizado: 0, pago: false,
+          }, it.company_id, opUserId());
+          const row = Array.isArray(res) ? res[0] : res;
+          transaction_id = row && row.id; if (transaction_id) contas++;
+        }
+        await opSb('/documentos', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify({
+          company_id: it.company_id, tipo: it.tipo, descricao: it.descricao || null, competencia: it.competencia || null,
+          vencimento: it.vencimento || null, valor, arquivo_path: path, arquivo_nome: it.file.name, arquivo_tipo: it.file.type || null,
+          tamanho: it.file.size, transaction_id, created_by: opUserId() }) });
+        ok++;
+      } catch (e) { erros.push(`${it.file.name}: ${e.message}`); }
+    }
+    setSalvando(false);
+    setFila(q => q.filter(x => erros.some(er => er.startsWith(x.file.name + ':'))));
+    setMsg((ok ? `✓ ${ok} documento(s) guardado(s)` + (contas ? ` · ${contas} guia(s) lançada(s) em A pagar` : '') + '. ' : '') + (erros.length ? 'Erro: ' + erros.join(' | ') : ''));
+    if (contas && window.hydrateFromSupabase && window.ACTIVE_COMPANY_ID) { try { await window.hydrateFromSupabase(window.ACTIVE_COMPANY_ID); } catch (e) {} }
+    carregar();
+  };
+
+  const excluir = async (d) => {
+    if (!window.confirm(`Excluir "${d.arquivo_nome}"? O arquivo é apagado de vez.` + (d.transaction_id ? ' A conta em A pagar ligada a ele continua lá.' : ''))) return;
+    try { await docApagarArquivo(d.arquivo_path); await opSb(`/documentos?id=eq.${d.id}`, { method: 'DELETE' }); setLista(l => l.filter(x => x.id !== d.id)); }
+    catch (e) { setMsg('Não consegui excluir: ' + e.message); }
+  };
+  const abrir = async (d, baixar) => { try { await docAbrir(d, baixar); } catch (e) { setMsg('Não consegui abrir: ' + e.message); } };
+
+  const contaDe = (d) => d.transaction_id && (window.CONTAS || []).find(c => c.id === d.transaction_id);
+  const doMes = (lista || []).filter(d => (d.competencia || (d.created_at || '').slice(0, 7)) === comp);
+  const filtrados = busca.trim()
+    ? (lista || []).filter(d => opNorm(`${d.tipo} ${d.descricao || ''} ${d.arquivo_nome || ''} ${docEmpNome(d.company_id)} ${d.competencia || ''}`).includes(opNorm(busca)))
+    : doMes;
+  const faltando = DOC_EMP.flatMap(e => (DOC_ESPERADOS[e.id] || []).filter(t => !doMes.some(d => d.company_id === e.id && d.tipo === t)).map(t => ({ emp: e.nome, tipo: t })));
+  const guiasMes = doMes.filter(d => d.valor);
+  const totalGuias = guiasMes.reduce((s, d) => s + (Number(d.valor) || 0), 0);
+
+  const inp = { width: '100%', boxSizing: 'border-box', height: 34, padding: '0 9px', border: '1px solid var(--line-strong)', borderRadius: 'var(--r-md)', background: 'var(--field)', font: '500 12.5px var(--f-sans)', color: 'var(--ink)' };
+  const lbl = { font: '600 11px var(--f-sans)', color: 'var(--ink-3)', display: 'block', marginBottom: 4 };
+  const th = { padding: '9px 12px', font: '700 10.5px var(--f-sans)', textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--ink-3)', textAlign: 'left', borderBottom: '1px solid var(--line)', background: 'var(--surface-2, #F6F8FA)' };
+  const td = { padding: '10px 12px', borderBottom: '1px solid var(--line-2)', font: '500 12.5px var(--f-sans)', color: 'var(--ink)', verticalAlign: 'middle' };
+  const tam = (b) => b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round((b || 0) / 1024)) + ' KB';
+
+  return (
+    <div className="anim-fade">
+      <Band title="Documentos" subtitle="Guias, impostos, certidões e o que a contabilidade manda — tudo num lugar só"
+        right={<MonthNav label={opMesLabel(comp)} onPrev={() => setComp(c => opShiftComp(c, -1))} onNext={() => setComp(c => opShiftComp(c, 1))} />}
+        metricLabel="Documentos do mês" metric={lista ? String(doMes.length) : '—'}
+        stats={[
+          { label: 'Guias do mês', value: lista ? totalGuias : '—' },
+          { label: 'Faltando chegar', value: lista ? String(faltando.length) : '—', color: faltando.length ? 'var(--on-accent-neg)' : undefined },
+        ]} />
+      <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {msg && <Card padding={12} style={{ font: '500 13px var(--f-sans)', color: /erro|não consegui|falta criar/i.test(msg) ? 'var(--c-neg)' : 'var(--ink)' }}>{msg}</Card>}
+
+        {podeEditar && (
+          <Card padding={18}>
+            <label onDragOver={e => { e.preventDefault(); setArrastando(true); }} onDragLeave={() => setArrastando(false)}
+              onDrop={e => { e.preventDefault(); setArrastando(false); escolher(e.dataTransfer.files); }}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '22px 16px', cursor: 'pointer', textAlign: 'center',
+                border: '2px dashed ' + (arrastando ? 'var(--accent)' : 'var(--line-strong)'), borderRadius: 'var(--r-lg)', background: arrastando ? 'var(--accent-soft, #E8F0FE)' : 'var(--bg-alt, transparent)' }}>
+              <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.csv,.doc,.docx,.xml,.zip" style={{ display: 'none' }} onChange={e => { escolher(e.target.files); e.target.value = ''; }} />
+              <span style={{ font: '700 14px var(--f-sans)', color: 'var(--ink)' }}>Arraste os arquivos aqui ou clique para escolher</span>
+              <span style={{ font: '400 12.5px var(--f-sans)', color: 'var(--ink-3)' }}>PDF da guia, certidão, holerites, relatório… até 20 MB cada. Dá para mandar vários de uma vez.</span>
+            </label>
+
+            {fila.length > 0 && (
+              <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {fila.map(it => {
+                  const guia = docTipo(it.tipo).guia;
+                  return (
+                    <div key={it.key} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-lg)', padding: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                        <span style={{ font: '600 13px var(--f-sans)', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📄 {it.file.name}</span>
+                        <span style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)' }}>{tam(it.file.size)}</span>
+                        <button onClick={() => setFila(q => q.filter(x => x.key !== it.key))} style={{ marginLeft: 'auto', border: 0, background: 'none', cursor: 'pointer', color: 'var(--ink-3)', fontSize: 16 }} title="Tirar da lista">×</button>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, alignItems: 'end' }}>
+                        <div><span style={lbl}>Tipo</span><select value={it.tipo} onChange={e => setItem(it.key, 'tipo', e.target.value)} style={inp}>{DOC_TIPOS.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}</select></div>
+                        <div><span style={lbl}>Empresa</span><select value={it.company_id} onChange={e => setItem(it.key, 'company_id', e.target.value)} style={inp}>{DOC_EMP.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
+                        <div><span style={lbl}>Competência</span><input type="month" value={it.competencia} onChange={e => setItem(it.key, 'competencia', e.target.value)} style={inp} /></div>
+                        {guia && <div><span style={lbl}>Vencimento</span><input type="date" value={it.vencimento} onChange={e => setItem(it.key, 'vencimento', e.target.value)} style={inp} /></div>}
+                        {guia && <div><span style={lbl}>Valor (R$)</span><input value={it.valor} onChange={e => setItem(it.key, 'valor', e.target.value)} placeholder="0,00" inputMode="decimal" style={{ ...inp, textAlign: 'right' }} /></div>}
+                        <div style={{ gridColumn: guia ? 'auto' : 'span 2' }}><span style={lbl}>Observação</span><input value={it.descricao} onChange={e => setItem(it.key, 'descricao', e.target.value)} placeholder="opcional" style={inp} /></div>
+                      </div>
+                      {guia && (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, font: '500 12.5px var(--f-sans)', color: 'var(--ink-2)', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={!!it.lancar} onChange={e => setItem(it.key, 'lancar', e.target.checked)} />
+                          Lançar em <b>A pagar</b> (categoria Impostos){it.lancar && !(opNum(it.valor) && it.vencimento) ? <span style={{ color: 'var(--c-warning, #9A6700)' }}> — preencha valor e vencimento</span> : null}
+                        </label>
+                      )}
+                    </div>
+                  );
+                })}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  <Btn variant="ghost" onClick={() => setFila([])} disabled={salvando}>Cancelar</Btn>
+                  <Btn variant="primary" icon="check" onClick={salvar} disabled={salvando}>{salvando ? 'Guardando…' : `Guardar ${fila.length} documento(s)`}</Btn>
+                </div>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {lista && faltando.length > 0 && !busca && (
+          <Card padding={14} style={{ borderLeft: '3px solid var(--c-warning, #D9A300)' }}>
+            <div style={{ font: '700 13px var(--f-sans)', color: 'var(--ink)', marginBottom: 8 }}>Ainda não chegou em {opMesLabel(comp)}</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {faltando.map((f, i) => <span key={i} style={{ font: '600 11.5px var(--f-sans)', padding: '4px 10px', borderRadius: 999, background: 'var(--c-warning-bg, #FFF4D6)', color: 'var(--c-warning, #9A6700)' }}>{f.tipo} · {f.emp}</span>)}
+            </div>
+            <div style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)', marginTop: 8 }}>Guias que costumam vir todo mês (POP, Parte V). IRPJ/CSLL do Med Center é trimestral: jan, abr, jul e out.</div>
+          </Card>
+        )}
+
+        <Card padding={0} style={{ overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line)' }}>
+            <span style={{ font: '700 14px var(--f-sans)', color: 'var(--ink)' }}>{busca ? 'Resultado da busca' : `Documentos de ${opMesLabel(comp)}`}</span>
+            <div style={{ flex: 1 }} />
+            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar em todos os meses (ex.: FGTS, Talentos, CND)" style={{ ...inp, width: 320 }} />
+          </div>
+          {!lista && <div style={{ padding: 16, color: 'var(--ink-3)' }}>Carregando…</div>}
+          {lista && !filtrados.length && <div style={{ padding: 22, textAlign: 'center', color: 'var(--ink-3)', font: '400 13px var(--f-sans)' }}>{busca ? 'Nada encontrado.' : 'Nenhum documento neste mês.'}</div>}
+          {filtrados.length > 0 && (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
+                <thead><tr>
+                  <th style={th}>Tipo</th><th style={th}>Arquivo</th><th style={th}>Empresa</th><th style={th}>Comp.</th>
+                  <th style={th}>Vencimento</th><th style={{ ...th, textAlign: 'right' }}>Valor</th><th style={th}>Situação</th><th style={th} />
+                </tr></thead>
+                <tbody>
+                  {filtrados.map(d => {
+                    const c = contaDe(d);
+                    const venc = d.vencimento || '';
+                    const sit = c ? (c.pago ? ['Pago', 'var(--c-pos)', 'var(--c-pos-bg, #E4F3E9)'] : venc && venc < opHoje() ? ['Vencida', 'var(--c-neg)', 'var(--c-neg-bg, #FBE9E7)'] : ['Em A pagar', 'var(--ink-2)', 'var(--surface-2, #EEF1F4)'])
+                      : d.valor ? ['Não lançada', 'var(--ink-3)', 'transparent'] : null;
+                    return (
+                      <tr key={d.id}>
+                        <td style={td}><span style={{ font: '700 11px var(--f-sans)', padding: '3px 9px', borderRadius: 999, background: 'var(--accent-soft, #E8F0FE)', color: 'var(--accent)' }}>{d.tipo}</span></td>
+                        <td style={{ ...td, maxWidth: 320 }}>
+                          <button onClick={() => abrir(d, false)} style={{ border: 0, background: 'none', cursor: 'pointer', padding: 0, font: '600 12.5px var(--f-sans)', color: 'var(--ink)', textAlign: 'left' }} title="Abrir">{d.arquivo_nome}</button>
+                          {d.descricao && <div style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)' }}>{d.descricao}</div>}
+                        </td>
+                        <td style={td}>{docEmpNome(d.company_id)}</td>
+                        <td style={td}>{d.competencia ? d.competencia.split('-').reverse().join('/') : '—'}</td>
+                        <td style={td}>{venc ? window.fmtDate(venc) : '—'}</td>
+                        <td className="mono" style={{ ...td, textAlign: 'right' }}>{d.valor ? window.fmt(Number(d.valor)) : '—'}</td>
+                        <td style={td}>{sit ? <span style={{ font: '600 11px var(--f-sans)', padding: '3px 9px', borderRadius: 999, color: sit[1], background: sit[2] }}>{sit[0]}</span> : '—'}</td>
+                        <td style={{ ...td, whiteSpace: 'nowrap', textAlign: 'right' }}>
+                          <Btn variant="ghost" size="sm" onClick={() => abrir(d, false)}>Abrir</Btn>
+                          <Btn variant="ghost" size="sm" onClick={() => abrir(d, true)}>Baixar</Btn>
+                          {podeEditar && <window.IconBtn name="trash" size={28} danger title="Excluir" onClick={() => excluir(d)} />}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+        <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', lineHeight: 1.6 }}>
+          Os arquivos ficam numa pasta privada: só quem tem acesso ao sistema abre, e o link de abertura vale por 5 minutos.
+          Antes de pagar uma guia, faça a prova real do POP: some as notas do mês e compare com o valor da guia.
+        </div>
+      </div>
+    </div>
+  );
+};
+
+Object.assign(window, { DocumentosPage, HojePage, PagamentosEquipePage, AcessosPage, enviarFolhaParaPagamentos, sincronizarPagamentosMes });

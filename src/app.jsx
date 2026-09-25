@@ -72,6 +72,7 @@ const SIDE_GROUPS = [
     { k: 'caixa', label: 'Caixa', icon: 'wallet' },
     { k: 'projecao', label: 'Projeção', icon: 'chart' },
     { k: 'impostos', label: 'Impostos', icon: 'alert' },
+    { k: 'documentos', label: 'Documentos', icon: 'file' },
     { k: 'compras', label: 'Compras', icon: 'tag' },
   ]},
   { titulo: 'Equipe', itens: [
@@ -93,6 +94,7 @@ const OP_GROUPS = [
     { k: 'contas', label: 'A pagar', icon: 'file' },
     { k: 'caixa', label: 'Caixa do dia', icon: 'wallet' },
     { k: 'equipe_pag', label: 'Pagamentos da equipe', icon: 'users' },
+    { k: 'documentos', label: 'Documentos', icon: 'file' },
   ]},
   { titulo: 'Cálculos e cadastro', itens: [
     { k: 'repasse', label: 'Repasse', icon: 'pulse' },
@@ -1071,10 +1073,10 @@ const TITULOS = {
   impostos: 'Impostos', repasse: 'Repasse', compras: 'Compras', agenda: 'Agenda',
   relatorios: 'Relatórios', rh: 'Colaboradores', provisoes: 'Folha do mês', equipe: 'Acessos', conciliacao: 'Conciliação',
   perfil: 'Meu perfil', config: 'Configurações', ajuda: 'Ajuda',
-  hoje: 'Hoje', equipe_pag: 'Pagamentos da equipe',
+  hoje: 'Hoje', equipe_pag: 'Pagamentos da equipe', documentos: 'Documentos',
 };
 // Telas já migradas para a cara nova fornecem a própria faixa; as demais usam a padrão.
-const MIGRADAS = new Set(['dashboard', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'relatorios', 'conciliacao', 'caixa', 'agenda', 'hoje', 'equipe_pag']); // será preenchida nos próximos blocos
+const MIGRADAS = new Set(['dashboard', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'relatorios', 'conciliacao', 'caixa', 'agenda', 'hoje', 'equipe_pag', 'documentos']); // será preenchida nos próximos blocos
 
 const AppShell = () => {
   const [theme, setTheme] = useState(() => localStorage.getItem('infinity-theme') || 'light');
@@ -1128,6 +1130,7 @@ const AppShell = () => {
     ajuda: <window.AjudaPage />,
     hoje: <window.HojePage setPage={setPage} />,
     equipe_pag: <window.PagamentosEquipePage />,
+    documentos: <window.DocumentosPage />,
   };
 
   // Menu único (Financeiro + Equipe): a antiga tela de escolha Financeiro/RH não é mais usada.
