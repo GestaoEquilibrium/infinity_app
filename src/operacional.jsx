@@ -940,7 +940,7 @@ const DOC_TIPOS = [
   { v: 'ISS', l: 'ISS', guia: true }, { v: 'INSS', l: 'INSS / GPS / DCTFWeb', guia: true }, { v: 'FGTS', l: 'FGTS', guia: true },
   { v: 'IRRF', l: 'IRRF', guia: true }, { v: 'Parcelamento', l: 'Parcelamento', guia: true }, { v: 'Outra guia', l: 'Outra guia / boleto', guia: true },
   { v: 'Folha', l: 'Folha / holerites', guia: false }, { v: 'CND', l: 'Certidão (CND)', guia: false }, { v: 'Relatório', l: 'Relatório contábil / DRE / balancete', guia: false },
-  { v: 'Nota fiscal', l: 'Nota fiscal', guia: false }, { v: 'Contrato', l: 'Contrato / alteração', guia: false }, { v: 'Outro', l: 'Outro documento', guia: false },
+  { v: 'Comprovante', l: 'Comprovante de pagamento', guia: false }, { v: 'Nota fiscal', l: 'Nota fiscal', guia: false }, { v: 'Contrato', l: 'Contrato / alteração', guia: false }, { v: 'Outro', l: 'Outro documento', guia: false },
 ];
 // O que costuma chegar todo mês (POP, Parte V) — para mostrar o que ainda falta
 const DOC_ESPERADOS = {
@@ -954,13 +954,98 @@ function docAdivinhar(nome) {
   const n = opNorm(nome);
   const tipo = /\bdas\b|simples/.test(n) ? 'DAS' : /pis|cofins/.test(n) ? 'PIS/COFINS' : /irpj|csll/.test(n) ? 'IRPJ/CSLL'
     : /\biss\b|issqn/.test(n) ? 'ISS' : /inss|gps|dctf/.test(n) ? 'INSS' : /fgts/.test(n) ? 'FGTS' : /irrf/.test(n) ? 'IRRF'
-    : /parcel/.test(n) ? 'Parcelamento' : /holerit|folha|recibo de pag/.test(n) ? 'Folha' : /cnd|certid/.test(n) ? 'CND'
+    : /comprovante|comprov|recibo pix|pix enviado|transferencia/.test(n) ? 'Comprovante' : /parcel/.test(n) ? 'Parcelamento' : /holerit|folha|recibo de pag/.test(n) ? 'Folha' : /cnd|certid/.test(n) ? 'CND'
     : /dre|balancete|balanco|relatorio/.test(n) ? 'Relatório' : /nota|nfs/.test(n) ? 'Nota fiscal' : /darf|guia|boleto/.test(n) ? 'Outra guia' : 'Outro';
   const emp = /talent/.test(n) ? DOC_EMP[1].id : DOC_EMP[0].id;
   const m = String(nome).match(/(0[1-9]|1[0-2])[\.\-_ \/](20\d{2})/) || String(nome).match(/(20\d{2})[\.\-_ \/](0[1-9]|1[0-2])/);
   let comp = '';
   if (m) comp = m[1].length === 4 ? `${m[1]}-${m[2]}` : `${m[2]}-${m[1]}`;
   return { tipo, company_id: emp, competencia: comp };
+}
+
+// ── Leitura automática da guia (PDF com texto: DAS, DARF/DCTFWeb, FGTS Digital, ISS…) ──
+let docPdfJsPromessa = null;
+function docCarregarPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (!docPdfJsPromessa) docPdfJsPromessa = new Promise((ok, erro) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+    sc.onload = () => { try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'; ok(window.pdfjsLib); } catch (e) { erro(e); } };
+    sc.onerror = () => { docPdfJsPromessa = null; erro(new Error('não consegui carregar o leitor de PDF')); };
+    document.head.appendChild(sc);
+  });
+  return docPdfJsPromessa;
+}
+async function docTextoPDF(file) {
+  const pdfjs = await docCarregarPdfJs();
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  let txt = '';
+  for (let i = 1; i <= Math.min(pdf.numPages, 3); i++) {
+    const pg = await pdf.getPage(i);
+    const c = await pg.getTextContent();
+    txt += ' ' + c.items.map(it => it.str).join(' ');
+  }
+  return txt.replace(/\s+/g, ' ').trim();
+}
+const DOC_MESES = { janeiro: '01', fevereiro: '02', marco: '03', abril: '04', maio: '05', junho: '06', julho: '07', agosto: '08', setembro: '09', outubro: '10', novembro: '11', dezembro: '12' };
+// Tira valor, vencimento, competência, tipo e empresa do texto da guia
+function docExtrairGuia(texto) {
+  const t = String(texto || '').normalize('NFC');
+  // sem acento e minúsculo, MESMO tamanho do original (para as posições baterem)
+  const n = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const out = {};
+  const money = /(\d{1,3}(?:\.\d{3})*,\d{2})/;
+  const dataRe = /(\d{2})\/(\d{2})\/(20\d{2})/;
+  // posição no texto original correspondente à do texto normalizado (mesmo tamanho: opNorm troca acento por letra sem acento)
+  const depois = (rotulos, re, janela) => {
+    for (const r of rotulos) {
+      const m = n.match(r);
+      if (!m) continue;
+      const trecho = t.slice(m.index + m[0].length, m.index + m[0].length + janela);
+      const v = trecho.match(re);
+      if (v) return v;
+    }
+    return null;
+  };
+  // valor
+  const v = depois([/valor total do documento/, /total a recolher/, /valor a recolher/, /valor total a pagar/, /valor a pagar/, /valor total/, /valor do documento/, /valor cobrado/, /total a pagar/, /valor principal/, /\btotal\b/], money, 160);
+  if (v) out.valor = v[1];
+  else {
+    const todos = (t.match(/\d{1,3}(?:\.\d{3})*,\d{2}/g) || []).map(x => Number(x.replace(/\./g, '').replace(',', '.'))).filter(x => x > 0);
+    if (todos.length) { out.valor = Math.max(...todos).toLocaleString('pt-BR', { minimumFractionDigits: 2 }); out.valorIncerto = true; }
+  }
+  // vencimento
+  // nas guias federais os rótulos vêm numa linha e as datas na outra (período, vencimento…):
+  // pega a MAIOR data logo depois do rótulo — o período de apuração é sempre anterior ao vencimento
+  for (const r of [/pagar este documento ate/, /data de vencimento/, /vencimento/, /pagavel ate/, /pagar ate/]) {
+    const m = n.match(r);
+    if (!m) continue;
+    const trecho = t.slice(m.index + m[0].length, m.index + m[0].length + 140);
+    const ds = [...trecho.matchAll(/(\d{2})\/(\d{2})\/(20\d{2})/g)].map(x => `${x[3]}-${x[2]}-${x[1]}`).sort();
+    if (ds.length) { out.vencimento = ds[ds.length - 1]; break; }
+  }
+  // competência / período de apuração
+  const pa = n.match(/\b(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s*\/\s*(20\d{2})/);
+  if (pa) out.competencia = `${pa[2]}-${DOC_MESES[pa[1]]}`;
+  else {
+    const pc = depois([/periodo de apuracao/, /competencia/, /mes de referencia/, /referencia/], /(?:(\d{2})\/)?(\d{2})\/(20\d{2})/, 140);
+    if (pc) out.competencia = `${pc[3]}-${pc[2]}`;
+  }
+  // empresa pelo CNPJ
+  const cnpjs = t.replace(/[^\d]/g, ' ');
+  if (/58\.?424\.?494/.test(t) || /58424494/.test(cnpjs)) out.company_id = DOC_EMP[1].id;
+  else if (/34\.?032\.?586/.test(t) || /34032586/.test(cnpjs)) out.company_id = DOC_EMP[0].id;
+  // tipo
+  out.tipo = /simples nacional|\bdas\b/.test(n) ? 'DAS'
+    : /fgts/.test(n) ? 'FGTS'
+    : /issqn|imposto sobre servicos|\biss\b/.test(n) ? 'ISS'
+    : /parcelamento/.test(n) ? 'Parcelamento'
+    : /\b(8109|2172|5856|6912)\b|\bpis\b|cofins/.test(n) ? 'PIS/COFINS'
+    : /\b(2089|2372|2484|3373)\b|irpj|csll/.test(n) ? 'IRPJ/CSLL'
+    : /\b(0561|3208|1708|0588)\b|irrf|imposto de renda retido/.test(n) ? 'IRRF'
+    : /dctfweb|previdenc|\binss\b|contribuicoes? sociais|\bgps\b/.test(n) ? 'INSS'
+    : null;
+  return out;
 }
 
 // ── acesso aos arquivos (Supabase Storage, pasta privada) ──
@@ -1022,6 +1107,25 @@ const DocumentosPage = () => {
     });
     if ([...(files || [])].some(f => f.size > 20 * 1024 * 1024)) setMsg('Algum arquivo passou de 20 MB e ficou de fora.');
     setFila(q => [...q, ...novos]);
+    // lê cada PDF e preenche valor, vencimento, competência, tipo e empresa
+    novos.filter(it => /\.pdf$/i.test(it.file.name) || it.file.type === 'application/pdf').forEach(async (it) => {
+      setFila(q => q.map(x => x.key === it.key ? { ...x, lendo: true } : x));
+      try {
+        const texto = await docTextoPDF(it.file);
+        const g = docExtrairGuia(texto);
+        setFila(q => q.map(x => {
+          if (x.key !== it.key) return x;
+          const tipo = g.tipo && (x.tipo === 'Outro' || x.tipo === 'Outra guia' || !docTipo(x.tipo).guia || g.tipo !== x.tipo) ? g.tipo : x.tipo;
+          const lidos = [g.valor && 'valor', g.vencimento && 'vencimento', g.competencia && 'competência', g.company_id && 'empresa', g.tipo && 'tipo'].filter(Boolean);
+          return { ...x, lendo: false, tipo, lancar: docTipo(tipo).guia,
+            valor: x.valor || g.valor || '', vencimento: x.vencimento || g.vencimento || '',
+            competencia: g.competencia || x.competencia, company_id: g.company_id || x.company_id,
+            leitura: texto.length < 40 ? 'semtexto' : lidos, valorIncerto: !!g.valorIncerto };
+        }));
+      } catch (e) {
+        setFila(q => q.map(x => x.key === it.key ? { ...x, lendo: false, leitura: 'erro' } : x));
+      }
+    });
   };
   const setItem = (key, campo, v) => setFila(q => q.map(x => x.key === key ? { ...x, [campo]: v, ...(campo === 'tipo' ? { lancar: docTipo(v).guia } : {}) } : x));
 
@@ -1060,6 +1164,28 @@ const DocumentosPage = () => {
     try { await docApagarArquivo(d.arquivo_path); await opSb(`/documentos?id=eq.${d.id}`, { method: 'DELETE' }); setLista(l => l.filter(x => x.id !== d.id)); }
     catch (e) { setMsg('Não consegui excluir: ' + e.message); }
   };
+  // Anexa o comprovante a uma guia e (se quiser) dá baixa na conta dela em A pagar
+  const anexarComprovante = async (d, file) => {
+    if (!file) return;
+    setMsg('Guardando comprovante…');
+    try {
+      const path = await docSubirArquivo(file, d.company_id, d.competencia);
+      await opSb('/documentos', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify({
+        company_id: d.company_id, tipo: 'Comprovante', descricao: `Comprovante — ${d.tipo} ${docEmpNome(d.company_id)}${d.competencia ? ' comp. ' + d.competencia.split('-').reverse().join('/') : ''}`,
+        competencia: d.competencia || null, vencimento: null, valor: d.valor || null, arquivo_path: path, arquivo_nome: file.name,
+        arquivo_tipo: file.type || null, tamanho: file.size, ref_documento: d.id, created_by: opUserId() }) });
+      const c = contaDe(d);
+      let baixa = '';
+      if (c && !c.pago && window.confirm(`Comprovante guardado. Dar baixa (marcar como paga) na conta "${c.description}" de ${window.fmt(Number(c.previsto) || 0)}?`)) {
+        await window.updateContaLocal(c.id, { ...c, pago: true, realizado: Number(c.previsto) || Number(d.valor) || 0, pagoEm: opHoje() });
+        baixa = ' Conta marcada como paga.';
+      }
+      setMsg(`✓ Comprovante de ${d.tipo} guardado.${baixa}`);
+      carregar();
+    } catch (e) { setMsg(/ref_documento/.test(e.message) ? 'Falta atualizar o banco: rode o SQL "2_comprovantes.sql" no Supabase.' : 'Não consegui guardar o comprovante: ' + e.message); }
+  };
+  const comprovanteDe = (d) => (lista || []).find(x => x.ref_documento === d.id);
+
   const abrir = async (d, baixar) => { try { await docAbrir(d, baixar); } catch (e) { setMsg('Não consegui abrir: ' + e.message); } };
 
   const contaDe = (d) => d.transaction_id && (window.CONTAS || []).find(c => c.id === d.transaction_id);
@@ -1126,6 +1252,15 @@ const DocumentosPage = () => {
                         {guia && <div><span style={lbl}>Valor (R$)</span><input value={it.valor} onChange={e => setItem(it.key, 'valor', e.target.value)} placeholder="0,00" inputMode="decimal" style={{ ...inp, textAlign: 'right' }} /></div>}
                         <div style={{ gridColumn: guia ? 'auto' : 'span 2' }}><span style={lbl}>Observação</span><input value={it.descricao} onChange={e => setItem(it.key, 'descricao', e.target.value)} placeholder="opcional" style={inp} /></div>
                       </div>
+                      {(it.lendo || it.leitura) && (
+                        <div style={{ marginTop: 8, font: '500 12px var(--f-sans)', color: it.leitura === 'erro' || it.leitura === 'semtexto' ? 'var(--c-warning, #9A6700)' : 'var(--c-pos)' }}>
+                          {it.lendo ? 'Lendo o PDF…'
+                            : it.leitura === 'erro' ? 'Não consegui ler este PDF — preencha à mão.'
+                            : it.leitura === 'semtexto' ? 'Este PDF é uma imagem (escaneado), não dá para ler — preencha à mão.'
+                            : it.leitura.length ? `✓ Lido do PDF: ${it.leitura.join(', ')}. Confira antes de guardar.` + (it.valorIncerto ? ' ⚠ O valor foi o maior número da guia — confira.' : '')
+                            : 'Não achei valor nem vencimento neste PDF — preencha à mão.'}
+                        </div>
+                      )}
                       {guia && (
                         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, font: '500 12.5px var(--f-sans)', color: 'var(--ink-2)', cursor: 'pointer' }}>
                           <input type="checkbox" checked={!!it.lancar} onChange={e => setItem(it.key, 'lancar', e.target.checked)} />
@@ -1204,6 +1339,12 @@ const DocumentosPage = () => {
                         <td style={td}>{sit ? <span style={{ font: '600 11px var(--f-sans)', padding: '3px 9px', borderRadius: 999, color: sit[1], background: sit[2] }}>{sit[0]}</span> : '—'}</td>
                         <td style={{ ...td, whiteSpace: 'nowrap' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                            {docTipo(d.tipo).guia && (comprovanteDe(d)
+                              ? <button onClick={() => abrir(comprovanteDe(d), false)} title="Abrir comprovante" style={{ border: 0, background: 'var(--c-pos-bg, #E4F3E9)', color: 'var(--c-pos)', borderRadius: 999, padding: '3px 10px', font: '600 11px var(--f-sans)', cursor: 'pointer', marginRight: 4 }}>✓ comprovante</button>
+                              : podeEditar && <label title="Anexar o comprovante de pagamento desta guia" style={{ border: '1px dashed var(--line-strong)', borderRadius: 999, padding: '3px 10px', font: '600 11px var(--f-sans)', color: 'var(--ink-2)', cursor: 'pointer', marginRight: 4 }}>
+                                  + comprovante
+                                  <input type="file" accept=".pdf,.png,.jpg,.jpeg" style={{ display: 'none' }} onChange={e => { anexarComprovante(d, e.target.files[0]); e.target.value = ''; }} />
+                                </label>)}
                             <Btn variant="ghost" size="sm" onClick={() => abrir(d, false)}>Abrir</Btn>
                             <Btn variant="ghost" size="sm" onClick={() => abrir(d, true)}>Baixar</Btn>
                             {podeEditar && <window.IconBtn name="trash" size={28} danger title="Excluir" onClick={() => excluir(d)} />}
