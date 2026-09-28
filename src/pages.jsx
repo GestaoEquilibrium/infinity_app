@@ -1776,10 +1776,11 @@ const ContasPage = ({ filter, setFilter }) => {
         </span>
         <window.CatPill cat={window.catColor(c.category, receber ? 'entrada' : 'saida')}>{c.category}</window.CatPill>
         <window.Money value={valor(c)} size="table" style={{ color: receber ? 'var(--c-pos)' : 'var(--ink)', fontWeight: 600, minWidth: 96, textAlign: 'right' }} />
-        <span style={{ display: 'flex', gap: 5, justifyContent: 'flex-end', minWidth: mostrarPagar ? 132 : 64 }}>
+        <span style={{ display: 'flex', gap: 5, alignItems: 'center', justifyContent: 'flex-end', minWidth: mostrarPagar ? 132 : 64 }}>
           {mostrarPagar && !c.pago && (
             <window.Btn variant="secondary" size="sm" icon="check" onClick={() => setConfirmando(c)}>{receber ? 'Receber' : 'Pagar'}</window.Btn>
           )}
+          {window.AnexoNota && <window.AnexoNota conta={c} />}
           <RowActions onEdit={() => setEditing(c)} onDelete={() => { if (confirm(`Excluir "${c.description}"?`)) window.deleteContaLocal(c.id); }} />
         </span>
       </div>
