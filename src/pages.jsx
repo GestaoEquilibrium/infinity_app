@@ -2446,3 +2446,184 @@ const PageHeader = ({ title, subtitle, action }) => (
 Object.assign(window, { ContasPage, ProjecaoPage, ComprasPage, PacientesPage, AgendaPage, ConfigPage, PageHeader, FilterBar, ExcelImporter, KPI });
 
 window.ImpostosPage = ImpostosPage;
+
+
+// ═══ ANEXO DE NOTA (embutido no pages.jsx — não precisa de módulo separado) ═══
+(function(){
+// ═══════════════════════════════════════════════════════════════
+// ANEXO DE NOTA FISCAL — para contas a pagar
+// Módulo autossuficiente. Guarda o arquivo da NF no bucket privado
+// "notas" (Supabase Storage) e o registro em contas_anexos, amarrado
+// à conta (transactions.id). NÃO faz leitura automática de valor —
+// é só o cofre da nota junto do pagamento (a Documentos continua só
+// pras guias de imposto).
+//
+// COMO LIGAR:
+// 1) Rode o anexo_nota.sql (cria bucket "notas" + tabela + políticas).
+// 2) index.html → adicione 'anexo_nota' na lista de módulos carregados.
+// 3) Na ContasPage (aba A pagar), dentro da linha da conta, coloque:
+//        <window.AnexoNota conta={r} />
+//    (r = a conta daquela linha)
+// ═══════════════════════════════════════════════════════════════
+const { useState: useStateAN, useEffect: useEffectAN, useCallback: useCbAN } = React;
+
+const AN_BUCKET = 'notas';
+
+function anHeaders(extra) {
+  const s = window.getSession ? window.getSession() : null;
+  return Object.assign({
+    apikey: window.SUPABASE_ANON_KEY,
+    Authorization: 'Bearer ' + ((s && s.access_token) || window.SUPABASE_ANON_KEY),
+  }, extra || {});
+}
+
+const AnexoNota = ({ conta }) => {
+  const contaId = conta && conta.id;
+  const companyId = (conta && conta.company_id) || window.HOME_COMPANY_ID || window.ACTIVE_COMPANY_ID || null;
+  const [aberto, setAberto] = useStateAN(false);
+  const [lista, setLista] = useStateAN([]);
+  const [carregando, setCarregando] = useStateAN(false);
+  const [enviando, setEnviando] = useStateAN(false);
+  const [erro, setErro] = useStateAN(null);
+  const inputRef = React.useRef(null);
+
+  const carregar = useCbAN(async () => {
+    if (!contaId) return;
+    setCarregando(true); setErro(null);
+    try {
+      const r = await window.__sbRest('/contas_anexos?conta_id=eq.' + contaId + '&select=*&order=criado_em.desc');
+      setLista(Array.isArray(r) ? r : []);
+    } catch (e) { setErro(e.message); }
+    finally { setCarregando(false); }
+  }, [contaId]);
+
+  // conta a quantidade já ao montar (pra mostrar o número no clipe)
+  useEffectAN(() => { if (contaId) carregar(); }, [contaId, carregar]);
+
+  const enviar = async (file) => {
+    if (!file || !contaId) return;
+    setEnviando(true); setErro(null);
+    try {
+      const limpo = file.name.replace(/[^\w.\-]+/g, '_');
+      const path = (companyId || 'sem_empresa') + '/' + contaId + '/' + Date.now() + '_' + limpo;
+      // 1) sobe o arquivo no Storage (bucket privado)
+      const up = await fetch(window.SUPABASE_URL + '/storage/v1/object/' + AN_BUCKET + '/' + encodeURI(path), {
+        method: 'POST',
+        headers: anHeaders({ 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'true' }),
+        body: file,
+      });
+      if (!up.ok) throw new Error('Falha no upload (' + up.status + ')');
+      // 2) registra o anexo
+      const rec = await window.__sbRest('/contas_anexos', {
+        method: 'POST', prefer: 'return=representation',
+        body: JSON.stringify({ conta_id: contaId, company_id: companyId, nome: file.name, path: path }),
+      });
+      setLista((prev) => [...(Array.isArray(rec) ? rec : []), ...prev]);
+    } catch (e) { setErro(e.message); }
+    finally { setEnviando(false); if (inputRef.current) inputRef.current.value = ''; }
+  };
+
+  const ver = async (anexo) => {
+    try {
+      const r = await fetch(window.SUPABASE_URL + '/storage/v1/object/sign/' + AN_BUCKET + '/' + encodeURI(anexo.path), {
+        method: 'POST', headers: anHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ expiresIn: 3600 }),
+      });
+      const j = await r.json();
+      if (!j.signedURL) throw new Error('Não consegui gerar o link.');
+      window.open(window.SUPABASE_URL + '/storage/v1' + j.signedURL, '_blank');
+    } catch (e) { alert('Erro ao abrir: ' + e.message); }
+  };
+
+  const remover = async (anexo) => {
+    if (!confirm('Remover a nota "' + anexo.nome + '"?')) return;
+    try {
+      await fetch(window.SUPABASE_URL + '/storage/v1/object/' + AN_BUCKET + '/' + encodeURI(anexo.path), {
+        method: 'DELETE', headers: anHeaders(),
+      });
+      await window.__sbRest('/contas_anexos?id=eq.' + anexo.id, { method: 'DELETE' });
+      setLista((prev) => prev.filter((x) => x.id !== anexo.id));
+    } catch (e) { alert('Erro ao remover: ' + e.message); }
+  };
+
+  const n = lista.length;
+
+  return (
+    <>
+      {/* botão-clipe na linha da conta */}
+      <button
+        onClick={() => setAberto(true)}
+        title={n ? n + ' nota(s) anexada(s)' : 'Anexar nota'}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer',
+          background: n ? 'var(--accent-soft)' : 'transparent',
+          border: '1px solid ' + (n ? 'color-mix(in srgb, var(--accent) 35%, transparent)' : 'var(--line)'),
+          borderRadius: 'var(--r-md, 8px)', padding: '4px 9px',
+          font: '500 11px var(--f-sans)', color: n ? 'var(--accent)' : 'var(--ink-3)',
+        }}>
+        <window.Icon name="file" size={13} style={{ color: n ? 'var(--accent)' : 'var(--ink-3)' }} />
+        {n ? ('Nota (' + n + ')') : 'Anexar nota'}
+      </button>
+
+      {/* modal */}
+      {aberto && (
+        <div
+          onClick={() => setAberto(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,32,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 14, width: 'min(520px, 96vw)', maxHeight: '85vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 18px', borderBottom: '1px solid var(--line)' }}>
+              <div>
+                <div style={{ font: '600 14px var(--f-sans)', color: 'var(--ink)' }}>Notas fiscais da conta</div>
+                <div style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)', marginTop: 2 }}>{conta && (conta.description || conta.category) ? (conta.description || conta.category) : 'Conta a pagar'}</div>
+              </div>
+              <button onClick={() => setAberto(false)} style={{ cursor: 'pointer', background: 'transparent', border: 'none', color: 'var(--ink-3)' }} aria-label="Fechar">
+                <window.Icon name="x" size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* upload */}
+              <div>
+                <input ref={inputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.xml"
+                  onChange={(e) => enviar(e.target.files && e.target.files[0])}
+                  style={{ display: 'none' }} />
+                <window.Btn variant="secondary" size="sm" icon="plus" onClick={() => inputRef.current && inputRef.current.click()} disabled={enviando}>
+                  {enviando ? 'Enviando…' : 'Anexar nota (PDF, imagem ou XML)'}
+                </window.Btn>
+                <span style={{ font: '400 10.5px var(--f-sans)', color: 'var(--ink-3)', marginLeft: 10 }}>Só guarda o arquivo — não lê valor.</span>
+              </div>
+
+              {erro && <div style={{ font: '400 11.5px var(--f-sans)', color: 'var(--c-neg)' }}>{erro}</div>}
+
+              {/* lista */}
+              {carregando ? (
+                <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', padding: '8px 0' }}>Carregando…</div>
+              ) : n === 0 ? (
+                <div style={{ font: '400 12px var(--f-sans)', color: 'var(--ink-3)', padding: '8px 0' }}>Nenhuma nota anexada ainda.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {lista.map((a) => (
+                    <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', border: '1px solid var(--line-2)', borderRadius: 'var(--r-md, 8px)' }}>
+                      <window.Icon name="file" size={15} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0, font: '500 12px var(--f-sans)', color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nome}</div>
+                      <button onClick={() => ver(a)} style={{ cursor: 'pointer', background: 'transparent', border: '1px solid var(--line)', borderRadius: 6, padding: '4px 8px', font: '500 11px var(--f-sans)', color: 'var(--accent)' }}>Ver</button>
+                      <button onClick={() => remover(a)} title="Remover" style={{ cursor: 'pointer', background: 'transparent', border: 'none', color: 'var(--ink-3)' }} aria-label="Remover">
+                        <window.Icon name="trash" size={15} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+window.AnexoNota = AnexoNota;
+
+})();
