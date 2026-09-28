@@ -3,6 +3,11 @@
 // Cruza transações trazidas pelas integrações (MP/Inter, categoria
 // "A Classificar") com as contas lançadas manualmente no sistema.
 // Casamento: mesmo VALOR + mesma DATA + mesmo TIPO (entrada/saída).
+//
+// Aba "Transferências internas": mostra o dinheiro que só passeia
+// entre as contas do grupo (regra window.ehTransferenciaInterna),
+// com o teste da soma zero. Serve pra provar que a receita/despesa
+// do resultado NÃO está inflada por essas transferências.
 // ═══════════════════════════════════════════════════════════════
 const { useState: useStateCC, useEffect: useEffectCC, useMemo: useMemoCC } = React;
 
@@ -12,7 +17,7 @@ const ConciliacaoPage = ({ embedded = false, onExport } = {}) => {
   const [rows, setRows] = useStateCC(null);
   const [loading, setLoading] = useStateCC(true);
   const [erro, setErro] = useStateCC(null);
-  const [aba, setAba] = useStateCC('nao_banco'); // conciliados | nao_banco | nao_sistema
+  const [aba, setAba] = useStateCC('nao_banco'); // conciliados | nao_banco | nao_sistema | internas
   const [mes, setMes] = useStateCC(''); // filtro opcional YYYY-MM
   const [, tick] = React.useReducer(x => x + 1, 0);
 
@@ -60,6 +65,23 @@ const ConciliacaoPage = ({ embedded = false, onExport } = {}) => {
     return { conciliados: conc, soBanco: soB, soSistema: soS };
   }, [rows, mes]);
 
+  // ── Transferências internas + teste da soma zero ──
+  // Cada transferência entre contas do grupo tem duas pernas: uma ENTRADA
+  // na conta que recebe e uma SAÍDA na conta que envia. Se todas as contas
+  // estiverem importadas, a soma das entradas = soma das saídas (soma zero).
+  const internas = useMemoCC(() => {
+    if (!rows) return { lista: [], entrada: 0, saida: 0, n: 0 };
+    const filtroMes = (r) => !mes || (r.date || '').startsWith(mes);
+    const lista = rows.filter(r => ehTransferencia(r) && filtroMes(r))
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    let entrada = 0, saida = 0;
+    for (const r of lista) {
+      const v = Number(r.actual_value ?? r.value ?? 0);
+      if (r.type === 'entrada') entrada += v; else saida += v;
+    }
+    return { lista, entrada, saida, n: lista.length };
+  }, [rows, mes]);
+
   const brl = (v) => window.fmt(Number(v) || 0);
   const fmtD = (d) => d ? d.split('-').reverse().slice(0, 2).join('/') : '—';
 
@@ -85,19 +107,30 @@ const ConciliacaoPage = ({ embedded = false, onExport } = {}) => {
       Tipo: r.type === 'entrada' ? 'Entrada' : 'Saída', Valor: money(r.actual_value ?? r.value),
       Situação: 'Lançada no sistema, sem correspondência no banco',
     }));
+    const abaInternas = internas.lista.map(r => ({
+      Data: r.date, Descrição: r.description || '', Conta: r.conta || '',
+      Tipo: r.type === 'entrada' ? 'Entrada (recebeu)' : 'Saída (enviou)',
+      Valor: money(r.actual_value ?? r.value),
+      Situação: 'Transferência interna — fora de receita/despesa',
+    }));
 
     window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(abaNaoBanco.length ? abaNaoBanco : [{ Aviso: 'Nada a classificar' }]), 'Nao classificadas');
     window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(abaConciliadas.length ? abaConciliadas : [{ Aviso: 'Nada conciliado' }]), 'Conciliadas');
     window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(abaSoSistema.length ? abaSoSistema : [{ Aviso: 'Sem divergencias' }]), 'So no sistema');
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(abaInternas.length ? abaInternas : [{ Aviso: 'Nenhuma transferencia interna' }]), 'Transferencias internas');
     const sufixo = mes ? '_' + mes : '';
     window.XLSX.writeFile(wb, 'Conciliacao_Bancaria' + sufixo + '.xlsx');
-  }, [soBanco, conciliados, soSistema, mes]);
+  }, [soBanco, conciliados, soSistema, internas, mes]);
 
   // expõe o export pro pai (RelatoriosPage) quando embutido
   React.useEffect(() => { if (onExport) onExport(() => exportarExcel); }, [exportarExcel, onExport]);
 
   const totalBanco = soBanco.reduce((s, r) => s + Number(r.actual_value ?? r.value ?? 0) * (r.type === 'saida' ? -1 : 1), 0);
   const totalConc = conciliados.length;
+
+  // soma zero
+  const difInterna = internas.entrada - internas.saida;
+  const fechaZero = Math.abs(difInterna) < 0.01;
 
   // meses disponíveis
   const meses = useMemoCC(() => {
@@ -122,7 +155,17 @@ const ConciliacaoPage = ({ embedded = false, onExport } = {}) => {
     { k: 'nao_banco', label: 'Não classificadas', n: soBanco.length, cor: 'var(--c-warn)' },
     { k: 'conciliados', label: 'Conciliadas', n: conciliados.length, cor: 'var(--c-pos)' },
     { k: 'nao_sistema', label: 'Só no sistema', n: soSistema.length, cor: 'var(--c-neg)' },
+    { k: 'internas', label: 'Transferências internas', n: internas.n, cor: 'var(--ink-3)' },
   ];
+
+  // tile de resumo (aba internas)
+  const Tile = ({ label, value, color, hint }) => (
+    <div style={{ flex: 1, minWidth: 150, background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-lg)', padding: '14px 16px' }}>
+      <div style={{ font: '400 11px var(--f-sans)', color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
+      <div className="mono" style={{ font: '600 20px var(--f-mono)', color: color || 'var(--ink)', marginTop: 4 }}>{value}</div>
+      {hint && <div style={{ font: '400 10.5px var(--f-sans)', color: 'var(--ink-3)', marginTop: 3 }}>{hint}</div>}
+    </div>
+  );
 
   return (
     <div className="anim-fade">
@@ -163,6 +206,7 @@ const ConciliacaoPage = ({ embedded = false, onExport } = {}) => {
             {aba === 'nao_banco' && <>Transações que os bancos trouxeram mas ainda estão como "A Classificar" e não casaram com nenhuma conta lançada. <b>Classifique cada uma</b> ou lance a conta correspondente.</>}
             {aba === 'conciliados' && <>Transações do banco que <b>bateram</b> com uma conta do sistema (mesmo valor, mesma data). Estão certas — o banco e o sistema concordam.</>}
             {aba === 'nao_sistema' && <>Contas que você lançou como pagas/recebidas mas <b>o banco não trouxe</b> transação correspondente. Pode ser divergência de valor, data, ou lançamento a revisar.</>}
+            {aba === 'internas' && <>Dinheiro que só <b>passeia entre as contas do próprio grupo</b> (ex.: a EIRELI varrendo pro Mercado Pago). Não é receita nem despesa — já sai do resultado automaticamente. Se todas as contas estiverem importadas, o total que <b>entrou</b> tem que ser igual ao que <b>saiu</b> (soma zero).</>}
           </div>
         </div>
 
@@ -281,6 +325,73 @@ const ConciliacaoPage = ({ embedded = false, onExport } = {}) => {
                   </div>
                 )}
               </window.Card>
+            )}
+
+            {/* ABA: Transferências internas + soma zero */}
+            {aba === 'internas' && (
+              <>
+                {/* resumo */}
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <Tile label="Transferências no período" value={String(internas.n)} />
+                  <Tile label="Total que entrou (interno)" value={brl(internas.entrada)} color="var(--c-pos)" />
+                  <Tile label="Total que saiu (interno)" value={brl(internas.saida)} color="var(--c-neg)" />
+                  <Tile
+                    label="Soma zero"
+                    value={fechaZero ? 'Bateu' : 'Falta ' + brl(Math.abs(difInterna))}
+                    color={fechaZero ? 'var(--c-pos)' : 'var(--c-warn)'}
+                    hint={fechaZero ? 'entrou = saiu' : 'entrou ≠ saiu'}
+                  />
+                </div>
+
+                {/* diagnóstico da soma zero */}
+                {internas.n > 0 && !fechaZero && (
+                  <div style={{ display: 'flex', gap: 11, padding: '12px 16px', borderRadius: 'var(--r-lg)', background: 'color-mix(in srgb, var(--c-warn) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--c-warn) 30%, transparent)', alignItems: 'flex-start' }}>
+                    <window.Icon name="alert" size={16} style={{ color: 'var(--c-warn)', flexShrink: 0, marginTop: 1 }} />
+                    <div style={{ font: '400 11.5px var(--f-sans)', color: 'var(--ink-2)', lineHeight: 1.5 }}>
+                      A soma não fechou por <b>{brl(Math.abs(difInterna))}</b>. Isso quase sempre significa que <b>falta importar o extrato de alguma conta</b> — a perna que casa com essas transferências não está no sistema. A conta que mais costuma faltar é a <b>Caixa (EIRELI)</b>, que recebe os convênios e varre pro Mercado Pago. Importe o mês dessa conta e confira de novo.
+                    </div>
+                  </div>
+                )}
+
+                <window.Card padding={0} style={{ overflow: 'hidden' }}>
+                  {internas.n === 0 ? (
+                    <div style={{ padding: 40 }}><window.EmptyState icon="check" title="Nenhuma transferência interna" hint="Nenhum lançamento do período foi reconhecido como movimentação entre contas do grupo." /></div>
+                  ) : (
+                    <div style={{ maxHeight: '58vh', overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 5 }}>
+                          <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                            {['Data', 'Descrição', 'Conta', 'Tipo', 'Valor'].map((h, i) => (
+                              <th key={h} style={{ padding: '10px 16px', textAlign: i === 4 ? 'right' : 'left', font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--ink-3)' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {internas.lista.map((r, i) => {
+                            const entrada = r.type === 'entrada';
+                            return (
+                              <tr key={r.id || i} style={{ borderBottom: '1px solid var(--line-2)' }}>
+                                <td style={{ padding: '10px 16px', font: '400 12px var(--f-mono)', color: 'var(--ink-2)' }} className="mono">{fmtD(r.date)}</td>
+                                <td style={{ padding: '10px 16px', font: '500 12.5px var(--f-sans)', color: 'var(--ink)' }}>{r.description || '—'}</td>
+                                <td style={{ padding: '10px 16px', font: '400 11.5px var(--f-sans)', color: 'var(--ink-3)' }}>{r.conta || '—'}</td>
+                                <td style={{ padding: '10px 16px' }}>
+                                  <span style={{ font: '500 10.5px var(--f-sans)', color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                    <window.Icon name="tag" size={12} style={{ color: 'var(--ink-3)' }} />
+                                    {entrada ? 'Recebeu' : 'Enviou'}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '10px 16px', textAlign: 'right' }}>
+                                  <span className="mono" style={{ font: '600 12.5px var(--f-mono)', color: 'var(--ink-3)' }}>{entrada ? '+' : '−'} {brl(r.actual_value ?? r.value)}</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </window.Card>
+              </>
             )}
           </>
         )}
