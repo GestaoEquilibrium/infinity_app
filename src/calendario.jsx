@@ -246,10 +246,11 @@ const NovoGastoModal = ({ dia, onClose, onSaved }) => {
       const cid = window.ACTIVE_COMPANY_ID || prof?.company_id;
       if (!cid) throw new Error('Empresa não identificada — saia e entre de novo.');
       const vFix = Number(v.toFixed(2));
-      // Cria SEMPRE como "a pagar" (pendente). Criar já com status pago de uma vez
-      // dispara a rotina de baixa automática do sistema, que tenta remover uma conta
-      // prevista inexistente e estoura "DELETE requires a WHERE clause". A baixa, se
-      // "já pago", é feita depois pelo mesmo caminho do botão Pagar (updateContaLocal).
+      // Cria SEMPRE como "a pagar" (pendente), com o MESMO payload da tela Contas
+      // (sem o campo `origem` — deixa o default 'sistema' do banco). Mandar
+      // origem:'manual' acionava uma trigger de baixa/reconciliação no banco que
+      // roda um DELETE sem WHERE e é barrada ("DELETE requires a WHERE clause").
+      // Se "já pago", a baixa é feita depois pelo caminho do botão Pagar.
       const conta = {
         tipo: 'pagar',
         description: desc.trim(),
@@ -259,7 +260,6 @@ const NovoGastoModal = ({ dia, onClose, onSaved }) => {
         pago: false,
         realizado: 0,
         pagoEm: null,
-        origem: 'manual',
       };
       const saved = await window.createConta(conta, cid, me?.id);
       const salvo = (Array.isArray(saved) && saved[0]) || {};
