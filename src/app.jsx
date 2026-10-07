@@ -496,7 +496,44 @@ const Hub = ({ onPick }) => {
 
 const DEFAULT_ORDER = ['flow', 'agenda', 'kpis'];
 
-const Dashboard = ({ filter, setFilter, setPage }) => {
+// ─── Abas do Dashboard (ficam no rodapé da faixa azul) ───
+// "Calendário a pagar" vem de src/calendario.jsx. Se esse arquivo não carregar,
+// a aba some sozinha e o Dashboard segue como antes.
+const DASH_ABAS = [
+  { k: 'geral', label: 'Visão geral', icon: 'dashboard' },
+  { k: 'calendario', label: 'Calendário a pagar', icon: 'calendar' },
+];
+const DashAbas = ({ value, onChange }) => (
+  <div role="tablist" style={{ display: 'flex', gap: 2, marginTop: 18, marginBottom: -22, borderTop: '1px solid var(--on-accent-3)' }}>
+    {DASH_ABAS.map(a => {
+      const on = a.k === value;
+      return (
+        <button key={a.k} role="tab" aria-selected={on} onClick={() => onChange(a.k)} style={{
+          display: 'flex', alignItems: 'center', gap: 7, padding: '11px 14px 12px', background: 'none', border: 'none',
+          borderBottom: `2px solid ${on ? 'var(--on-accent)' : 'transparent'}`, cursor: 'pointer',
+          color: on ? 'var(--on-accent)' : 'var(--on-accent-2)', font: `${on ? 600 : 500} 13px var(--f-sans)`,
+        }}>
+          <window.Icon name={a.icon} size={15} />{a.label}
+        </button>
+      );
+    })}
+  </div>
+);
+
+// Dashboard = abas. A escolhida fica lembrada neste navegador: quem deixar no
+// calendário abre o Dashboard direto nele.
+const Dashboard = (props) => {
+  const temCalendario = !!window.CalendarioPagar;
+  const [aba, setAba] = useState(() => localStorage.getItem('infinity-dash-aba') || 'geral');
+  useEffect(() => { localStorage.setItem('infinity-dash-aba', aba); }, [aba]);
+  const atual = temCalendario ? aba : 'geral';
+  const abas = temCalendario ? <DashAbas value={atual} onChange={setAba} /> : null;
+  return atual === 'calendario'
+    ? <window.CalendarioPagar setPage={props.setPage} abas={abas} />
+    : <DashboardGeral {...props} abas={abas} />;
+};
+
+const DashboardGeral = ({ filter, setFilter, setPage, abas }) => {
   const data = window.useWidgetData(filter);
   const { profile } = useAuth();
   const [seg, setSeg] = useState('mes'); // 'dia' | 'mes'
@@ -577,7 +614,9 @@ const Dashboard = ({ filter, setFilter, setPage }) => {
           { label: 'Saiu', value: data.totalOut, color: 'var(--on-accent-neg)' },
           { label: 'Resultado', value: resultado, color: resultado >= 0 ? 'var(--on-accent-pos)' : 'var(--on-accent-neg)' },
         ]}
-      />
+      >
+        {abas}
+      </window.Band>
 
       {/* ── Conteúdo ── */}
       <div style={{ padding: '20px 30px 26px', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1078,6 +1117,37 @@ const TITULOS = {
 // Telas já migradas para a cara nova fornecem a própria faixa; as demais usam a padrão.
 const MIGRADAS = new Set(['dashboard', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'relatorios', 'conciliacao', 'caixa', 'agenda', 'hoje', 'equipe_pag', 'documentos']); // será preenchida nos próximos blocos
 
+// ─── Proteção contra tela branca ───
+// Sem isto, um erro em QUALQUER tela derruba o app inteiro — e, como a última
+// tela fica salva no navegador (infinity-page), ele volta a abrir quebrado
+// toda vez. Agora: a tela com erro mostra a mensagem e o resto segue de pé.
+const LIMPAR_CHAVES = ['infinity-page', 'infinity-filter-v2', 'infinity-dash-aba', 'infinity-modulo'];
+class ErroTela extends React.Component {
+  constructor(props) { super(props); this.state = { erro: null }; }
+  static getDerivedStateFromError(erro) { return { erro }; }
+  componentDidCatch(erro, info) { console.error('[EqFinance] erro na tela:', erro, info && info.componentStack); }
+  render() {
+    if (!this.state.erro) return this.props.children;
+    const msg = String((this.state.erro && this.state.erro.message) || this.state.erro);
+    const limpar = () => { LIMPAR_CHAVES.forEach(k => localStorage.removeItem(k)); location.reload(); };
+    return (
+      <div style={{ padding: 30, display: 'grid', placeItems: this.props.global ? 'center' : 'start', minHeight: this.props.global ? '100vh' : 0, background: 'var(--bg)' }}>
+        <div style={{ maxWidth: 560, background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-2xl)', padding: 24, boxShadow: 'var(--sh-2)' }}>
+          <div style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>{this.props.global ? 'O EqFinance não conseguiu abrir' : 'Esta tela deu erro'}</div>
+          <div style={{ font: 'var(--t-body-2)', color: 'var(--ink-2)', marginTop: 6 }}>
+            {this.props.global ? 'Tente recarregar. Se continuar, mande um print desta mensagem.' : 'O restante do sistema continua funcionando. Se repetir, mande um print desta mensagem.'}
+          </div>
+          <pre style={{ marginTop: 14, padding: '10px 12px', background: 'var(--surface-3)', borderRadius: 'var(--r-md)', font: '500 11.5px/1.5 var(--f-mono)', color: 'var(--c-neg)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg}</pre>
+          <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+            {this.props.onVoltar && <button onClick={this.props.onVoltar} style={{ height: 34, padding: '0 14px', borderRadius: 'var(--r-lg)', background: 'var(--accent)', color: '#fff', font: '600 12.5px var(--f-sans)' }}>Voltar ao Dashboard</button>}
+            <button onClick={limpar} style={{ height: 34, padding: '0 14px', borderRadius: 'var(--r-lg)', border: '1px solid var(--line-strong)', background: 'var(--surface)', color: 'var(--ink)', font: '600 12.5px var(--f-sans)' }}>Recarregar do zero</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+}
+
 const AppShell = () => {
   const [theme, setTheme] = useState(() => localStorage.getItem('infinity-theme') || 'light');
   const [page, setPage] = useState(() => localStorage.getItem('infinity-page') || 'dashboard');
@@ -1150,7 +1220,9 @@ const AppShell = () => {
           )}
           <div key={page} style={{ padding: migrada ? 0 : '20px 30px 26px' }}>
             {page !== 'ajuda' && window.AjudaBanner && <window.AjudaBanner page={page} />}
-            {pages[page]}
+            <ErroTela onVoltar={page !== 'dashboard' ? () => setPage('dashboard') : null}>
+              {pages[page]}
+            </ErroTela>
           </div>
         </main>
       </div>
@@ -1160,9 +1232,11 @@ const AppShell = () => {
 };
 
 const App = () => (
-  <AuthProvider>
-    <AppInner />
-  </AuthProvider>
+  <ErroTela global>
+    <AuthProvider>
+      <AppInner />
+    </AuthProvider>
+  </ErroTela>
 );
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
