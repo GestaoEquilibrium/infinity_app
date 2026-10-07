@@ -47,8 +47,11 @@ const AuthProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    (async () => { await refresh(); setReady(true); })();
-    const onChange = () => refresh();
+    // try/finally: mesmo que refresh() estoure (ex.: banco fora do ar), o app SAI
+    // do "Carregando…" e cai na tela de login ou na de servidor indisponível —
+    // nunca fica preso no spinner.
+    (async () => { try { await refresh(); } catch (e) { console.warn('boot refresh', e); } finally { setReady(true); } })();
+    const onChange = () => { refresh().catch(e => console.warn('refresh', e)); };
     window.addEventListener('sb-session-changed', onChange);
     return () => window.removeEventListener('sb-session-changed', onChange);
   }, []);
@@ -90,6 +93,7 @@ const SIDE_GROUPS = [
 // Menu enxuto da visão operacional (auxiliar)
 const OP_GROUPS = [
   { titulo: 'Dia a dia', itens: [
+    { k: 'calendario', label: 'Calendário', icon: 'calendar' },
     { k: 'hoje', label: 'Hoje', icon: 'home' },
     { k: 'contas', label: 'A pagar', icon: 'file' },
     { k: 'caixa', label: 'Caixa do dia', icon: 'wallet' },
@@ -1076,10 +1080,42 @@ const RelContas = ({ dados, mes }) => {
   );
 };
 
+// ─── Tela de servidor indisponível ───
+// Aparece quando o banco (Supabase) não responde — quase sempre porque o projeto
+// do Supabase foi PAUSADO (o plano gratuito pausa sozinho após dias sem uso) e o
+// endereço sai do ar. A correção é restaurar o projeto no painel do Supabase.
+const ServidorOffScreen = ({ onDemo }) => (
+  <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', background: 'var(--bg)', padding: 24 }}>
+    <div style={{ maxWidth: 480, width: '100%', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-2xl)', boxShadow: 'var(--sh-2)', padding: 28 }}>
+      <div style={{ width: 46, height: 46, borderRadius: 'var(--r-lg)', background: 'var(--c-warn-bg)', color: 'var(--c-warn)', display: 'grid', placeItems: 'center', marginBottom: 16 }}>
+        <window.Icon name="alert" size={24} />
+      </div>
+      <div style={{ font: 'var(--t-h1)', color: 'var(--ink)', letterSpacing: '-.02em' }}>Servidor indisponível</div>
+      <div style={{ font: 'var(--t-body)', color: 'var(--ink-2)', marginTop: 8, lineHeight: 1.55 }}>
+        Não consegui falar com o banco de dados. Quase sempre é porque o projeto do
+        Supabase ficou <b>pausado</b> por inatividade e precisa ser restaurado.
+      </div>
+      <ol style={{ margin: '14px 0 2px', padding: '0 0 0 18px', font: 'var(--t-body-2)', color: 'var(--ink-2)', lineHeight: 1.7 }}>
+        <li>Entre em <b>supabase.com</b> e faça login.</li>
+        <li>Abra o projeto do EqFinances.</li>
+        <li>Se aparecer <b>“Restore project”</b>, clique e aguarde alguns minutos.</li>
+        <li>Volte aqui e recarregue.</li>
+      </ol>
+      <div style={{ display: 'flex', gap: 8, marginTop: 20, flexWrap: 'wrap' }}>
+        <button onClick={() => location.reload()} style={{ height: 36, padding: '0 16px', borderRadius: 'var(--r-lg)', background: 'var(--accent)', color: '#fff', font: '600 12.5px var(--f-sans)', cursor: 'pointer' }}>Tentar de novo</button>
+        {onDemo && <button onClick={onDemo} style={{ height: 36, padding: '0 16px', borderRadius: 'var(--r-lg)', border: '1px solid var(--line-strong)', background: 'var(--surface)', color: 'var(--ink)', font: '600 12.5px var(--f-sans)', cursor: 'pointer' }}>Ver em modo demonstração</button>}
+      </div>
+    </div>
+  </div>
+);
+
 // ─── App bootstrap ───
 const AppInner = () => {
   const { ready, user, demo, enterDemo, profile, homeCompanyId, logout, refresh } = useAuth();
   if (!ready) return <div style={{ display: 'grid', placeItems: 'center', height: '100vh', color: 'var(--ink-3)', font: '500 13px var(--f-sans)' }}>Carregando…</div>;
+  // Banco fora do ar (ex.: projeto do Supabase pausado): mensagem clara em vez de
+  // spinner infinito ou tela de login que não vai funcionar.
+  if (!demo && window.__EQ_SERVIDOR_OFF) return <ServidorOffScreen onDemo={enterDemo} />;
   if (!user && !demo) return <LoginScreen onSuccess={(res) => { if (res?.demo) enterDemo(); }} />;
   // Veio pelo link "redefinir senha" do e-mail: pede a senha nova antes de tudo
   if (user && window.__EQ_RECUPERACAO) return <window.NovaSenhaScreen onPronto={() => { refresh(); }} />;
@@ -1112,10 +1148,10 @@ const TITULOS = {
   impostos: 'Impostos', repasse: 'Repasse', compras: 'Compras', agenda: 'Agenda',
   relatorios: 'Relatórios', rh: 'Colaboradores', provisoes: 'Folha do mês', equipe: 'Acessos', conciliacao: 'Conciliação',
   perfil: 'Meu perfil', config: 'Configurações', ajuda: 'Ajuda',
-  hoje: 'Hoje', equipe_pag: 'Pagamentos da equipe', documentos: 'Documentos',
+  hoje: 'Hoje', equipe_pag: 'Pagamentos da equipe', documentos: 'Documentos', calendario: 'Calendário',
 };
 // Telas já migradas para a cara nova fornecem a própria faixa; as demais usam a padrão.
-const MIGRADAS = new Set(['dashboard', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'relatorios', 'conciliacao', 'caixa', 'agenda', 'hoje', 'equipe_pag', 'documentos']); // será preenchida nos próximos blocos
+const MIGRADAS = new Set(['dashboard', 'calendario', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'relatorios', 'conciliacao', 'caixa', 'agenda', 'hoje', 'equipe_pag', 'documentos']); // será preenchida nos próximos blocos
 
 // ─── Proteção contra tela branca ───
 // Sem isto, um erro em QUALQUER tela derruba o app inteiro — e, como a última
@@ -1160,7 +1196,8 @@ const AppShell = () => {
   useEffect(() => { localStorage.setItem('infinity-visao', visao); }, [visao]);
   const trocarVisao = (v) => {
     setVisao(v);
-    if (v === 'operacional') setPage('hoje');
+    // Visão operacional (Financeiro, ex.: Claudia) abre no Calendário de contas a pagar.
+    if (v === 'operacional') setPage(window.CalendarioPagar ? 'calendario' : 'hoje');
     else setPage('dashboard');
   };
 
@@ -1170,10 +1207,18 @@ const AppShell = () => {
   // Tela sem permissão para este tipo de acesso → volta para o Dashboard.
   const papelAtual = perfilVisao?.role || 'viewer';
   const podeVer = (k) => k === 'ajuda' || k === 'perfil' || window.canAccess(papelAtual, ACESSO_ALIAS[k] || k);
-  const inicio = podeVer('dashboard') ? 'dashboard' : 'hoje';
+  // Tela de entrada: visão operacional (Financeiro) → Calendário; senão Dashboard.
+  const telaInicialOp = (window.CalendarioPagar && podeVer('calendario')) ? 'calendario' : 'hoje';
+  const inicio = visao === 'operacional' ? telaInicialOp : (podeVer('dashboard') ? 'dashboard' : telaInicialOp);
   useEffect(() => { if (!podeVer(page)) setPage(inicio); }, [page, papelAtual]);
   // Financeiro fica sempre na visão operacional
-  useEffect(() => { if (papelAtual === 'editor' && visao !== 'operacional') { setVisao('operacional'); if (!podeVer(page)) setPage('hoje'); } }, [papelAtual, visao]);
+  useEffect(() => { if (papelAtual === 'editor' && visao !== 'operacional') { setVisao('operacional'); if (!podeVer(page)) setPage(telaInicialOp); } }, [papelAtual, visao]);
+  // Tela inicial da visão operacional = Calendário (roda uma vez ao abrir o app).
+  const bootOpRef = useRef(false);
+  useEffect(() => {
+    if (bootOpRef.current) return;
+    if (visao === 'operacional' && window.CalendarioPagar && podeVer('calendario')) { bootOpRef.current = true; setPage('calendario'); }
+  }, [visao, papelAtual]);
   // Diretoria só visualiza: não usa a visão operacional.
   useEffect(() => { if (papelAtual === 'diretoria' && visao === 'operacional') { setVisao('completa'); } }, [papelAtual]);
 
@@ -1184,6 +1229,7 @@ const AppShell = () => {
 
   const pages = {
     dashboard: <Dashboard filter={filter} setFilter={setFilter} setPage={setPage} />,
+    calendario: window.CalendarioPagar ? <window.CalendarioPagar setPage={setPage} /> : <Dashboard filter={filter} setFilter={setFilter} setPage={setPage} />,
     contas: <ContasPage filter={filter} setFilter={setFilter} />,
     projecao: <window.ProjecaoPage />,
     impostos: <window.ImpostosPage filter={filter} setFilter={setFilter} />,
