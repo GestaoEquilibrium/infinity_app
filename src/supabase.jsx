@@ -524,11 +524,11 @@ async function logAction(companyId, userId, action, tableName, recordId, newData
 // editor → Dashboard, Contas, Compras, Agenda, Relatórios, RH (sem excluir)
 // viewer → só Dashboard e leitura
 const ROLE_ACCESS = {
-  admin: ['dashboard', 'calendario', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'conciliacao', 'rh', 'equipe', 'perfil', 'config', 'ajuda', 'hoje', 'equipe_pag', 'documentos'],
+  admin: ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'conciliacao', 'rh', 'equipe', 'perfil', 'config', 'ajuda', 'hoje', 'equipe_pag', 'documentos'],
   // Financeiro (auxiliar): só a visão operacional do dia a dia, sem saldos de banco
-  editor: ['calendario', 'hoje', 'contas', 'caixa', 'equipe_pag', 'documentos', 'repasse', 'rh', 'conciliacao', 'perfil', 'ajuda'],
+  editor: ['hoje', 'contas', 'caixa', 'equipe_pag', 'documentos', 'repasse', 'rh', 'conciliacao', 'perfil', 'ajuda'],
   // Diretoria: vê tudo, não altera nada (o banco bloqueia gravação)
-  diretoria: ['dashboard', 'calendario', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'conciliacao', 'rh', 'perfil', 'ajuda', 'hoje', 'equipe_pag', 'documentos'],
+  diretoria: ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'conciliacao', 'rh', 'perfil', 'ajuda', 'hoje', 'equipe_pag', 'documentos'],
   viewer: ['dashboard', 'caixa', 'agenda', 'perfil', 'ajuda', 'hoje'],
   pendente: ['perfil', 'ajuda'],
   bloqueado: [],
