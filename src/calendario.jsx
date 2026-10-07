@@ -245,15 +245,20 @@ const NovoGastoModal = ({ dia, onClose, onSaved }) => {
       const prof = me ? await window.getProfile?.(me.id) : null;
       const cid = window.ACTIVE_COMPANY_ID || prof?.company_id;
       if (!cid) throw new Error('Empresa não identificada — saia e entre de novo.');
+      const vFix = Number(v.toFixed(2));
+      // Cria SEMPRE como "a pagar" (pendente). Criar já com status pago de uma vez
+      // dispara a rotina de baixa automática do sistema, que tenta remover uma conta
+      // prevista inexistente e estoura "DELETE requires a WHERE clause". A baixa, se
+      // "já pago", é feita depois pelo mesmo caminho do botão Pagar (updateContaLocal).
       const conta = {
         tipo: 'pagar',
         description: desc.trim(),
         category: categoria || 'A classificar',
-        previsto: Number(v.toFixed(2)),
+        previsto: vFix,
         vencimento: data,
-        pago: jaPago,
-        realizado: jaPago ? Number(v.toFixed(2)) : 0,
-        pagoEm: jaPago ? data : null,
+        pago: false,
+        realizado: 0,
+        pagoEm: null,
         origem: 'manual',
       };
       const saved = await window.createConta(conta, cid, me?.id);
@@ -262,13 +267,25 @@ const NovoGastoModal = ({ dia, onClose, onSaved }) => {
       const registro = { ...conta, id, company_id: salvo.company_id || cid };
       window.CONTAS = [registro, ...(window.CONTAS || [])];
       window.dispatchEvent(new CustomEvent('sb-data-hydrated'));
-      let falhouNF = '';
+
+      let aviso2 = '';
+      // Já pago → dá a baixa pelo caminho oficial (mesmo do botão Pagar).
+      if (jaPago) {
+        if (salvo.id) {
+          try { await window.updateContaLocal(salvo.id, { pago: true, realizado: vFix, pagoEm: data }); }
+          catch (e2) { aviso2 = 'Lançado como A PAGAR, mas não consegui marcar como pago (' + (e2.message || 'erro') + '). Dá pra dar baixa no botão “Pagar”.'; }
+        } else {
+          // sem id do servidor: marca só na tela
+          window.CONTAS = (window.CONTAS || []).map(c => c.id === id ? { ...c, pago: true, realizado: vFix, pagoEm: data } : c);
+          window.dispatchEvent(new CustomEvent('sb-data-hydrated'));
+        }
+      }
       if (arquivo) {
         try { await subirNotaFiscal(registro, arquivo); }
-        catch (e2) { falhouNF = 'Conta lançada, mas a NF não subiu (' + (e2.message || 'erro') + '). Dá pra anexar depois na tela Contas.'; }
+        catch (e2) { aviso2 = (aviso2 ? aviso2 + ' ' : '') + 'A NF não subiu (' + (e2.message || 'erro') + '). Dá pra anexar depois na tela Contas.'; }
       }
-      onSaved?.(registro);              // atualiza o calendário por trás
-      if (falhouNF) setAviso(falhouNF); // mantém o modal aberto só pra avisar
+      onSaved?.(registro);          // atualiza o calendário por trás
+      if (aviso2) setAviso(aviso2); // mantém o modal aberto só pra avisar
       else onClose();
     } catch (err) { setErro(err?.message || 'Não consegui salvar.'); }
     finally { setSalvando(false); }
