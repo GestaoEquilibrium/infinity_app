@@ -106,7 +106,9 @@ const OP_GROUPS = [
     { k: 'rh', label: 'Cadastro da equipe', icon: 'user' },
   ]},
 ];
-const ACESSO_ALIAS = { provisoes: 'rh', hoje: 'hoje', equipe_pag: 'equipe_pag' };
+// 'calendario' herda a permissão de 'contas' (quem vê contas vê o calendário).
+// Fica aqui para não precisar mexer no ROLE_ACCESS do supabase.jsx.
+const ACESSO_ALIAS = { provisoes: 'rh', hoje: 'hoje', equipe_pag: 'equipe_pag', calendario: 'contas' };
 
 const Sidebar = ({ page, setPage, modulo, setModulo, visao, trocarVisao }) => {
   const { profile, demo } = useAuth();
