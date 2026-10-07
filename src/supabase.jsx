@@ -180,10 +180,20 @@ async function updatePassword(newPassword) {
 async function getMe() {
   const s = getSession();
   if (!s?.access_token) return null;
-  const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${s.access_token}` },
-  });
+  let res;
+  try {
+    res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${s.access_token}` },
+    });
+  } catch (e) {
+    // Servidor fora do ar / sem rede (ex.: projeto do Supabase pausado — o endereço
+    // some do DNS e o fetch estoura). Sinaliza e NÃO derruba o boot; sem isto o app
+    // ficava eternamente em "Carregando…". A tela de boot mostra a mensagem certa.
+    window.__EQ_SERVIDOR_OFF = true;
+    return null;
+  }
   if (!res.ok) return null;
+  window.__EQ_SERVIDOR_OFF = false;
   return res.json();
 }
 
@@ -514,11 +524,11 @@ async function logAction(companyId, userId, action, tableName, recordId, newData
 // editor → Dashboard, Contas, Compras, Agenda, Relatórios, RH (sem excluir)
 // viewer → só Dashboard e leitura
 const ROLE_ACCESS = {
-  admin: ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'conciliacao', 'rh', 'equipe', 'perfil', 'config', 'ajuda', 'hoje', 'equipe_pag', 'documentos'],
+  admin: ['dashboard', 'calendario', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'conciliacao', 'rh', 'equipe', 'perfil', 'config', 'ajuda', 'hoje', 'equipe_pag', 'documentos'],
   // Financeiro (auxiliar): só a visão operacional do dia a dia, sem saldos de banco
-  editor: ['hoje', 'contas', 'caixa', 'equipe_pag', 'documentos', 'repasse', 'rh', 'conciliacao', 'perfil', 'ajuda'],
+  editor: ['calendario', 'hoje', 'contas', 'caixa', 'equipe_pag', 'documentos', 'repasse', 'rh', 'conciliacao', 'perfil', 'ajuda'],
   // Diretoria: vê tudo, não altera nada (o banco bloqueia gravação)
-  diretoria: ['dashboard', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'conciliacao', 'rh', 'perfil', 'ajuda', 'hoje', 'equipe_pag', 'documentos'],
+  diretoria: ['dashboard', 'calendario', 'caixa', 'contas', 'projecao', 'impostos', 'repasse', 'compras', 'agenda', 'relatorios', 'conciliacao', 'rh', 'perfil', 'ajuda', 'hoje', 'equipe_pag', 'documentos'],
   viewer: ['dashboard', 'caixa', 'agenda', 'perfil', 'ajuda', 'hoje'],
   pendente: ['perfil', 'ajuda'],
   bloqueado: [],
