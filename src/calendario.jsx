@@ -196,6 +196,158 @@ const LinhaConta = ({ c, hoje, podePagar, podeAbrir, onPagar, onAbrir, mostrarDa
   );
 };
 
+// ─── Upload da nota fiscal (mesmo cofre do AnexoNota: bucket "notas" + contas_anexos) ───
+// Autossuficiente, para o fluxo "lancei a compra e já subo a NF". Se a infra de
+// notas não existir (anexo_nota.sql não rodado), falha de forma clara e a conta
+// continua salva — a NF pode ser anexada depois na tela Contas.
+async function subirNotaFiscal(conta, file) {
+  const companyId = conta.company_id || window.HOME_COMPANY_ID || window.ACTIVE_COMPANY_ID || null;
+  const s = window.getSession ? window.getSession() : null;
+  const headers = { apikey: window.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + ((s && s.access_token) || window.SUPABASE_ANON_KEY) };
+  const limpo = file.name.replace(/[^\w.\-]+/g, '_');
+  const path = (companyId || 'sem_empresa') + '/' + conta.id + '/' + Date.now() + '_' + limpo;
+  const up = await fetch(window.SUPABASE_URL + '/storage/v1/object/notas/' + encodeURI(path), {
+    method: 'POST', headers: { ...headers, 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'true' }, body: file,
+  });
+  if (!up.ok) throw new Error('Falha no upload da NF (' + up.status + ')');
+  await window.__sbRest('/contas_anexos', {
+    method: 'POST', prefer: 'return=minimal',
+    body: JSON.stringify({ conta_id: conta.id, company_id: companyId, nome: file.name, path }),
+  });
+}
+
+// ─── Modal: novo gasto no dia selecionado ───
+// "Comprei algo → lanço o que foi, quanto foi, e já subo a NF." Grava direto em
+// transactions (window.createConta), no mesmo formato da tela Contas.
+const NovoGastoModal = ({ dia, onClose, onSaved }) => {
+  const cats = (window.APP_CATEGORIES && window.APP_CATEGORIES.saida) || [];
+  const [desc, setDesc] = useState('');
+  const [valor, setValor] = useState('');
+  const [data, setData] = useState(dia);
+  const [categoria, setCategoria] = useState('');
+  const [jaPago, setJaPago] = useState(false);
+  const [arquivo, setArquivo] = useState(null);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+  const [aviso, setAviso] = useState('');
+  const fileRef = React.useRef(null);
+
+  const salvar = async (e) => {
+    e?.preventDefault();
+    const v = parseBRL(valor);
+    if (!desc.trim()) { setErro('Escreva o que foi comprado.'); return; }
+    if (v == null || v <= 0) { setErro('Informe quanto foi.'); return; }
+    if (!data) { setErro('Informe a data.'); return; }
+    setSalvando(true); setErro(''); setAviso('');
+    try {
+      const sess = window.getSession?.();
+      const me = sess ? await window.getMe?.() : null;
+      const prof = me ? await window.getProfile?.(me.id) : null;
+      const cid = window.ACTIVE_COMPANY_ID || prof?.company_id;
+      if (!cid) throw new Error('Empresa não identificada — saia e entre de novo.');
+      const conta = {
+        tipo: 'pagar',
+        description: desc.trim(),
+        category: categoria || 'A classificar',
+        previsto: Number(v.toFixed(2)),
+        vencimento: data,
+        pago: jaPago,
+        realizado: jaPago ? Number(v.toFixed(2)) : 0,
+        pagoEm: jaPago ? data : null,
+        origem: 'manual',
+      };
+      const saved = await window.createConta(conta, cid, me?.id);
+      const salvo = (Array.isArray(saved) && saved[0]) || {};
+      const id = salvo.id || ('new-' + Date.now());
+      const registro = { ...conta, id, company_id: salvo.company_id || cid };
+      window.CONTAS = [registro, ...(window.CONTAS || [])];
+      window.dispatchEvent(new CustomEvent('sb-data-hydrated'));
+      let falhouNF = '';
+      if (arquivo) {
+        try { await subirNotaFiscal(registro, arquivo); }
+        catch (e2) { falhouNF = 'Conta lançada, mas a NF não subiu (' + (e2.message || 'erro') + '). Dá pra anexar depois na tela Contas.'; }
+      }
+      onSaved?.(registro);              // atualiza o calendário por trás
+      if (falhouNF) setAviso(falhouNF); // mantém o modal aberto só pra avisar
+      else onClose();
+    } catch (err) { setErro(err?.message || 'Não consegui salvar.'); }
+    finally { setSalvando(false); }
+  };
+
+  const campo = { width: '100%', height: 38, padding: '0 12px', border: '1px solid var(--line-strong)', borderRadius: 'var(--r-lg)', background: 'var(--field)', color: 'var(--ink)', font: '500 13px var(--f-sans)', outline: 'none', boxSizing: 'border-box' };
+  const rotulo = { font: 'var(--t-label)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)', color: 'var(--ink-3)', marginBottom: 6, display: 'block' };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1600, background: 'rgba(15,23,32,.45)', backdropFilter: 'blur(4px)', display: 'grid', placeItems: 'center', padding: 20 }}>
+      <form onSubmit={salvar} onClick={(e) => e.stopPropagation()} style={{ width: 'min(460px, 100%)', maxHeight: '92vh', overflowY: 'auto', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-2xl)', boxShadow: 'var(--shadow-lg)', padding: 24, display: 'flex', flexDirection: 'column', gap: 16, animation: 'popIn .25s var(--ease) backwards' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <div style={{ width: 40, height: 40, borderRadius: 'var(--r-lg)', background: 'var(--accent-soft)', color: 'var(--accent)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+            <window.Icon name="plus" size={20} stroke={2.2} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h3 style={{ font: 'var(--t-h2)', color: 'var(--ink)' }}>Novo gasto</h3>
+            <div style={{ font: 'var(--t-body-2)', color: 'var(--ink-3)', marginTop: 2 }}>Lançar uma conta a pagar no dia escolhido.</div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Fechar" style={{ width: 30, height: 30, borderRadius: 'var(--r-md)', border: '1px solid var(--line)', background: 'var(--surface-3)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            <window.Icon name="x" size={14} stroke={2.2} />
+          </button>
+        </div>
+
+        <label>
+          <span style={rotulo}>O que foi comprado</span>
+          <input autoFocus value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Ex.: Papelaria, material de limpeza…" style={campo} />
+        </label>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <label>
+            <span style={rotulo}>Quanto foi (R$)</span>
+            <input value={valor} onChange={(e) => setValor(e.target.value)} inputMode="decimal" placeholder="0,00" style={{ ...campo, fontFamily: 'var(--f-mono)' }} />
+          </label>
+          <label>
+            <span style={rotulo}>Data</span>
+            <input type="date" value={data} onChange={(e) => setData(e.target.value)} style={campo} />
+          </label>
+        </div>
+
+        <label>
+          <span style={rotulo}>Categoria</span>
+          {cats.length > 0 ? (
+            <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={campo}>
+              <option value="">A classificar</option>
+              {cats.map(c => <option key={c.name || c} value={c.name || c}>{c.name || c}</option>)}
+            </select>
+          ) : (
+            <input value={categoria} onChange={(e) => setCategoria(e.target.value)} placeholder="A classificar" style={campo} />
+          )}
+        </label>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '4px 0' }}>
+          <input type="checkbox" checked={jaPago} onChange={(e) => setJaPago(e.target.checked)} style={{ width: 17, height: 17, accentColor: 'var(--accent)', cursor: 'pointer' }} />
+          <span style={{ font: '500 13px var(--f-sans)', color: 'var(--ink)' }}>Já está pago <span style={{ color: 'var(--ink-3)' }}>(compra à vista)</span></span>
+        </label>
+
+        <div>
+          <span style={rotulo}>Nota fiscal (opcional)</span>
+          <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={(e) => setArquivo(e.target.files?.[0] || null)} style={{ display: 'none' }} />
+          <button type="button" onClick={() => fileRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '10px 12px', border: '1px dashed var(--line-strong)', borderRadius: 'var(--r-lg)', background: 'var(--surface-2)', color: arquivo ? 'var(--ink)' : 'var(--ink-3)', font: '500 12.5px var(--f-sans)', cursor: 'pointer', textAlign: 'left' }}>
+            <window.Icon name="file" size={16} style={{ color: arquivo ? 'var(--accent)' : 'var(--ink-3)', flexShrink: 0 }} />
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{arquivo ? arquivo.name : 'Anexar foto ou PDF da nota'}</span>
+            {arquivo && <span onClick={(e) => { e.stopPropagation(); setArquivo(null); if (fileRef.current) fileRef.current.value = ''; }} style={{ color: 'var(--ink-3)', padding: 2 }}><window.Icon name="x" size={14} /></span>}
+          </button>
+        </div>
+
+        {aviso && <div style={{ font: 'var(--t-body-2)', color: 'var(--c-warn)', background: 'var(--c-warn-bg)', padding: '8px 10px', borderRadius: 'var(--r-md)' }}>{aviso}</div>}
+        {erro && <div style={{ font: 'var(--t-body-2)', color: 'var(--c-neg)' }}>{erro}</div>}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 2 }}>
+          <window.Btn type="button" variant="secondary" onClick={onClose}>{aviso ? 'Fechar' : 'Cancelar'}</window.Btn>
+          {!aviso && <window.Btn type="submit" variant="primary" icon="check" disabled={salvando}>{salvando ? 'Salvando…' : 'Lançar gasto'}</window.Btn>}
+        </div>
+      </form>
+    </div>
+  );
+};
+
 // ═══════════════════════════════════════════════════════════════
 const CalendarioPagar = ({ setPage, abas }) => {
   const [, tick] = useReducer(x => x + 1, 0);
@@ -210,10 +362,12 @@ const CalendarioPagar = ({ setPage, abas }) => {
   const [sel, setSel] = useState(hoje);                    // dia selecionado
   const [filtro, setFiltro] = useState('todas');           // todas | abertas | pagas
   const [pagando, setPagando] = useState(null);
+  const [criando, setCriando] = useState(null);            // data do dia em que vai lançar
 
   const auth = (window.useAuth && window.useAuth()) || {};
   const role = auth.demo ? 'admin' : (auth.profile?.role || 'viewer');
   const podePagar = ['admin', 'editor'].includes(role);
+  const podeCriar = ['admin', 'editor'].includes(role);
   const podeAbrir = !!setPage && (window.canAccess ? window.canAccess(role, 'contas') : true);
 
   const abrirEmContas = (c) => {
@@ -380,6 +534,7 @@ const CalendarioPagar = ({ setPage, abas }) => {
         subtitle={tituloMes}
         right={
           <>
+            {podeCriar && <window.Btn variant="primary" size="sm" icon="plus" onBand onClick={() => setCriando(sel)}>Novo gasto</window.Btn>}
             <window.Btn variant="secondary" size="sm" onBand onClick={irHoje}>Hoje</window.Btn>
             <window.MonthNav label={nomeMes.charAt(0).toUpperCase() + nomeMes.slice(1) + '/' + String(ano).slice(2)} onPrev={() => irMes(-1)} onNext={() => irMes(1)} />
           </>
@@ -446,6 +601,11 @@ const CalendarioPagar = ({ setPage, abas }) => {
                   <LinhaConta key={c.id} c={c} hoje={hoje} podePagar={podePagar} podeAbrir={podeAbrir} onPagar={setPagando} onAbrir={abrirEmContas} />
                 ))}
               </div>
+              {podeCriar && (
+                <button onClick={() => setCriando(sel)} style={{ marginTop: 12, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, height: 38, borderRadius: 'var(--r-lg)', border: '1px dashed var(--line-strong)', background: 'var(--surface-2)', color: 'var(--accent)', font: '600 12.5px var(--f-sans)', cursor: 'pointer' }}>
+                  <window.Icon name="plus" size={15} stroke={2.2} />Novo gasto neste dia
+                </button>
+              )}
             </window.Card>
 
             {vencidas.length > 0 && (
@@ -478,6 +638,7 @@ const CalendarioPagar = ({ setPage, abas }) => {
       </div>
 
       {pagando && <PagarModal conta={pagando} onClose={() => setPagando(null)} onSaved={() => { setPagando(null); tick(); }} />}
+      {criando && <NovoGastoModal dia={criando} onClose={() => setCriando(null)} onSaved={() => tick()} />}
     </div>
   );
 };
