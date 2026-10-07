@@ -230,14 +230,43 @@ const NovoGastoModal = ({ dia, onClose, onSaved }) => {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
   const [aviso, setAviso] = useState('');
+  const [parcelar, setParcelar] = useState(false);
+  const [nParc, setNParc] = useState('12');
+  const [progresso, setProgresso] = useState(null);     // {feito,total} durante o parcelamento
   const fileRef = React.useRef(null);
+
+  // Vencimento da parcela k (0 = primeira): mesmo dia nos meses seguintes,
+  // ajustado para o último dia quando o mês não tem aquele dia (ex.: dia 31).
+  const vencParcela = (k) => {
+    const base = dataDe(data);
+    const d = new Date(base.getFullYear(), base.getMonth() + k, 1);
+    const ult = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(base.getDate(), ult));
+    return toISO(d);
+  };
+  const nP = parcelar ? (parseInt(nParc, 10) || 0) : 1;
+  const vParc = parseBRL(valor) || 0;
+
+  // Cria UMA conta a pagar (pendente) com o mesmo payload da tela Contas — sem o
+  // campo `origem` (mandar origem:'manual' acionava uma trigger de baixa no banco
+  // que roda um DELETE sem WHERE → "DELETE requires a WHERE clause").
+  const criarUma = async (cid, uid, descricao, venc) => {
+    const conta = { tipo: 'pagar', description: descricao, category: categoria || 'A classificar', previsto: Number(vParc.toFixed(2)), vencimento: venc, pago: false, realizado: 0, pagoEm: null };
+    const saved = await window.createConta(conta, cid, uid);
+    const salvo = (Array.isArray(saved) && saved[0]) || {};
+    const id = salvo.id || ('new-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7));
+    const registro = { ...conta, id, company_id: salvo.company_id || cid };
+    window.CONTAS = [registro, ...(window.CONTAS || [])];
+    return { salvo, registro };
+  };
 
   const salvar = async (e) => {
     e?.preventDefault();
-    const v = parseBRL(valor);
     if (!desc.trim()) { setErro('Escreva o que foi comprado.'); return; }
-    if (v == null || v <= 0) { setErro('Informe quanto foi.'); return; }
+    if (vParc <= 0) { setErro(parcelar ? 'Informe o valor de cada parcela.' : 'Informe quanto foi.'); return; }
     if (!data) { setErro('Informe a data.'); return; }
+    if (parcelar && nP < 2) { setErro('Número de parcelas deve ser 2 ou mais.'); return; }
+    if (parcelar && nP > 360) { setErro('Máximo de 360 parcelas.'); return; }
     setSalvando(true); setErro(''); setAviso('');
     try {
       const sess = window.getSession?.();
@@ -245,50 +274,45 @@ const NovoGastoModal = ({ dia, onClose, onSaved }) => {
       const prof = me ? await window.getProfile?.(me.id) : null;
       const cid = window.ACTIVE_COMPANY_ID || prof?.company_id;
       if (!cid) throw new Error('Empresa não identificada — saia e entre de novo.');
-      const vFix = Number(v.toFixed(2));
-      // Cria SEMPRE como "a pagar" (pendente), com o MESMO payload da tela Contas
-      // (sem o campo `origem` — deixa o default 'sistema' do banco). Mandar
-      // origem:'manual' acionava uma trigger de baixa/reconciliação no banco que
-      // roda um DELETE sem WHERE e é barrada ("DELETE requires a WHERE clause").
-      // Se "já pago", a baixa é feita depois pelo caminho do botão Pagar.
-      const conta = {
-        tipo: 'pagar',
-        description: desc.trim(),
-        category: categoria || 'A classificar',
-        previsto: vFix,
-        vencimento: data,
-        pago: false,
-        realizado: 0,
-        pagoEm: null,
-      };
-      const saved = await window.createConta(conta, cid, me?.id);
-      const salvo = (Array.isArray(saved) && saved[0]) || {};
-      const id = salvo.id || ('new-' + Date.now());
-      const registro = { ...conta, id, company_id: salvo.company_id || cid };
-      window.CONTAS = [registro, ...(window.CONTAS || [])];
-      window.dispatchEvent(new CustomEvent('sb-data-hydrated'));
-
       let aviso2 = '';
-      // Já pago → dá a baixa pelo caminho oficial (mesmo do botão Pagar).
-      if (jaPago) {
-        if (salvo.id) {
-          try { await window.updateContaLocal(salvo.id, { pago: true, realizado: vFix, pagoEm: data }); }
-          catch (e2) { aviso2 = 'Lançado como A PAGAR, mas não consegui marcar como pago (' + (e2.message || 'erro') + '). Dá pra dar baixa no botão “Pagar”.'; }
-        } else {
-          // sem id do servidor: marca só na tela
-          window.CONTAS = (window.CONTAS || []).map(c => c.id === id ? { ...c, pago: true, realizado: vFix, pagoEm: data } : c);
+
+      if (parcelar) {
+        // Parcelamento: cria N contas a pagar, uma por mês, no mesmo dia.
+        let primeira = null;
+        for (let k = 0; k < nP; k++) {
+          const r = await criarUma(cid, me?.id, desc.trim() + ' (' + (k + 1) + '/' + nP + ')', vencParcela(k));
+          if (k === 0) primeira = r;
+          setProgresso({ feito: k + 1, total: nP });
           window.dispatchEvent(new CustomEvent('sb-data-hydrated'));
         }
+        if (arquivo && primeira) {
+          try { await subirNotaFiscal(primeira.registro, arquivo); }
+          catch (e2) { aviso2 = 'As ' + nP + ' parcelas foram lançadas, mas a NF não subiu (' + (e2.message || 'erro') + '). Anexe depois na tela Contas.'; }
+        }
+        onSaved?.();
+      } else {
+        // Gasto único.
+        const { salvo, registro, id } = await (async () => { const r = await criarUma(cid, me?.id, desc.trim(), data); return { ...r, id: r.registro.id }; })();
+        window.dispatchEvent(new CustomEvent('sb-data-hydrated'));
+        if (jaPago) {
+          if (salvo.id) {
+            try { await window.updateContaLocal(salvo.id, { pago: true, realizado: Number(vParc.toFixed(2)), pagoEm: data }); }
+            catch (e2) { aviso2 = 'Lançado como A PAGAR, mas não consegui marcar como pago (' + (e2.message || 'erro') + '). Dá pra dar baixa no botão “Pagar”.'; }
+          } else {
+            window.CONTAS = (window.CONTAS || []).map(c => c.id === id ? { ...c, pago: true, realizado: Number(vParc.toFixed(2)), pagoEm: data } : c);
+            window.dispatchEvent(new CustomEvent('sb-data-hydrated'));
+          }
+        }
+        if (arquivo) {
+          try { await subirNotaFiscal(registro, arquivo); }
+          catch (e2) { aviso2 = (aviso2 ? aviso2 + ' ' : '') + 'A NF não subiu (' + (e2.message || 'erro') + '). Dá pra anexar depois na tela Contas.'; }
+        }
+        onSaved?.(registro);
       }
-      if (arquivo) {
-        try { await subirNotaFiscal(registro, arquivo); }
-        catch (e2) { aviso2 = (aviso2 ? aviso2 + ' ' : '') + 'A NF não subiu (' + (e2.message || 'erro') + '). Dá pra anexar depois na tela Contas.'; }
-      }
-      onSaved?.(registro);          // atualiza o calendário por trás
       if (aviso2) setAviso(aviso2); // mantém o modal aberto só pra avisar
       else onClose();
     } catch (err) { setErro(err?.message || 'Não consegui salvar.'); }
-    finally { setSalvando(false); }
+    finally { setSalvando(false); setProgresso(null); }
   };
 
   const campo = { width: '100%', height: 38, padding: '0 12px', border: '1px solid var(--line-strong)', borderRadius: 'var(--r-lg)', background: 'var(--field)', color: 'var(--ink)', font: '500 13px var(--f-sans)', outline: 'none', boxSizing: 'border-box' };
@@ -317,11 +341,11 @@ const NovoGastoModal = ({ dia, onClose, onSaved }) => {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <label>
-            <span style={rotulo}>Quanto foi (R$)</span>
+            <span style={rotulo}>{parcelar ? 'Valor de cada parcela (R$)' : 'Quanto foi (R$)'}</span>
             <input value={valor} onChange={(e) => setValor(e.target.value)} inputMode="decimal" placeholder="0,00" style={{ ...campo, fontFamily: 'var(--f-mono)' }} />
           </label>
           <label>
-            <span style={rotulo}>Data</span>
+            <span style={rotulo}>{parcelar ? '1ª parcela em' : 'Data'}</span>
             <input type="date" value={data} onChange={(e) => setData(e.target.value)} style={campo} />
           </label>
         </div>
@@ -338,10 +362,35 @@ const NovoGastoModal = ({ dia, onClose, onSaved }) => {
           )}
         </label>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '4px 0' }}>
-          <input type="checkbox" checked={jaPago} onChange={(e) => setJaPago(e.target.checked)} style={{ width: 17, height: 17, accentColor: 'var(--accent)', cursor: 'pointer' }} />
-          <span style={{ font: '500 13px var(--f-sans)', color: 'var(--ink)' }}>Já está pago <span style={{ color: 'var(--ink-3)' }}>(compra à vista)</span></span>
-        </label>
+        {/* Parcelamento */}
+        <div style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-lg)', padding: '10px 12px', background: 'var(--surface-2)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+            <input type="checkbox" checked={parcelar} onChange={(e) => setParcelar(e.target.checked)} style={{ width: 17, height: 17, accentColor: 'var(--accent)', cursor: 'pointer' }} />
+            <span style={{ font: '500 13px var(--f-sans)', color: 'var(--ink)' }}>Parcelar <span style={{ color: 'var(--ink-3)' }}>(ex.: imposto em várias vezes)</span></span>
+          </label>
+          {parcelar && (
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ font: '500 13px var(--f-sans)', color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>Nº de parcelas</span>
+                <input value={nParc} onChange={(e) => setNParc(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={{ ...campo, width: 90, fontFamily: 'var(--f-mono)' }} />
+                <span style={{ font: 'var(--t-body-2)', color: 'var(--ink-3)' }}>mensais, todo dia {dataDe(data).getDate()}</span>
+              </label>
+              {nP >= 2 && vParc > 0 && (
+                <div style={{ font: 'var(--t-body-2)', color: 'var(--ink-2)', lineHeight: 1.5, background: 'var(--accent-soft)', borderRadius: 'var(--r-md)', padding: '8px 10px' }}>
+                  <b>{nP}×</b> de <b>{brl(vParc)}</b> · total <b>{brl(vParc * nP)}</b><br/>
+                  1ª em {fmtBR(vencParcela(0))} · última em {fmtBR(vencParcela(nP - 1))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {!parcelar && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '4px 0' }}>
+            <input type="checkbox" checked={jaPago} onChange={(e) => setJaPago(e.target.checked)} style={{ width: 17, height: 17, accentColor: 'var(--accent)', cursor: 'pointer' }} />
+            <span style={{ font: '500 13px var(--f-sans)', color: 'var(--ink)' }}>Já está pago <span style={{ color: 'var(--ink-3)' }}>(compra à vista)</span></span>
+          </label>
+        )}
 
         <div>
           <span style={rotulo}>Nota fiscal (opcional)</span>
@@ -351,6 +400,7 @@ const NovoGastoModal = ({ dia, onClose, onSaved }) => {
             <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{arquivo ? arquivo.name : 'Anexar foto ou PDF da nota'}</span>
             {arquivo && <span onClick={(e) => { e.stopPropagation(); setArquivo(null); if (fileRef.current) fileRef.current.value = ''; }} style={{ color: 'var(--ink-3)', padding: 2 }}><window.Icon name="x" size={14} /></span>}
           </button>
+          {parcelar && <div style={{ font: 'var(--t-body-2)', color: 'var(--ink-3)', marginTop: 5 }}>A nota fica anexada na 1ª parcela.</div>}
         </div>
 
         {aviso && <div style={{ font: 'var(--t-body-2)', color: 'var(--c-warn)', background: 'var(--c-warn-bg)', padding: '8px 10px', borderRadius: 'var(--r-md)' }}>{aviso}</div>}
@@ -358,7 +408,11 @@ const NovoGastoModal = ({ dia, onClose, onSaved }) => {
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 2 }}>
           <window.Btn type="button" variant="secondary" onClick={onClose}>{aviso ? 'Fechar' : 'Cancelar'}</window.Btn>
-          {!aviso && <window.Btn type="submit" variant="primary" icon="check" disabled={salvando}>{salvando ? 'Salvando…' : 'Lançar gasto'}</window.Btn>}
+          {!aviso && <window.Btn type="submit" variant="primary" icon="check" disabled={salvando}>
+            {salvando
+              ? (parcelar ? `Lançando ${progresso ? progresso.feito : 0}/${nP}…` : 'Salvando…')
+              : (parcelar ? `Lançar ${nP >= 2 ? nP + ' ' : ''}parcelas` : 'Lançar gasto')}
+          </window.Btn>}
         </div>
       </form>
     </div>
